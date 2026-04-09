@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 import random
 from pathlib import Path
 
@@ -9,8 +10,31 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
+from utils import DataUtils
+
 VAIHINGEN_TRAIN_IDS = ["1", "3", "23", "26", "7", "11", "13", "28", "17", "32", "34", "37"]
 VAIHINGEN_VAL_IDS = ["5", "21", "15", "30"]
+POTSDAM_TRAIN_IDS = [
+    "6_10",
+    "7_10",
+    "2_12",
+    "3_11",
+    "2_10",
+    "7_8",
+    "5_10",
+    "3_12",
+    "5_12",
+    "7_11",
+    "7_9",
+    "6_9",
+    "7_7",
+    "4_12",
+    "6_8",
+    "6_12",
+    "6_7",
+    "4_11",
+]
+POTSDAM_VAL_IDS = ["4_10", "5_11", "2_11", "3_10", "6_11", "7_12"]
 VAIHINGEN_PALETTE = {
     0: (255, 255, 255),
     1: (0, 0, 255),
@@ -21,30 +45,55 @@ VAIHINGEN_PALETTE = {
     6: (0, 0, 0),
 }
 VAIHINGEN_INVERT_PALETTE = {value: key for key, value in VAIHINGEN_PALETTE.items()}
+POTSDAM_PALETTE = dict(VAIHINGEN_PALETTE)
+POTSDAM_INVERT_PALETTE = {value: key for key, value in POTSDAM_PALETTE.items()}
 
 
-def convert_from_color(arr_3d: np.ndarray) -> np.ndarray:
-    arr = np.asarray(arr_3d)
-    if arr.ndim != 3 or arr.shape[2] != 3:
-        raise ValueError(f"Expected label image with shape [H, W, 3], got {tuple(arr.shape)}")
-
-    arr_2d = np.zeros(arr.shape[:2], dtype=np.uint8)
-    for color, label in VAIHINGEN_INVERT_PALETTE.items():
-        mask = np.all(arr == np.asarray(color, dtype=arr.dtype).reshape(1, 1, 3), axis=2)
-        arr_2d[mask] = label
-    return arr_2d
-
-
-def _normalize_dsm(dsm: np.ndarray) -> np.ndarray:
-    dsm = np.asarray(dsm, dtype=np.float32)
-    dsm_min = float(np.min(dsm))
-    dsm_max = float(np.max(dsm))
-    return (dsm - dsm_min) / (dsm_max - dsm_min + 1e-8)
+@dataclass(frozen=True)
+class ISPRSPreset:
+    name: str
+    train_ids: tuple[str, ...]
+    val_ids: tuple[str, ...]
+    rgb_subdir: str
+    rgb_pattern: str
+    dsm_subdir: str
+    dsm_pattern: str
+    label_subdir: str
+    label_pattern: str
+    invert_palette: dict[tuple[int, int, int], int]
+    rgb_channels: tuple[int, ...] = (0, 1, 2)
 
 
-class VaihingenDataset(Dataset):
+VAIHINGEN_PRESET = ISPRSPreset(
+    name="vaihingen",
+    train_ids=tuple(VAIHINGEN_TRAIN_IDS),
+    val_ids=tuple(VAIHINGEN_VAL_IDS),
+    rgb_subdir="rgb",
+    rgb_pattern="top_mosaic_09cm_area{tile_id}.tif",
+    dsm_subdir="dsm",
+    dsm_pattern="dsm_09cm_matching_area{tile_id}.tif",
+    label_subdir="labels",
+    label_pattern="top_mosaic_09cm_area{tile_id}.tif",
+    invert_palette=VAIHINGEN_INVERT_PALETTE,
+)
+POTSDAM_PRESET = ISPRSPreset(
+    name="potsdam",
+    train_ids=tuple(POTSDAM_TRAIN_IDS),
+    val_ids=tuple(POTSDAM_VAL_IDS),
+    rgb_subdir="rgbir",
+    rgb_pattern="top_potsdam_{tile_id}_RGBIR.tif",
+    dsm_subdir="dsm",
+    dsm_pattern="dsm_potsdam_{tile_id}_normalized_lastools.jpg",
+    label_subdir="labels",
+    label_pattern="top_potsdam_{tile_id}_label.tif",
+    invert_palette=POTSDAM_INVERT_PALETTE,
+)
+
+
+class ISPRSMultimodalDataset(Dataset):
     def __init__(
         self,
+        preset: ISPRSPreset,
         root_dir: str,
         ids: Sequence[str],
         patch_size: Sequence[int] = (256, 256),
@@ -54,8 +103,9 @@ class VaihingenDataset(Dataset):
         split: str = "train",
     ) -> None:
         if not ids:
-            raise ValueError("VaihingenDataset requires at least one tile id")
+            raise ValueError(f"{preset.name} dataset requires at least one tile id")
 
+        self.preset = preset
         self.root_dir = Path(root_dir)
         self.ids = [str(item) for item in ids]
         self.patch_size = (int(patch_size[0]), int(patch_size[1]))
@@ -64,17 +114,22 @@ class VaihingenDataset(Dataset):
         self.augmentation = bool(augmentation)
         self.split = str(split)
 
-        self.rgb_files = [self.root_dir / "rgb" / f"top_mosaic_09cm_area{tile_id}.tif" for tile_id in self.ids]
+        self.rgb_files = [
+            self.root_dir / preset.rgb_subdir / preset.rgb_pattern.format(tile_id=tile_id)
+            for tile_id in self.ids
+        ]
         self.dsm_files = [
-            self.root_dir / "dsm" / f"dsm_09cm_matching_area{tile_id}.tif" for tile_id in self.ids
+            self.root_dir / preset.dsm_subdir / preset.dsm_pattern.format(tile_id=tile_id)
+            for tile_id in self.ids
         ]
         self.label_files = [
-            self.root_dir / "labels" / f"top_mosaic_09cm_area{tile_id}.tif" for tile_id in self.ids
+            self.root_dir / preset.label_subdir / preset.label_pattern.format(tile_id=tile_id)
+            for tile_id in self.ids
         ]
 
         for path in [*self.rgb_files, *self.dsm_files, *self.label_files]:
             if not path.is_file():
-                raise FileNotFoundError(f"VaihingenDataset expected file at {path}")
+                raise FileNotFoundError(f"{preset.name} dataset expected file at {path}")
 
         self.rgb_cache: dict[int, np.ndarray] = {}
         self.dsm_cache: dict[int, np.ndarray] = {}
@@ -84,7 +139,7 @@ class VaihingenDataset(Dataset):
         return self.samples_per_epoch
 
     def __getitem__(self, index: int) -> dict[str, object]:
-        tile_index = random.randrange(len(self.ids)) if self.split == "train" else index % len(self.ids)
+        tile_index = self._resolve_tile_index(index)
         rgb = self._load_rgb(tile_index)
         dsm = self._load_dsm(tile_index)
         target = self._load_target(tile_index)
@@ -93,7 +148,7 @@ class VaihingenDataset(Dataset):
         if self.augmentation:
             rgb_patch, dsm_patch, target_patch = self._augment(rgb_patch, dsm_patch, target_patch)
 
-        return {
+        sample = {
             "inputs": {
                 "rgb": torch.from_numpy(rgb_patch.copy()).float(),
                 "dsm": torch.from_numpy(dsm_patch.copy()).float(),
@@ -104,39 +159,63 @@ class VaihingenDataset(Dataset):
                 "tile_id": self.ids[tile_index],
             },
         }
+        return sample
 
     def _load_rgb(self, tile_index: int) -> np.ndarray:
         if tile_index not in self.rgb_cache:
             rgb = np.asarray(imageio.imread(self.rgb_files[tile_index]), dtype=np.float32)
-            if rgb.ndim != 3 or rgb.shape[2] < 3:
+            required_channels = len(self.preset.rgb_channels)
+            if rgb.ndim != 3 or rgb.shape[2] < required_channels:
                 raise ValueError(
-                    f"Expected RGB tile with at least 3 channels, got {tuple(rgb.shape)} "
+                    f"Expected RGB tile with at least {required_channels} channels, got {tuple(rgb.shape)} "
                     f"from {self.rgb_files[tile_index]}"
                 )
-            rgb = (rgb[:, :, :3] / 255.0).transpose(2, 0, 1)
+            rgb = (rgb[:, :, self.preset.rgb_channels] / 255.0).transpose(2, 0, 1)
             if self.cache:
                 self.rgb_cache[tile_index] = rgb
-        return self.rgb_cache[tile_index] if self.cache else (
-            np.asarray(imageio.imread(self.rgb_files[tile_index]), dtype=np.float32)[:, :, :3] / 255.0
-        ).transpose(2, 0, 1)
+        if self.cache:
+            rgb = self.rgb_cache[tile_index]
+        else:
+            rgb = (
+                np.asarray(imageio.imread(self.rgb_files[tile_index]), dtype=np.float32)[
+                    :, :, self.preset.rgb_channels
+                ]
+                / 255.0
+            ).transpose(2, 0, 1)
+        return rgb
 
     def _load_dsm(self, tile_index: int) -> np.ndarray:
         if tile_index not in self.dsm_cache:
-            dsm = _normalize_dsm(imageio.imread(self.dsm_files[tile_index]))
+            dsm = DataUtils.normalize_dsm(imageio.imread(self.dsm_files[tile_index]))
             if self.cache:
                 self.dsm_cache[tile_index] = dsm
-        return self.dsm_cache[tile_index] if self.cache else _normalize_dsm(
-            imageio.imread(self.dsm_files[tile_index])
-        )
+        if self.cache:
+            dsm = self.dsm_cache[tile_index]
+        else:
+            dsm = DataUtils.normalize_dsm(imageio.imread(self.dsm_files[tile_index]))
+        return dsm
 
     def _load_target(self, tile_index: int) -> np.ndarray:
         if tile_index not in self.label_cache:
-            target = convert_from_color(np.asarray(imageio.imread(self.label_files[tile_index])))
+            target = DataUtils.convert_from_color(
+                np.asarray(imageio.imread(self.label_files[tile_index])),
+                invert_palette=self.preset.invert_palette,
+            )
             if self.cache:
                 self.label_cache[tile_index] = target
-        return self.label_cache[tile_index] if self.cache else convert_from_color(
-            np.asarray(imageio.imread(self.label_files[tile_index]))
-        )
+        if self.cache:
+            target = self.label_cache[tile_index]
+        else:
+            target = DataUtils.convert_from_color(
+                np.asarray(imageio.imread(self.label_files[tile_index])),
+                invert_palette=self.preset.invert_palette,
+            )
+        return target
+
+    def _resolve_tile_index(self, index: int) -> int:
+        if self.split == "train":
+            return random.randrange(len(self.ids))
+        return index % len(self.ids)
 
     def _crop_patch(
         self, rgb: np.ndarray, dsm: np.ndarray, target: np.ndarray
@@ -157,17 +236,68 @@ class VaihingenDataset(Dataset):
 
         x2 = x1 + patch_h
         y2 = y1 + patch_w
-        return rgb[:, x1:x2, y1:y2], dsm[x1:x2, y1:y2], target[x1:x2, y1:y2]
+        rgb_patch = rgb[:, x1:x2, y1:y2]
+        dsm_patch = dsm[x1:x2, y1:y2]
+        target_patch = target[x1:x2, y1:y2]
+        return rgb_patch, dsm_patch, target_patch
 
     def _augment(
         self, rgb: np.ndarray, dsm: np.ndarray, target: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        if random.random() < 0.5:
-            rgb = rgb[:, ::-1, :]
-            dsm = dsm[::-1, :]
-            target = target[::-1, :]
-        if random.random() < 0.5:
-            rgb = rgb[:, :, ::-1]
-            dsm = dsm[:, ::-1]
-            target = target[:, ::-1]
-        return rgb.copy(), dsm.copy(), target.copy()
+        augmented = DataUtils.augment_triplet(rgb=rgb, dsm=dsm, target=target)
+        return augmented
+
+
+class VaihingenDataset(ISPRSMultimodalDataset):
+    def __init__(
+        self,
+        root_dir: str,
+        ids: Sequence[str],
+        patch_size: Sequence[int] = (256, 256),
+        samples_per_epoch: int | None = None,
+        cache: bool = True,
+        augmentation: bool = True,
+        split: str = "train",
+    ) -> None:
+        super().__init__(
+            preset=VAIHINGEN_PRESET,
+            root_dir=root_dir,
+            ids=ids,
+            patch_size=patch_size,
+            samples_per_epoch=samples_per_epoch,
+            cache=cache,
+            augmentation=augmentation,
+            split=split,
+        )
+
+
+class PotsdamDataset(ISPRSMultimodalDataset):
+    def __init__(
+        self,
+        root_dir: str,
+        ids: Sequence[str],
+        patch_size: Sequence[int] = (256, 256),
+        samples_per_epoch: int | None = None,
+        cache: bool = True,
+        augmentation: bool = True,
+        split: str = "train",
+    ) -> None:
+        super().__init__(
+            preset=POTSDAM_PRESET,
+            root_dir=root_dir,
+            ids=ids,
+            patch_size=patch_size,
+            samples_per_epoch=samples_per_epoch,
+            cache=cache,
+            augmentation=augmentation,
+            split=split,
+        )
+
+
+def build_isprs_dataset(name: str, **kwargs: object) -> ISPRSMultimodalDataset:
+    dataset_name = str(name).strip().lower()
+    if dataset_name == "vaihingen":
+        return VaihingenDataset(**kwargs)
+    if dataset_name == "potsdam":
+        return PotsdamDataset(**kwargs)
+    raise KeyError(f"Unsupported ISPRS dataset: {name!r}")
