@@ -21,7 +21,8 @@ class Evaluator:
 
     @staticmethod
     def accuracy(pred: torch.Tensor, target: torch.Tensor) -> float:
-        return float((pred == target).float().mean().item() * 100.0)
+        accuracy = float((pred == target).float().mean().item() * 100.0)
+        return accuracy
 
     def evaluate(self, outputs: list[Any], **kwargs: Any) -> dict[str, float]:
         """
@@ -36,4 +37,5 @@ class Evaluator:
         - 验证指标字典
         """
         del kwargs
-        return {"num_outputs": float(len(outputs))}
+        metrics = {"num_outputs": float(len(outputs))}
+        return metrics

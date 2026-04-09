@@ -33,7 +33,8 @@ class CheckpointManager:
         return path
 
     def load(self, path: str) -> dict[str, Any]:
-        return torch.load(path, map_location="cpu")
+        state_dict = torch.load(path, map_location="cpu")
+        return state_dict
 
     def _state_dict(
         self,
@@ -43,7 +44,7 @@ class CheckpointManager:
         epoch: int,
         global_step: int,
     ) -> dict[str, Any]:
-        return {
+        state_dict = {
             "model": model.state_dict(),
             "optimizer": optimizer.state_dict(),
             "scheduler": None if scheduler is None else scheduler.state_dict(),
@@ -51,3 +52,4 @@ class CheckpointManager:
             "epoch": epoch + 1,
             "global_step": global_step,
         }
+        return state_dict

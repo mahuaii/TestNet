@@ -20,13 +20,15 @@ class StatTracker:
             self.point_stats[key] = scalar
 
     def get_point_stats(self) -> dict[str, float]:
-        return dict(self.point_stats)
+        point_stats = dict(self.point_stats)
+        return point_stats
 
     def get_mean_stats(self) -> dict[str, float]:
-        return {
+        mean_stats = {
             key: self.mean_stat_sums[key] / self.mean_stat_counts[key]
             for key in self.mean_stat_sums
         }
+        return mean_stats
 
     def get_aggregated_stats(self) -> dict[str, float]:
         aggregated_stats = self.get_point_stats()

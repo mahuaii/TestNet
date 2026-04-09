@@ -164,9 +164,12 @@ class Logger(ABC):
         log_dir: str,
     ) -> Any:
         if not self.use_tensorboard:
-            return _NoOpSummaryWriter()
+            summary_writer = _NoOpSummaryWriter()
+            return summary_writer
         try:
             from torch.utils.tensorboard import SummaryWriter  # type: ignore
         except Exception:
-            return _NoOpSummaryWriter()
-        return SummaryWriter(log_dir)
+            summary_writer = _NoOpSummaryWriter()
+            return summary_writer
+        summary_writer = SummaryWriter(log_dir)
+        return summary_writer

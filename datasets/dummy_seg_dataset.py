@@ -33,8 +33,9 @@ class DummySegDataset(Dataset):
             target = torch.randint(0, 2, (self.image_size, self.image_size), dtype=torch.float32)
         else:
             target = torch.randint(0, self.num_classes, (self.image_size, self.image_size), dtype=torch.long)
-        return {
+        sample = {
             "inputs": inputs,
             "target": target,
             "meta": {"sample_id": index},
         }
+        return sample

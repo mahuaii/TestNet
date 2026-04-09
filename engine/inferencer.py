@@ -30,7 +30,8 @@ class Inferencer:
         - 单个 batch 的推理结果
         """
         del model, device
-        return {"batch": batch}
+        outputs = {"batch": batch}
+        return outputs
 
     def run_dataset(self, model: Any, dataloader: Any, device: Any) -> Any:
         """
@@ -44,4 +45,5 @@ class Inferencer:
         - 数据集级别的推理结果
         """
         del model, device
-        return [self.run_batch_infer(model=None, batch=batch, device=None) for batch in dataloader]
+        outputs = [self.run_batch_infer(model=None, batch=batch, device=None) for batch in dataloader]
+        return outputs
