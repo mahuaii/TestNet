@@ -1,47 +1,39 @@
 from __future__ import annotations
 
+from typing import Any
+
 import torch
 
 
 class Evaluator:
-    def evaluate(self, outputs: list[dict[str, torch.Tensor | float]], num_classes: int) -> dict[str, float]:
-        total_loss = 0.0
-        total_pixels = 0
-        total_correct = 0
-        total_intersection = 0.0
-        total_union = 0.0
-        total_pred_fg = 0.0
-        total_target_fg = 0.0
+    """
+    输入：
+    - 验证阶段收集到的 outputs
+    - 其他可选上下文参数
 
-        for output in outputs:
-            logits = output["seg_logits"]
-            target = output["target"]
-            total_loss += float(output["loss"])
+    职责：
+    - 聚合验证结果
+    - 计算并返回指标
 
-            if num_classes == 1:
-                pred = (torch.sigmoid(logits) > 0.5).long().squeeze(1)
-                target_int = target.long()
-            else:
-                pred = torch.argmax(logits, dim=1)
-                target_int = target.long()
+    输出：
+    - 指标字典
+    """
 
-            total_correct += int((pred == target_int).sum().item())
-            total_pixels += int(target_int.numel())
+    @staticmethod
+    def accuracy(pred: torch.Tensor, target: torch.Tensor) -> float:
+        return float((pred == target).float().mean().item() * 100.0)
 
-            pred_fg = pred > 0
-            target_fg = target_int > 0
-            intersection = (pred_fg & target_fg).sum().item()
-            union = (pred_fg | target_fg).sum().item()
-            total_intersection += intersection
-            total_union += union
-            total_pred_fg += pred_fg.sum().item()
-            total_target_fg += target_fg.sum().item()
+    def evaluate(self, outputs: list[Any], **kwargs: Any) -> dict[str, float]:
+        """
+        输入：
+        - outputs
+        - kwargs
 
-        mean_loss = total_loss / max(len(outputs), 1)
-        oa = total_correct / max(total_pixels, 1)
-        miou = total_intersection / max(total_union, 1.0)
-        f1 = 0.0 if total_intersection == 0 else 2 * total_intersection / max(
-            total_pred_fg + total_target_fg,
-            1.0,
-        )
-        return {"loss": mean_loss, "miou": miou, "f1": f1, "oa": oa}
+        职责：
+        - 预留验证结果聚合与指标计算入口
+
+        输出：
+        - 验证指标字典
+        """
+        del kwargs
+        return {"num_outputs": float(len(outputs))}

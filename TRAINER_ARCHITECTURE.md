@@ -38,7 +38,7 @@
 `Trainer` 负责：
 
 - 控制 epoch / iter 主循环
-- 调用 `train_step()`、`val_step()`
+- 调用 `train_step()`
 - 控制日志、验证、保存的触发时机
 - 维护训练状态
 
@@ -165,7 +165,6 @@ project/
 - `train_one_epoch()`
 - `train_step(batch)`
 - `validate()`
-- `val_step(batch)`
 - `after_iter(...)`
 - `after_epoch(...)`
 
@@ -414,7 +413,6 @@ checkpoint 至少保存：
 - 单轮训练：`train_one_epoch()`
 - 单步训练：`train_step()`
 - 验证入口：`validate()`
-- 单步验证：`val_step()`
 - iter 后处理：`after_iter()`
 - epoch 后处理：`after_epoch()`
 - 日志模块：`logger`
