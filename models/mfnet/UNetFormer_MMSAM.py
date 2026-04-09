@@ -482,15 +482,18 @@ def draw_features(feature, savename=''):
     cv2.imwrite(savedir, visualize)
 
 class UNetFormer(nn.Module):
-    def __init__(self,
-                 decode_channels=64,
-                 dropout=0.1,
-                 window_size=8,
-                 num_classes=6
-                 ):
+    def __init__(
+        self,
+        decode_channels=64,
+        dropout=0.1,
+        window_size=8,
+        num_classes=6,
+        *,
+        sam_checkpoint: str,
+    ):
         super().__init__()
         args = cfg.parse_args()
-        self.sam = sam_model_registry["vit_b"](args,checkpoint='weights/sam_vit_b_01ec64.pth')
+        self.sam = sam_model_registry["vit_b"](args, checkpoint=sam_checkpoint)
         # self.sam = sam_model_registry["vit_l"](args,checkpoint='weights/sam_vit_l_0b3195.pth')
         # self.sam = sam_model_registry["vit_h"](args,checkpoint='weights/sam_vit_h_4b8939.pth')
         self.image_encoder = self.sam.image_encoder
