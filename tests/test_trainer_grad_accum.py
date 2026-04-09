@@ -195,10 +195,10 @@ class TrainerGradAccumTest(unittest.TestCase):
 
             log_lines = Path(tmpdir, "train.log").read_text(encoding="utf-8").strip().splitlines()
             self.assertEqual(len(log_lines), 2)
-            self.assertIn("[Train] (epoch 1/1) [step 1/2]", log_lines[0])
+            self.assertIn("Train (epoch 1/1) [1/2]", log_lines[0])
             self.assertIn("Loss:", log_lines[0])
             self.assertIn("Accuracy:", log_lines[0])
-            self.assertIn("[Train] (epoch 1/1) [step 2/2]", log_lines[1])
+            self.assertIn("Train (epoch 1/1) [2/2]", log_lines[1])
 
     def test_effective_batch_size_defaults_to_batch_size(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -251,7 +251,7 @@ class TrainerGradAccumTest(unittest.TestCase):
 
             log_lines = Path(tmpdir, "train.log").read_text(encoding="utf-8").strip().splitlines()
             self.assertEqual(len(log_lines), 1)
-            self.assertIn("[Train] (epoch 1/1) [step 1/1]", log_lines[0])
+            self.assertIn("Train (epoch 1/1) [1/1]", log_lines[0])
 
     def test_tail_batches_are_flushed_as_last_step(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -267,8 +267,8 @@ class TrainerGradAccumTest(unittest.TestCase):
             self.assertEqual(trainer.global_step, 2)
             log_lines = Path(tmpdir, "train.log").read_text(encoding="utf-8").strip().splitlines()
             self.assertEqual(len(log_lines), 2)
-            self.assertIn("[Train] (epoch 1/1) [step 1/2]", log_lines[0])
-            self.assertIn("[Train] (epoch 1/1) [step 2/2]", log_lines[1])
+            self.assertIn("Train (epoch 1/1) [1/2]", log_lines[0])
+            self.assertIn("Train (epoch 1/1) [2/2]", log_lines[1])
 
     def test_last_step_is_logged_when_interval_exceeds_epoch_steps(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -284,8 +284,8 @@ class TrainerGradAccumTest(unittest.TestCase):
 
             log_lines = Path(tmpdir, "train.log").read_text(encoding="utf-8").strip().splitlines()
             self.assertEqual(len(log_lines), 2)
-            self.assertIn("[Train] (epoch 1/1) [step 3/4]", log_lines[0])
-            self.assertIn("[Train] (epoch 1/1) [step 4/4]", log_lines[1])
+            self.assertIn("Train (epoch 1/1) [3/4]", log_lines[0])
+            self.assertIn("Train (epoch 1/1) [4/4]", log_lines[1])
 
     def test_last_step_is_not_logged_twice_when_it_matches_interval(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -301,8 +301,8 @@ class TrainerGradAccumTest(unittest.TestCase):
 
             log_lines = Path(tmpdir, "train.log").read_text(encoding="utf-8").strip().splitlines()
             self.assertEqual(len(log_lines), 2)
-            self.assertIn("[Train] (epoch 1/1) [step 2/4]", log_lines[0])
-            self.assertIn("[Train] (epoch 1/1) [step 4/4]", log_lines[1])
+            self.assertIn("Train (epoch 1/1) [2/4]", log_lines[0])
+            self.assertIn("Train (epoch 1/1) [4/4]", log_lines[1])
 
     def test_tail_flush_last_step_is_logged_even_when_interval_is_not_met(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -318,7 +318,7 @@ class TrainerGradAccumTest(unittest.TestCase):
 
             log_lines = Path(tmpdir, "train.log").read_text(encoding="utf-8").strip().splitlines()
             self.assertEqual(len(log_lines), 1)
-            self.assertIn("[Train] (epoch 1/1) [step 2/2]", log_lines[0])
+            self.assertIn("Train (epoch 1/1) [2/2]", log_lines[0])
 
     def test_invalid_effective_batch_size_raises(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -501,14 +501,15 @@ class TrainerGradAccumTest(unittest.TestCase):
             trainer.train()
 
             log_lines = Path(tmpdir, "train.log").read_text(encoding="utf-8").strip().splitlines()
-            self.assertEqual(len(log_lines), 7)
+            self.assertEqual(len(log_lines), 8)
             self.assertEqual(log_lines[0], "=" * 80)
             self.assertEqual(log_lines[1], "  EPOCH  1 / 1")
             self.assertEqual(log_lines[2], "=" * 80)
-            self.assertIn("[Train] (epoch 1/1) [step 3/4]", log_lines[3])
-            self.assertIn("[Train] (epoch 1/1) [step 4/4]", log_lines[4])
+            self.assertIn("Train (epoch 1/1) [3/4]", log_lines[3])
+            self.assertIn("Train (epoch 1/1) [4/4]", log_lines[4])
             self.assertTrue(log_lines[5].startswith("Training time: "))
             self.assertTrue(log_lines[6].startswith("Train summary: "))
+            self.assertTrue(log_lines[7].startswith("Cumulative time: "))
 
 
 if __name__ == "__main__":

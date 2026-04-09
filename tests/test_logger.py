@@ -140,10 +140,10 @@ class LoggerTest(unittest.TestCase):
             self.assertEqual(log_lines[1], "=" * 80)
             self.assertEqual(log_lines[2], "  EPOCH  1 / 3")
             self.assertEqual(log_lines[3], "=" * 80)
-            self.assertIn("[Train] (epoch 1/3) [step 2/5]", log_lines[4])
+            self.assertIn("Train (epoch 1/3) [2/5]", log_lines[4])
             self.assertIn("Loss: 1.250000", log_lines[4])
             self.assertIn("Accuracy: 87.5000", log_lines[4])
-            self.assertIn("Interval: 0:01:05", log_lines[4])
+            self.assertIn("Time: 0:01:05", log_lines[4])
             self.assertIn("(Elapsed: 0:02:10)", log_lines[4])
             self.assertEqual(log_lines[5], "Training time: 1:01:01")
             self.assertIn(

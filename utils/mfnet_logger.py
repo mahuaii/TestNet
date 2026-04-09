@@ -33,12 +33,13 @@ class MFNetLogger(Logger):
         del global_step, lr
         loss = float(step_stats.get("loss", 0.0))
         accuracy = float(step_stats.get("accuracy", 0.0))
-        return (
-            f"[Train] (epoch {epoch}/{max_epochs}) [step {step}/{total_steps}]\t"
+        message = (
+            f"Train (epoch {epoch}/{max_epochs}) [{step}/{total_steps}]\t"
             f"Loss: {loss:.6f}\tAccuracy: {accuracy:.4f}\t"
-            f"Interval: {self.format_time(interval_time_seconds)} "
+            f"Time: {self.format_time(interval_time_seconds)} "
             f"(Elapsed: {self.format_time(epoch_elapsed_seconds)})"
         )
+        return message
 
     @override
     def _format_train_summary(
@@ -55,7 +56,8 @@ class MFNetLogger(Logger):
             metric_parts.append(f"LR: {float(lr):.6f}")
         if not metric_parts:
             return None
-        return "Train summary: " + " | ".join(metric_parts)
+        summary = "Train summary: " + " | ".join(metric_parts)
+        return summary
 
     @override
     def _format_validation_summary(self, val_metrics: dict[str, float]) -> str | None:
@@ -69,7 +71,8 @@ class MFNetLogger(Logger):
                 rendered.append(f"{key}: {float(value):.4f}")
         if not rendered:
             return None
-        return "Validation metrics: " + " | ".join(rendered)
+        summary = "Validation metrics: " + " | ".join(rendered)
+        return summary
 
     @override
     def _write_step_scalars(

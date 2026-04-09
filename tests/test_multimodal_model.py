@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import importlib
 import importlib.util
 import random
+import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 
@@ -10,7 +13,7 @@ from PIL import Image
 import torch
 from torch.utils.data import DataLoader, Dataset
 
-from datasets import VaihingenDataset
+from datasets import PotsdamDataset, VaihingenDataset, build_isprs_dataset
 from engine import MFNetTrainer
 from utils import CheckpointManager, MFNetLogger
 
@@ -63,6 +66,41 @@ class _DelegatingMFNetTrainer(MFNetTrainer):
 
 
 class MFNetTrainingTest(unittest.TestCase):
+    def _write_vaihingen_sample(self, root: Path, tile_id: str = "1") -> None:
+        (root / "rgb").mkdir()
+        (root / "dsm").mkdir()
+        (root / "labels").mkdir()
+
+        rgb = torch.zeros(32, 32, 3, dtype=torch.uint8).numpy()
+        rgb[:, :, 0] = 255
+        dsm = (torch.arange(32 * 32, dtype=torch.int16).reshape(32, 32)).numpy()
+        label = torch.zeros(32, 32, 3, dtype=torch.uint8).numpy()
+        label[:, :16] = torch.tensor([255, 255, 255], dtype=torch.uint8).numpy()
+        label[:, 16:] = torch.tensor([0, 0, 255], dtype=torch.uint8).numpy()
+
+        Image.fromarray(rgb).save(root / "rgb" / f"top_mosaic_09cm_area{tile_id}.tif")
+        Image.fromarray(dsm).save(root / "dsm" / f"dsm_09cm_matching_area{tile_id}.tif")
+        Image.fromarray(label).save(root / "labels" / f"top_mosaic_09cm_area{tile_id}.tif")
+
+    def _write_potsdam_sample(self, root: Path, tile_id: str = "6_10") -> None:
+        (root / "rgbir").mkdir()
+        (root / "dsm").mkdir()
+        (root / "labels").mkdir()
+
+        rgbir = torch.zeros(32, 32, 4, dtype=torch.uint8).numpy()
+        rgbir[:, :, 0] = 255
+        rgbir[:, :, 1] = 64
+        rgbir[:, :, 2] = 32
+        rgbir[:, :, 3] = 200
+        dsm = (torch.arange(32 * 32, dtype=torch.uint8).reshape(32, 32)).numpy()
+        label = torch.zeros(32, 32, 3, dtype=torch.uint8).numpy()
+        label[:, :16] = torch.tensor([255, 255, 255], dtype=torch.uint8).numpy()
+        label[:, 16:] = torch.tensor([0, 0, 255], dtype=torch.uint8).numpy()
+
+        Image.fromarray(rgbir).save(root / "rgbir" / f"top_potsdam_{tile_id}_RGBIR.tif")
+        Image.fromarray(dsm).save(root / "dsm" / f"dsm_potsdam_{tile_id}_normalized_lastools.jpg")
+        Image.fromarray(label).save(root / "labels" / f"top_potsdam_{tile_id}_label.tif")
+
     def _build_trainer(
         self,
         tmpdir: str,
@@ -197,20 +235,7 @@ class MFNetTrainingTest(unittest.TestCase):
     def test_vaihingen_dataset_emits_real_training_contract(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            (root / "rgb").mkdir()
-            (root / "dsm").mkdir()
-            (root / "labels").mkdir()
-
-            rgb = torch.zeros(32, 32, 3, dtype=torch.uint8).numpy()
-            rgb[:, :, 0] = 255
-            dsm = (torch.arange(32 * 32, dtype=torch.int16).reshape(32, 32)).numpy()
-            label = torch.zeros(32, 32, 3, dtype=torch.uint8).numpy()
-            label[:, :16] = torch.tensor([255, 255, 255], dtype=torch.uint8).numpy()
-            label[:, 16:] = torch.tensor([0, 0, 255], dtype=torch.uint8).numpy()
-
-            Image.fromarray(rgb).save(root / "rgb" / "top_mosaic_09cm_area1.tif")
-            Image.fromarray(dsm).save(root / "dsm" / "dsm_09cm_matching_area1.tif")
-            Image.fromarray(label).save(root / "labels" / "top_mosaic_09cm_area1.tif")
+            self._write_vaihingen_sample(root)
 
             random.seed(0)
             dataset = VaihingenDataset(
@@ -231,6 +256,84 @@ class MFNetTrainingTest(unittest.TestCase):
             self.assertEqual(sample["target"].shape, (16, 16))
             self.assertTrue(set(torch.unique(sample["target"]).tolist()).issubset({0, 1}))
 
+    def test_potsdam_dataset_emits_same_training_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            self._write_potsdam_sample(root)
+
+            random.seed(0)
+            dataset = PotsdamDataset(
+                root_dir=str(root),
+                ids=["6_10"],
+                patch_size=(16, 16),
+                samples_per_epoch=1,
+                cache=True,
+                augmentation=False,
+                split="val",
+            )
+
+            sample = dataset[0]
+
+            self.assertIn("inputs", sample)
+            self.assertEqual(sample["inputs"]["rgb"].shape, (3, 16, 16))
+            self.assertEqual(sample["inputs"]["dsm"].shape, (16, 16))
+            self.assertEqual(sample["target"].shape, (16, 16))
+            self.assertTrue(set(torch.unique(sample["target"]).tolist()).issubset({0, 1}))
+
+    def test_build_isprs_dataset_dispatches_to_potsdam(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            self._write_potsdam_sample(root)
+
+            dataset = build_isprs_dataset(
+                "potsdam",
+                root_dir=str(root),
+                ids=["6_10"],
+                patch_size=(16, 16),
+                samples_per_epoch=1,
+                cache=True,
+                augmentation=False,
+                split="val",
+            )
+
+            self.assertIsInstance(dataset, PotsdamDataset)
+            sample = dataset[0]
+            self.assertEqual(sample["inputs"]["rgb"].shape, (3, 16, 16))
+
+    def test_build_model_passes_sam_checkpoint_to_mfnet(self) -> None:
+        build_module = importlib.import_module("models.build")
+        captured_kwargs: list[dict[str, object]] = []
+
+        class FakeUNetFormer:
+            def __init__(self, **kwargs: object) -> None:
+                captured_kwargs.append(kwargs)
+
+        fake_mfnet_module = types.ModuleType("models.mfnet")
+        fake_mfnet_module.UNetFormer = FakeUNetFormer
+        original_mfnet_module = sys.modules.get("models.mfnet")
+
+        try:
+            sys.modules["models.mfnet"] = fake_mfnet_module
+
+            model = build_module.build_model(
+                {
+                    "type": "mfnet_unetformer",
+                    "num_classes": 6,
+                    "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
+                }
+            )
+
+            self.assertIsInstance(model, FakeUNetFormer)
+            self.assertEqual(
+                captured_kwargs,
+                [{"num_classes": 6, "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth"}],
+            )
+        finally:
+            if original_mfnet_module is None:
+                del sys.modules["models.mfnet"]
+            else:
+                sys.modules["models.mfnet"] = original_mfnet_module
+
     def test_train_entry_builds_mfnet_trainer_with_sgd_and_scheduler(self) -> None:
         spec = importlib.util.spec_from_file_location(
             "test_train_module",
@@ -245,6 +348,7 @@ class MFNetTrainingTest(unittest.TestCase):
             def __init__(self) -> None:
                 super().__init__()
                 self.weight = torch.nn.Parameter(torch.ones(1))
+                self.image_encoder = torch.nn.Linear(1, 1, bias=False)
 
         captured_dataset_calls: list[dict[str, object]] = []
         captured_trainer_kwargs: list[dict[str, object]] = []
@@ -312,7 +416,8 @@ class MFNetTrainingTest(unittest.TestCase):
                         "log_step_interval": 1,
                         "val_epoch_interval": 0,
                         "save_epoch_interval": 1,
-                        "save_step_interval": 0
+                        "save_step_interval": 0,
+                        "use_tensorboard": True,
                     },
                 }
                 latest_path = Path(tmpdir) / "latest.pth"
