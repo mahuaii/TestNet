@@ -21,7 +21,7 @@ from utils import CheckpointManager, MFNetLogger, load_config
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="configs/train_config.json")
-    parser.add_argument("--work-dir", default="work_dirs/mfnet")
+    parser.add_argument("--work-dir", default="work_dirs")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--resume-from", default=None)
     parser.add_argument("--load-from", default=None)
@@ -81,6 +81,22 @@ def build_val_dataset(cfg: dict[str, Any]) -> VaihingenDataset:
     )
 
 
+def resolve_resume_from(
+    explicit_resume_from: str | None,
+    train_cfg: dict[str, Any],
+    work_dir: Path,
+) -> str | None:
+    if explicit_resume_from:
+        return explicit_resume_from
+    if not bool(train_cfg.get("auto_resume", False)):
+        return None
+
+    latest_checkpoint = work_dir / "latest.pth"
+    if latest_checkpoint.is_file():
+        return str(latest_checkpoint)
+    return None
+
+
 def main() -> None:
     args = parse_args()
     cfg = load_config(args.config)
@@ -98,9 +114,12 @@ def main() -> None:
     train_cfg.setdefault("save_epoch_interval", 1)
     train_cfg.setdefault("save_step_interval", 0)
     train_cfg.setdefault("use_tensorboard", True)
+    train_cfg.setdefault("auto_resume", False)
 
-    work_dir = args.work_dir
-    Path(work_dir).mkdir(parents=True, exist_ok=True)
+    work_dir = Path(args.work_dir)
+    work_dir.mkdir(parents=True, exist_ok=True)
+    experiment_name = work_dir.name or "mfnet"
+    resume_from = resolve_resume_from(args.resume_from, train_cfg, work_dir)
 
     model = build_model(model_cfg)
     train_dataset = build_train_dataset(dataset_cfg)
@@ -129,17 +148,19 @@ def main() -> None:
         optimizer=optimizer,
         train_loader=train_loader,
         val_loader=val_loader,
-        logger=MFNetLogger(work_dir, use_tensorboard=bool(train_cfg["use_tensorboard"])),
-        checkpoint_manager=CheckpointManager(work_dir),
+        logger=MFNetLogger(str(work_dir), use_tensorboard=bool(train_cfg["use_tensorboard"])),
+        checkpoint_manager=CheckpointManager(str(work_dir)),
         evaluator=Evaluator(),
         device=torch.device(args.device),
         inferencer=Inferencer(),
         scheduler=scheduler,
         cfg={
             **train_cfg,
-            "work_dir": work_dir,
-            "resume_from": args.resume_from,
+            "work_dir": str(work_dir),
+            "experiment_name": experiment_name,
+            "resume_from": resume_from,
             "load_from": args.load_from,
+            "sam_checkpoint": model_cfg.get("sam_checkpoint"),
             "num_classes": int(model_cfg["num_classes"]),
             "class_weights": cfg.get("class_weights"),
         },

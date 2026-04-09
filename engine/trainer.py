@@ -46,7 +46,7 @@ class Trainer(ABC):
         cfg: dict[str, Any],
         inferencer: Inferencer,
         scheduler: Any = None,
-    ) -> None:
+    ):
         self.model = model.to(device)
         self.optimizer = optimizer
         self.scheduler = scheduler
@@ -78,7 +78,7 @@ class Trainer(ABC):
     def lr(self) -> float:
         return float(self.optimizer.param_groups[0]["lr"])
 
-    def _load_model_weights(self, path: str) -> None:
+    def _load_model_weights(self, path: str):
         state_dict = torch.load(path, map_location="cpu")
         if isinstance(state_dict, dict):
             if "model" in state_dict:
@@ -87,7 +87,7 @@ class Trainer(ABC):
                 model_state = state_dict["model_state_dict"]
         self.model.load_state_dict(model_state)
 
-    def _load_training_state(self, path: str) -> None:
+    def _load_training_state(self, path: str):
         state_dict = self.checkpoint_manager.load(path)
         self.model.load_state_dict(state_dict["model"])
         self.optimizer.load_state_dict(state_dict["optimizer"])
@@ -96,7 +96,7 @@ class Trainer(ABC):
         self.epoch = int(state_dict["epoch"])
         self.global_step = int(state_dict["global_step"])
 
-    def train(self) -> None:
+    def train(self):
         """
         - 执行完整训练流程
         - 处理权重加载、断点恢复、epoch 循环和验证触发
@@ -128,20 +128,11 @@ class Trainer(ABC):
                     train_time_seconds=train_time_seconds,
                 )
 
-                # 验证（触发条件：配置了 val_epoch_interval 且当前 epoch 满足间隔要求）
-                if (
-                    self.cfg["val_epoch_interval"] > 0
-                    and epoch % self.cfg["val_epoch_interval"] == 0
-                ):
-                    self.timer.mark("validation")
-                    val_metrics = self.validate()
-                    validation_time_seconds = self.timer.elapsed("validation")
-                    self.after_val(
-                        val_metrics,
-                        validation_time_seconds=validation_time_seconds,
-                    )
+                val_epoch_interval = int(self.cfg.get("val_epoch_interval", 0))
+                if val_epoch_interval > 0 and epoch % val_epoch_interval == 0:
+                    self.validate()
 
-    def before_epoch(self) -> None:
+    def before_epoch(self):
         """
         - 预留 epoch 开始前的 hook
         - 由子类决定是否执行 scheduler.step()、计时初始化等 epoch 级行为
@@ -230,7 +221,7 @@ class Trainer(ABC):
         step: int,
         step_stats: dict[str, float],
         is_last_step_of_epoch: bool = False,
-    ) -> None:
+    ):
         """
         - 输出 step 级日志
         - 执行 global step 级 checkpoint 保存
@@ -267,7 +258,7 @@ class Trainer(ABC):
         self,
         train_metrics: dict[str, float],
         train_time_seconds: float,
-    ) -> None:
+    ):
         """
         - 输出训练 epoch 级日志
         - 按配置执行 epoch 级 checkpoint 保存
@@ -278,7 +269,6 @@ class Trainer(ABC):
             lr=self.lr,
         )
 
-        # 保存训练状态（满足 epoch 间隔要求）
         save_epoch_interval = int(self.cfg["save_epoch_interval"])
         if save_epoch_interval > 0 and self.epoch % save_epoch_interval == 0:
             path = self.checkpoint_manager.save_training_state(
@@ -295,7 +285,7 @@ class Trainer(ABC):
         self,
         val_metrics: dict[str, float],
         validation_time_seconds: float,
-    ) -> None:
+    ):
         """
         - 输出验证阶段日志
         """
@@ -306,15 +296,14 @@ class Trainer(ABC):
         )
 
     @torch.no_grad()
-    def validate(self) -> dict[str, float]:
+    def validate(self):
         """
         - 执行完整验证流程
         - 调用 inferencer 进行推理
         - 调用 evaluator 聚合验证结果
-
-        输出：
-        - 验证指标字典
+        - 输出验证阶段日志与计时
         """
+        self.timer.mark("validation")
         outputs = []
         self.model.eval()
         for batch in self.val_loader:
@@ -332,9 +321,13 @@ class Trainer(ABC):
             inferencer=self.inferencer,
             trainer=self,
         )
-        return val_metrics
+        validation_time_seconds = self.timer.elapsed("validation")
+        self.after_val(
+            val_metrics,
+            validation_time_seconds=validation_time_seconds,
+        )
 
-    def _optimize_step(self) -> None:
+    def _optimize_step(self):
         self.optimizer.step()
         self.optimizer.zero_grad()
         self.global_step += 1

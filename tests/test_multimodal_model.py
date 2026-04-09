@@ -46,6 +46,22 @@ class _CaptureModel(torch.nn.Module):
         return logits
 
 
+class _DelegatingMFNetTrainer(MFNetTrainer):
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)
+        self.compute_loss_and_metrics_called = False
+
+    def _compute_loss_and_metrics(
+        self,
+        logits: torch.Tensor,
+        target: torch.Tensor,
+    ) -> tuple[torch.Tensor, dict[str, float]]:
+        del logits, target
+        self.compute_loss_and_metrics_called = True
+        loss = self.model.weight.sum() * 0.0 + 3.0
+        return loss, {"loss": 3.0, "accuracy": 25.0}
+
+
 class MFNetTrainingTest(unittest.TestCase):
     def _build_trainer(
         self,
@@ -136,6 +152,48 @@ class MFNetTrainingTest(unittest.TestCase):
             with self.assertRaisesRegex(TypeError, "expected target dtype torch.long"):
                 trainer.train_forward(batch)
 
+    def test_train_forward_delegates_loss_and_metric_computation(self) -> None:
+        sample = {
+            "inputs": {
+                "rgb": torch.rand(3, 12, 12),
+                "dsm": torch.rand(12, 12),
+            },
+            "target": torch.randint(0, 2, (12, 12), dtype=torch.long),
+            "meta": {"tile_id": "1"},
+        }
+        model = _CaptureModel()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            train_loader = DataLoader(_SingleBatchDataset(sample), batch_size=1, shuffle=False)
+            optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+            trainer = _DelegatingMFNetTrainer(
+                model=model,
+                optimizer=optimizer,
+                scheduler=None,
+                train_loader=train_loader,
+                val_loader=[],
+                logger=MFNetLogger(tmpdir),
+                checkpoint_manager=CheckpointManager(tmpdir),
+                evaluator=None,
+                inferencer=None,
+                device=torch.device("cpu"),
+                cfg={
+                    "max_epochs": 1,
+                    "batch_size": 1,
+                    "effective_batch_size": 1,
+                    "log_step_interval": 1,
+                    "val_epoch_interval": 0,
+                    "save_epoch_interval": 1,
+                    "save_step_interval": 0,
+                },
+            )
+
+            batch = next(iter(trainer.train_loader))
+            loss, metrics = trainer.train_forward(batch)
+
+            self.assertTrue(trainer.compute_loss_and_metrics_called)
+            self.assertEqual(float(loss.detach()), 3.0)
+            self.assertEqual(metrics, {"loss": 3.0, "accuracy": 25.0})
+
     def test_vaihingen_dataset_emits_real_training_contract(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -190,6 +248,7 @@ class MFNetTrainingTest(unittest.TestCase):
 
         captured_dataset_calls: list[dict[str, object]] = []
         captured_trainer_kwargs: list[dict[str, object]] = []
+        captured_model_cfg: list[dict[str, object]] = []
 
         class FakeTrainer:
             def __init__(self, **kwargs: object) -> None:
@@ -218,7 +277,11 @@ class MFNetTrainingTest(unittest.TestCase):
                     },
                 )()
                 module.load_config = lambda _path: {
-                    "model": {"type": "mfnet_unetformer", "num_classes": 6},
+                    "model": {
+                        "type": "mfnet_unetformer",
+                        "num_classes": 6,
+                        "sam_checkpoint": "/tmp/sam_vit_b.pth",
+                    },
                     "dataset": {
                         "root_dir": tmpdir,
                         "patch_size": [32, 32],
@@ -245,13 +308,22 @@ class MFNetTrainingTest(unittest.TestCase):
                         "max_epochs": 1,
                         "batch_size": 2,
                         "effective_batch_size": 2,
+                        "auto_resume": True,
                         "log_step_interval": 1,
                         "val_epoch_interval": 0,
                         "save_epoch_interval": 1,
                         "save_step_interval": 0
                     },
                 }
-                module.build_model = lambda _cfg: FakeModel()
+                latest_path = Path(tmpdir) / "latest.pth"
+                latest_path.parent.mkdir(parents=True, exist_ok=True)
+                latest_path.write_bytes(b"checkpoint")
+
+                def fake_build_model(model_cfg: dict[str, object]) -> FakeModel:
+                    captured_model_cfg.append(model_cfg)
+                    return FakeModel()
+
+                module.build_model = fake_build_model
 
                 def fake_dataset(**kwargs: object) -> dict[str, object]:
                     captured_dataset_calls.append(kwargs)
@@ -276,10 +348,16 @@ class MFNetTrainingTest(unittest.TestCase):
                     trainer_kwargs["scheduler"],
                     torch.optim.lr_scheduler.MultiStepLR,
                 )
+                self.assertEqual(len(captured_model_cfg), 1)
+                self.assertEqual(captured_model_cfg[0]["sam_checkpoint"], "/tmp/sam_vit_b.pth")
                 self.assertIsInstance(trainer_kwargs["logger"], MFNetLogger)
                 self.assertTrue(trainer_kwargs["logger"].use_tensorboard)
                 self.assertEqual(trainer_kwargs["cfg"]["val_epoch_interval"], 0)
                 self.assertEqual(trainer_kwargs["cfg"]["batch_size"], 2)
+                self.assertEqual(trainer_kwargs["cfg"]["experiment_name"], Path(tmpdir).name)
+                self.assertEqual(trainer_kwargs["cfg"]["sam_checkpoint"], "/tmp/sam_vit_b.pth")
+                self.assertEqual(trainer_kwargs["cfg"]["resume_from"], str(latest_path))
+                self.assertEqual(trainer_kwargs["cfg"]["work_dir"], str(Path(tmpdir)))
         finally:
             module.parse_args = original_parse_args
             module.load_config = original_load_config

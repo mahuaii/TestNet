@@ -27,11 +27,28 @@ class MFNetTrainer(Trainer):
 
     @override
     def train_forward(self, batch: dict[str, Any]) -> tuple[torch.Tensor, dict[str, float]]:
+        rgb, dsm, target = self._extract_train_tensors(batch)
+        self._validate_train_tensors(rgb=rgb, dsm=dsm, target=target)
+        logits = self.model(rgb, dsm, mode="Train")
+        loss, metrics = self._compute_loss_and_metrics(logits=logits, target=target)
+        return loss, metrics
+
+    def _extract_train_tensors(
+        self,
+        batch: dict[str, Any],
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         inputs = batch["inputs"]
         rgb = inputs["rgb"].to(self.device, non_blocking=True)
         dsm = inputs["dsm"].to(self.device, non_blocking=True)
         target = batch["target"].to(self.device, non_blocking=True)
+        return rgb, dsm, target
 
+    def _validate_train_tensors(
+        self,
+        rgb: torch.Tensor,
+        dsm: torch.Tensor,
+        target: torch.Tensor,
+    ) -> None:
         if rgb.ndim != 4:
             raise ValueError(
                 f"MFNetTrainer expected RGB with shape [B, 3, H, W], got {tuple(rgb.shape)}"
@@ -47,7 +64,11 @@ class MFNetTrainer(Trainer):
         if target.dtype != torch.long:
             raise TypeError(f"MFNetTrainer expected target dtype torch.long, got {target.dtype}")
 
-        logits = self.model(rgb, dsm, mode="Train")
+    def _compute_loss_and_metrics(
+        self,
+        logits: torch.Tensor,
+        target: torch.Tensor,
+    ) -> tuple[torch.Tensor, dict[str, float]]:
         loss = F.cross_entropy(
             logits,
             target,

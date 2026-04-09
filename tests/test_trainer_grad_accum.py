@@ -426,12 +426,48 @@ class TrainerGradAccumTest(unittest.TestCase):
             )
             trainer.val_loader = DataLoader(ScalarDataset([1.0, 2.0]), batch_size=1, shuffle=False)
 
-            metrics = trainer.validate()
+            trainer.validate()
 
-            self.assertEqual(metrics["num_outputs"], 2.0)
             assert evaluator.last_outputs is not None
+            self.assertEqual(len(evaluator.last_outputs), 2)
             self.assertIn("pred", evaluator.last_outputs[0])
             self.assertIn("target", evaluator.last_outputs[0])
+
+    def test_train_raises_when_validation_enabled_without_dependencies(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trainer = build_trainer(
+                work_dir=tmpdir,
+                values=[1.0, 2.0],
+                batch_size=1,
+                effective_batch_size=1,
+                evaluator=None,
+                inferencer=None,
+            )
+            trainer.cfg["val_epoch_interval"] = 1
+            trainer.max_epochs = 1
+
+            with self.assertRaises(AttributeError):
+                trainer.train()
+
+    def test_train_runs_validation_when_enabled_and_dependencies_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            evaluator = CaptureEvaluator()
+            trainer = build_trainer(
+                work_dir=tmpdir,
+                values=[1.0, 2.0],
+                batch_size=1,
+                effective_batch_size=1,
+                evaluator=evaluator,
+                inferencer=IdentityInferencer(),
+            )
+            trainer.val_loader = DataLoader(ScalarDataset([1.0, 2.0]), batch_size=1, shuffle=False)
+            trainer.cfg["val_epoch_interval"] = 1
+            trainer.max_epochs = 1
+
+            trainer.train()
+
+            assert evaluator.last_outputs is not None
+            self.assertEqual(len(evaluator.last_outputs), 2)
 
     def test_before_epoch_hook_runs_once_per_epoch(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
