@@ -15,7 +15,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from datasets import PotsdamDataset, VaihingenDataset, build_isprs_dataset
 from engine import MFNetTrainer
-from utils import CheckpointManager, MFNetLogger
+from utils import CheckpointManager, DataUtils, MFNetLogger
 
 
 class _SingleBatchDataset(Dataset):
@@ -28,6 +28,17 @@ class _SingleBatchDataset(Dataset):
     def __getitem__(self, index: int) -> dict[str, object]:
         del index
         return self.batch
+
+
+class _ListDataset(Dataset):
+    def __init__(self, batches: list[dict[str, object]]) -> None:
+        self.batches = batches
+
+    def __len__(self) -> int:
+        return len(self.batches)
+
+    def __getitem__(self, index: int) -> dict[str, object]:
+        return self.batches[index]
 
 
 class _CaptureModel(torch.nn.Module):
@@ -47,6 +58,17 @@ class _CaptureModel(torch.nn.Module):
             dim=1,
         )
         return logits
+
+
+class _FixedLogitsModel(torch.nn.Module):
+    def __init__(self, logits: torch.Tensor) -> None:
+        super().__init__()
+        self.weight = torch.nn.Parameter(torch.tensor(1.0))
+        self.logits = logits.detach().clone()
+
+    def forward(self, rgb: torch.Tensor, dsm: torch.Tensor, mode: str = "Train") -> torch.Tensor:
+        del rgb, dsm, mode
+        return self.logits.to(self.weight.device) + (self.weight * 0.0)
 
 
 class _DelegatingMFNetTrainer(MFNetTrainer):
@@ -232,6 +254,127 @@ class MFNetTrainingTest(unittest.TestCase):
             self.assertEqual(float(loss.detach()), 3.0)
             self.assertEqual(metrics, {"loss": 3.0, "accuracy": 25.0})
 
+    def test_train_forward_uses_mfnet_ignore_loss_and_accuracy(self) -> None:
+        sample = {
+            "inputs": {
+                "rgb": torch.rand(3, 2, 2),
+                "dsm": torch.rand(2, 2),
+            },
+            "target": torch.tensor([[0, 255], [1, 255]], dtype=torch.long),
+            "meta": {"tile_id": "1"},
+        }
+        logits = torch.tensor(
+            [
+                [
+                    [[4.0, 3.0], [1.0, 0.0]],
+                    [[0.0, 1.0], [5.0, 2.0]],
+                ]
+            ],
+            dtype=torch.float32,
+        )
+        model = _FixedLogitsModel(logits)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trainer = self._build_trainer(tmpdir, model, sample)
+            batch = next(iter(trainer.train_loader))
+
+            loss, metrics = trainer.train_forward(batch)
+
+            expected_loss = torch.nn.functional.cross_entropy(
+                torch.tensor([[4.0, 0.0], [1.0, 5.0]], dtype=torch.float32),
+                torch.tensor([0, 1], dtype=torch.long),
+            )
+            self.assertAlmostEqual(float(loss.detach()), float(expected_loss), places=6)
+            self.assertAlmostEqual(metrics["accuracy"], 50.0, places=6)
+
+    def test_train_forward_returns_zero_loss_when_all_pixels_are_ignored(self) -> None:
+        sample = {
+            "inputs": {
+                "rgb": torch.rand(3, 2, 2),
+                "dsm": torch.rand(2, 2),
+            },
+            "target": torch.full((2, 2), 255, dtype=torch.long),
+            "meta": {"tile_id": "1"},
+        }
+        logits = torch.tensor(
+            [
+                [
+                    [[4.0, 3.0], [1.0, 0.0]],
+                    [[0.0, 1.0], [5.0, 2.0]],
+                ]
+            ],
+            dtype=torch.float32,
+        )
+        model = _FixedLogitsModel(logits)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trainer = self._build_trainer(tmpdir, model, sample)
+            batch = next(iter(trainer.train_loader))
+
+            loss, metrics = trainer.train_forward(batch)
+
+            self.assertEqual(float(loss.detach()), 0.0)
+            self.assertEqual(metrics["accuracy"], 0.0)
+
+    def test_data_utils_mfnet_loss_matches_ignore_label_behavior(self) -> None:
+        logits = torch.tensor(
+            [
+                [
+                    [[4.0, 3.0], [1.0, 0.0]],
+                    [[0.0, 1.0], [5.0, 2.0]],
+                ]
+            ],
+            dtype=torch.float32,
+        )
+        target = torch.tensor([[[0, 255], [1, 255]]], dtype=torch.long)
+
+        loss = DataUtils.cross_entropy_filtered(logits=logits, target=target)
+
+        expected_loss = torch.nn.functional.cross_entropy(
+            torch.tensor([[4.0, 0.0], [1.0, 5.0]], dtype=torch.float32),
+            torch.tensor([0, 1], dtype=torch.long),
+        )
+        self.assertAlmostEqual(float(loss.detach()), float(expected_loss), places=6)
+
+    def test_train_one_epoch_uses_micro_batch_steps_without_grad_accum_state(self) -> None:
+        sample = {
+            "inputs": {
+                "rgb": torch.rand(3, 12, 12),
+                "dsm": torch.rand(12, 12),
+            },
+            "target": torch.randint(0, 2, (12, 12), dtype=torch.long),
+            "meta": {"tile_id": "1"},
+        }
+        model = _CaptureModel()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            train_loader = DataLoader(_ListDataset([sample, sample]), batch_size=1, shuffle=False)
+            optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+            trainer = MFNetTrainer(
+                model=model,
+                optimizer=optimizer,
+                scheduler=None,
+                train_loader=train_loader,
+                val_loader=[],
+                logger=MFNetLogger(tmpdir),
+                checkpoint_manager=CheckpointManager(tmpdir),
+                evaluator=None,
+                inferencer=None,
+                device=torch.device("cpu"),
+                cfg={
+                    "max_epochs": 1,
+                    "batch_size": 1,
+                    "effective_batch_size": 2,
+                    "log_step_interval": 1,
+                    "val_epoch_interval": 0,
+                    "save_epoch_interval": 1,
+                    "save_step_interval": 0,
+                },
+            )
+
+            trainer.train_one_epoch()
+
+            self.assertEqual(trainer.global_step, 2)
+            self.assertEqual(trainer.total_steps_per_epoch, 2)
+            self.assertFalse(hasattr(trainer, "grad_accum_steps"))
+
     def test_vaihingen_dataset_emits_real_training_contract(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -401,17 +544,12 @@ class MFNetTrainingTest(unittest.TestCase):
                         "type": "SGD",
                         "lr": 0.01,
                         "momentum": 0.9,
-                        "weight_decay": 0.0005
+                        "weight_decay": 0.0005,
                     },
-                    "scheduler": {
-                        "type": "MultiStepLR",
-                        "milestones": [1, 2],
-                        "gamma": 0.1
-                    },
+                    "scheduler": {"type": "MultiStepLR", "milestones": [1, 2], "gamma": 0.1},
                     "train": {
                         "max_epochs": 1,
                         "batch_size": 2,
-                        "effective_batch_size": 2,
                         "auto_resume": True,
                         "log_step_interval": 1,
                         "val_epoch_interval": 0,
@@ -463,6 +601,7 @@ class MFNetTrainingTest(unittest.TestCase):
                 self.assertEqual(trainer_kwargs["cfg"]["sam_checkpoint"], "/tmp/sam_vit_b.pth")
                 self.assertEqual(trainer_kwargs["cfg"]["resume_from"], str(latest_path))
                 self.assertEqual(trainer_kwargs["cfg"]["work_dir"], str(Path(tmpdir)))
+                self.assertNotIn("effective_batch_size", trainer_kwargs["cfg"])
         finally:
             module.parse_args = original_parse_args
             module.load_config = original_load_config

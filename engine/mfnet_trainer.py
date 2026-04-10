@@ -3,10 +3,11 @@ from __future__ import annotations
 from typing import Any
 
 import torch
-import torch.nn.functional as F
 from typing_extensions import override
 
 from .evaluator import Evaluator
+from utils import DataUtils
+
 from .trainer import Trainer
 
 
@@ -69,9 +70,9 @@ class MFNetTrainer(Trainer):
         logits: torch.Tensor,
         target: torch.Tensor,
     ) -> tuple[torch.Tensor, dict[str, float]]:
-        loss = F.cross_entropy(
-            logits,
-            target,
+        loss = DataUtils.cross_entropy_filtered(
+            logits=logits,
+            target=target,
             weight=self.class_weights,
         )
         pred = torch.argmax(logits.detach(), dim=1)

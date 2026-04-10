@@ -21,8 +21,9 @@ class Evaluator:
 
     @staticmethod
     def accuracy(pred: torch.Tensor, target: torch.Tensor) -> float:
-        accuracy = float((pred == target).float().mean().item() * 100.0)
-        return accuracy
+        correct = int(torch.count_nonzero(pred == target).item())
+        total = int(target.numel())
+        return 100.0 * float(correct) / float(total)
 
     def evaluate(self, outputs: list[Any], **kwargs: Any) -> dict[str, float]:
         """
