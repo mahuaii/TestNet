@@ -19,6 +19,7 @@ class CheckpointManager:
         scheduler: Any,
         epoch: int,
         global_step: int,
+        best_miou: float,
     ) -> Path:
         path = self.work_dir / name
         state_dict = self._state_dict(
@@ -27,6 +28,7 @@ class CheckpointManager:
             scheduler=scheduler,
             epoch=epoch,
             global_step=global_step,
+            best_miou=best_miou,
         )
         torch.save(state_dict, path)
         torch.save(state_dict, self.work_dir / "latest.pth")
@@ -43,6 +45,7 @@ class CheckpointManager:
         scheduler: Any,
         epoch: int,
         global_step: int,
+        best_miou: float,
     ) -> dict[str, Any]:
         state_dict = {
             "model": model.state_dict(),
@@ -51,5 +54,6 @@ class CheckpointManager:
             # Persist the next epoch to run so training continues from the following epoch.
             "epoch": epoch + 1,
             "global_step": global_step,
+            "best_miou": float(best_miou),
         }
         return state_dict

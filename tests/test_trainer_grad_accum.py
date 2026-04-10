@@ -7,7 +7,7 @@ from pathlib import Path
 import torch
 from torch.utils.data import DataLoader, Dataset
 
-from engine import Trainer
+from engine import GradAccumTrainer, Trainer
 from utils import CheckpointManager, MFNetLogger
 
 
@@ -37,7 +37,34 @@ class RegressionTrainer(Trainer):
         return loss, {"loss": float(loss.detach())}
 
 
+class GradAccumRegressionTrainer(GradAccumTrainer):
+    def train_forward(
+        self, batch: dict[str, torch.Tensor]
+    ) -> tuple[torch.Tensor, dict[str, float]]:
+        x = batch["x"].to(self.device)
+        y = batch["y"].to(self.device)
+        pred = self.model(x)
+        loss = torch.mean((pred - y) ** 2)
+        return loss, {"loss": float(loss.detach())}
+
+
 class FixedLossTrainer(Trainer):
+    def __init__(self, fixed_losses: list[float], *args: object, **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)
+        self.fixed_losses = fixed_losses
+        self.loss_index = 0
+
+    def train_forward(
+        self, batch: dict[str, torch.Tensor]
+    ) -> tuple[torch.Tensor, dict[str, float]]:
+        del batch
+        fixed_loss = float(self.fixed_losses[self.loss_index])
+        self.loss_index += 1
+        loss = self.model.weight.sum() * 0.0 + fixed_loss
+        return loss, {"loss": fixed_loss}
+
+
+class GradAccumFixedLossTrainer(GradAccumTrainer):
     def __init__(self, fixed_losses: list[float], *args: object, **kwargs: object) -> None:
         super().__init__(*args, **kwargs)
         self.fixed_losses = fixed_losses
@@ -86,6 +113,20 @@ class CaptureEvaluator:
         return {"num_outputs": float(len(outputs))}
 
 
+class SequenceMetricsEvaluator:
+    def __init__(self, metrics_sequence: list[dict[str, float]]) -> None:
+        self.metrics_sequence = metrics_sequence
+        self.call_index = 0
+
+    def evaluate(
+        self, outputs: list[dict[str, torch.Tensor | float]], **kwargs: object
+    ) -> dict[str, float]:
+        del outputs, kwargs
+        metrics = self.metrics_sequence[self.call_index]
+        self.call_index += 1
+        return metrics
+
+
 class DummyScheduler:
     def __init__(self) -> None:
         self.step_calls = 0
@@ -118,6 +159,37 @@ class CaptureStepTimeLogger(MFNetLogger):
         lr: float | None = None,
     ) -> None:
         self.interval_times.append(interval_time_seconds)
+        super().log_train_step(
+            epoch=epoch,
+            max_epochs=max_epochs,
+            step=step,
+            total_steps=total_steps,
+            step_stats=step_stats,
+            interval_time_seconds=interval_time_seconds,
+            epoch_elapsed_seconds=epoch_elapsed_seconds,
+            global_step=global_step,
+            lr=lr,
+        )
+
+
+class CaptureStepStatsLogger(MFNetLogger):
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)
+        self.step_stats_history: list[dict[str, float]] = []
+
+    def log_train_step(
+        self,
+        epoch: int,
+        max_epochs: int,
+        step: int,
+        total_steps: int,
+        step_stats: dict[str, float],
+        interval_time_seconds: float,
+        epoch_elapsed_seconds: float,
+        global_step: int | None = None,
+        lr: float | None = None,
+    ) -> None:
+        self.step_stats_history.append(dict(step_stats))
         super().log_train_step(
             epoch=epoch,
             max_epochs=max_epochs,
@@ -188,7 +260,6 @@ class TrainerGradAccumTest(unittest.TestCase):
 
             train_metrics = trainer.train_one_epoch()
 
-            self.assertEqual(trainer.grad_accum_steps, 1)
             self.assertEqual(trainer.global_step, 2)
             self.assertEqual(trainer.lr, trainer.optimizer.param_groups[0]["lr"])
             self.assertIn("loss", train_metrics)
@@ -200,13 +271,31 @@ class TrainerGradAccumTest(unittest.TestCase):
             self.assertIn("Accuracy:", log_lines[0])
             self.assertIn("Train (epoch 1/1) [2/2]", log_lines[1])
 
-    def test_effective_batch_size_defaults_to_batch_size(self) -> None:
+    def test_base_trainer_ignores_effective_batch_size_and_hides_grad_accum_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trainer = build_trainer(
+                work_dir=tmpdir,
+                values=[1.0, 2.0, 3.0, 4.0],
+                batch_size=2,
+                effective_batch_size=4,
+            )
+
+            train_metrics = trainer.train_one_epoch()
+
+            self.assertEqual(trainer.train_loader.batch_size, 2)
+            self.assertEqual(trainer.total_steps_per_epoch, 2)
+            self.assertEqual(trainer.global_step, 2)
+            self.assertFalse(hasattr(trainer, "grad_accum_steps"))
+            self.assertIn("loss", train_metrics)
+
+    def test_grad_accum_trainer_defaults_effective_batch_size_to_batch_size(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             trainer = build_trainer(
                 work_dir=tmpdir,
                 values=[1.0, 2.0, 3.0, 4.0],
                 batch_size=2,
                 effective_batch_size=None,
+                trainer_cls=GradAccumRegressionTrainer,
             )
 
             self.assertEqual(trainer.train_loader.batch_size, 2)
@@ -232,6 +321,72 @@ class TrainerGradAccumTest(unittest.TestCase):
             self.assertTrue(trainer.timer.has("log_interval"))
             self.assertGreaterEqual(trainer.timer.elapsed("epoch"), 0.0)
 
+    def test_base_trainer_logs_window_averaged_step_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model = torch.nn.Linear(1, 1, bias=False)
+            optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+            train_loader = DataLoader(ScalarDataset([1.0, 2.0, 3.0]), batch_size=1, shuffle=False)
+            trainer = FixedLossTrainer(
+                fixed_losses=[1.0, 3.0, 9.0],
+                model=model,
+                optimizer=optimizer,
+                train_loader=train_loader,
+                val_loader=[],
+                logger=CaptureStepStatsLogger(tmpdir),
+                checkpoint_manager=CheckpointManager(tmpdir),
+                evaluator=CaptureEvaluator(),
+                device=torch.device("cpu"),
+                inferencer=IdentityInferencer(),
+                cfg={
+                    "max_epochs": 1,
+                    "batch_size": 1,
+                    "log_step_interval": 2,
+                    "val_epoch_interval": 100,
+                    "save_epoch_interval": 0,
+                    "save_step_interval": 0,
+                },
+            )
+
+            trainer.train_one_epoch()
+
+            assert isinstance(trainer.logger, CaptureStepStatsLogger)
+            self.assertEqual(len(trainer.logger.step_stats_history), 2)
+            self.assertAlmostEqual(trainer.logger.step_stats_history[0]["loss"], 2.0)
+            self.assertAlmostEqual(trainer.logger.step_stats_history[1]["loss"], 9.0)
+
+    def test_grad_accum_trainer_logs_step_interval_window_average(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model = torch.nn.Linear(1, 1, bias=False)
+            optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+            train_loader = DataLoader(ScalarDataset([1.0, 2.0, 3.0, 4.0]), batch_size=1, shuffle=False)
+            trainer = GradAccumFixedLossTrainer(
+                fixed_losses=[1.0, 3.0, 5.0, 7.0],
+                model=model,
+                optimizer=optimizer,
+                train_loader=train_loader,
+                val_loader=[],
+                logger=CaptureStepStatsLogger(tmpdir),
+                checkpoint_manager=CheckpointManager(tmpdir),
+                evaluator=CaptureEvaluator(),
+                device=torch.device("cpu"),
+                inferencer=IdentityInferencer(),
+                cfg={
+                    "max_epochs": 1,
+                    "batch_size": 1,
+                    "effective_batch_size": 2,
+                    "log_step_interval": 2,
+                    "val_epoch_interval": 100,
+                    "save_epoch_interval": 0,
+                    "save_step_interval": 0,
+                },
+            )
+
+            trainer.train_one_epoch()
+
+            assert isinstance(trainer.logger, CaptureStepStatsLogger)
+            self.assertEqual(len(trainer.logger.step_stats_history), 1)
+            self.assertAlmostEqual(trainer.logger.step_stats_history[0]["loss"], 4.0)
+
     def test_step_and_global_step_update_only_on_optimizer_step(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             scheduler = DummyScheduler()
@@ -241,6 +396,7 @@ class TrainerGradAccumTest(unittest.TestCase):
                 batch_size=2,
                 effective_batch_size=4,
                 scheduler=scheduler,
+                trainer_cls=GradAccumRegressionTrainer,
             )
 
             trainer.train_one_epoch()
@@ -260,6 +416,7 @@ class TrainerGradAccumTest(unittest.TestCase):
                 values=[1.0, 2.0, 3.0, 4.0, 5.0],
                 batch_size=2,
                 effective_batch_size=4,
+                trainer_cls=GradAccumRegressionTrainer,
             )
 
             trainer.train_one_epoch()
@@ -312,6 +469,7 @@ class TrainerGradAccumTest(unittest.TestCase):
                 batch_size=2,
                 effective_batch_size=4,
                 log_step_interval=3,
+                trainer_cls=GradAccumRegressionTrainer,
             )
 
             trainer.train_one_epoch()
@@ -328,6 +486,7 @@ class TrainerGradAccumTest(unittest.TestCase):
                     values=[1.0, 2.0],
                     batch_size=2,
                     effective_batch_size=1,
+                    trainer_cls=GradAccumRegressionTrainer,
                 )
 
             with self.assertRaisesRegex(ValueError, "divisible"):
@@ -336,6 +495,7 @@ class TrainerGradAccumTest(unittest.TestCase):
                     values=[1.0, 2.0, 3.0, 4.0],
                     batch_size=2,
                     effective_batch_size=3,
+                    trainer_cls=GradAccumRegressionTrainer,
                 )
 
     def test_checkpoint_resume_restores_optimizer_step_semantics(self) -> None:
@@ -346,6 +506,7 @@ class TrainerGradAccumTest(unittest.TestCase):
                 batch_size=2,
                 effective_batch_size=4,
                 save_step_interval=1,
+                trainer_cls=GradAccumRegressionTrainer,
             )
 
             trainer.train_one_epoch()
@@ -355,6 +516,7 @@ class TrainerGradAccumTest(unittest.TestCase):
                 values=[1.0, 2.0, 3.0, 4.0],
                 batch_size=2,
                 effective_batch_size=4,
+                trainer_cls=GradAccumRegressionTrainer,
             )
             state_dict = resumed.checkpoint_manager.load(
                 path=str(Path(tmpdir) / "latest.pth")
@@ -365,8 +527,78 @@ class TrainerGradAccumTest(unittest.TestCase):
                 resumed.scheduler.load_state_dict(state_dict["scheduler"])
             resumed.epoch = int(state_dict["epoch"])
             resumed.global_step = int(state_dict["global_step"])
+            resumed.best_miou = float(state_dict.get("best_miou", 0.0))
 
             self.assertEqual(resumed.global_step, 1)
+
+    def test_checkpoint_persists_best_miou_in_named_and_latest_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trainer = build_trainer(
+                work_dir=tmpdir,
+                values=[1.0, 2.0],
+                batch_size=1,
+                effective_batch_size=1,
+                save_step_interval=1,
+            )
+            trainer.best_miou = 0.7
+
+            trainer.train_one_epoch()
+
+            named_state = trainer.checkpoint_manager.load(str(Path(tmpdir) / "global_step_1.pth"))
+            latest_state = trainer.checkpoint_manager.load(str(Path(tmpdir) / "latest.pth"))
+            self.assertEqual(float(named_state["best_miou"]), 0.7)
+            self.assertEqual(float(latest_state["best_miou"]), 0.7)
+
+    def test_load_training_state_defaults_best_miou_for_legacy_checkpoints(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trainer = build_trainer(
+                work_dir=tmpdir,
+                values=[1.0, 2.0],
+                batch_size=1,
+                effective_batch_size=1,
+            )
+            legacy_path = Path(tmpdir) / "legacy.pth"
+            torch.save(
+                {
+                    "model": trainer.model.state_dict(),
+                    "optimizer": trainer.optimizer.state_dict(),
+                    "scheduler": None,
+                    "epoch": 3,
+                    "global_step": 5,
+                },
+                legacy_path,
+            )
+
+            trainer._load_training_state(str(legacy_path))
+
+            self.assertEqual(trainer.best_miou, 0.0)
+
+    def test_load_training_state_restores_best_miou(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trainer = build_trainer(
+                work_dir=tmpdir,
+                values=[1.0, 2.0],
+                batch_size=1,
+                effective_batch_size=1,
+            )
+            state_path = Path(tmpdir) / "resume.pth"
+            torch.save(
+                {
+                    "model": trainer.model.state_dict(),
+                    "optimizer": trainer.optimizer.state_dict(),
+                    "scheduler": None,
+                    "epoch": 4,
+                    "global_step": 7,
+                    "best_miou": 0.82,
+                },
+                state_path,
+            )
+
+            trainer._load_training_state(str(state_path))
+
+            self.assertEqual(trainer.epoch, 4)
+            self.assertEqual(trainer.global_step, 7)
+            self.assertEqual(trainer.best_miou, 0.82)
 
     def test_functional_train_step_forward_interface_runs_train_one_epoch(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -432,6 +664,65 @@ class TrainerGradAccumTest(unittest.TestCase):
             self.assertEqual(len(evaluator.last_outputs), 2)
             self.assertIn("pred", evaluator.last_outputs[0])
             self.assertIn("target", evaluator.last_outputs[0])
+
+    def test_validate_updates_best_miou_and_logs_when_metric_improves(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            evaluator = SequenceMetricsEvaluator([{"MIoU": 0.6, "accuracy": 88.0}])
+            trainer = build_trainer(
+                work_dir=tmpdir,
+                values=[1.0, 2.0],
+                batch_size=1,
+                effective_batch_size=1,
+                evaluator=evaluator,
+                inferencer=IdentityInferencer(),
+            )
+            trainer.val_loader = DataLoader(ScalarDataset([1.0, 2.0]), batch_size=1, shuffle=False)
+
+            trainer.validate()
+
+            self.assertEqual(trainer.best_miou, 0.6)
+            log_lines = Path(tmpdir, "train.log").read_text(encoding="utf-8").splitlines()
+            self.assertIn("MIoU_best: 0.6000", log_lines[-1])
+
+    def test_validate_keeps_best_miou_when_metric_does_not_improve(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            evaluator = SequenceMetricsEvaluator([{"MIoU": 0.6}, {"MIoU": 0.5}])
+            trainer = build_trainer(
+                work_dir=tmpdir,
+                values=[1.0, 2.0],
+                batch_size=1,
+                effective_batch_size=1,
+                evaluator=evaluator,
+                inferencer=IdentityInferencer(),
+            )
+            trainer.val_loader = DataLoader(ScalarDataset([1.0, 2.0]), batch_size=1, shuffle=False)
+
+            trainer.validate()
+            trainer.validate()
+
+            self.assertEqual(trainer.best_miou, 0.6)
+            log_lines = Path(tmpdir, "train.log").read_text(encoding="utf-8").splitlines()
+            self.assertEqual(sum(line == "MIoU_best: 0.6000" for line in log_lines), 1)
+
+    def test_validate_ignores_missing_miou_for_best_tracking(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            evaluator = SequenceMetricsEvaluator([{"accuracy": 88.0}])
+            trainer = build_trainer(
+                work_dir=tmpdir,
+                values=[1.0, 2.0],
+                batch_size=1,
+                effective_batch_size=1,
+                evaluator=evaluator,
+                inferencer=IdentityInferencer(),
+            )
+            trainer.best_miou = 0.4
+            trainer.val_loader = DataLoader(ScalarDataset([1.0, 2.0]), batch_size=1, shuffle=False)
+
+            trainer.validate()
+
+            self.assertEqual(trainer.best_miou, 0.4)
+            log_lines = Path(tmpdir, "train.log").read_text(encoding="utf-8").splitlines()
+            self.assertFalse(any(line.startswith("MIoU_best:") for line in log_lines))
 
     def test_train_raises_when_validation_enabled_without_dependencies(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -501,7 +792,7 @@ class TrainerGradAccumTest(unittest.TestCase):
             trainer.train()
 
             log_lines = Path(tmpdir, "train.log").read_text(encoding="utf-8").strip().splitlines()
-            self.assertEqual(len(log_lines), 8)
+            self.assertEqual(len(log_lines), 7)
             self.assertEqual(log_lines[0], "=" * 80)
             self.assertEqual(log_lines[1], "  EPOCH  1 / 1")
             self.assertEqual(log_lines[2], "=" * 80)
@@ -509,7 +800,6 @@ class TrainerGradAccumTest(unittest.TestCase):
             self.assertIn("Train (epoch 1/1) [4/4]", log_lines[4])
             self.assertTrue(log_lines[5].startswith("Training time: "))
             self.assertTrue(log_lines[6].startswith("Train summary: "))
-            self.assertTrue(log_lines[7].startswith("Cumulative time: "))
 
 
 if __name__ == "__main__":

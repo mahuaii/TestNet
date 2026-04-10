@@ -60,8 +60,6 @@ def log_run_summary(
 def main() -> None:
     args = parse_args()
     cfg = load_config(args.config)
-    if "effective_batch_size" not in cfg["train"]:
-        cfg["train"]["effective_batch_size"] = cfg["train"]["batch_size"]
 
     work_dir = Path(args.work_dir)
     work_dir.mkdir(parents=True, exist_ok=True)

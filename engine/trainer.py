@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-import math
 from typing import Any
 
 import torch
@@ -61,18 +60,10 @@ class Trainer(ABC):
 
         self.epoch = 1
         self.global_step = 0
+        self.best_miou = 0.0
         self.max_epochs = cfg["max_epochs"]
         self.timer = AnchorTimer()
-
-        effective_batch_size = cfg.get("effective_batch_size", self.train_loader.batch_size)
-        if effective_batch_size < self.train_loader.batch_size:
-            raise ValueError("effective_batch_size must be greater than or equal to batch_size")
-        if effective_batch_size % self.train_loader.batch_size != 0:
-            raise ValueError("effective_batch_size must be divisible by batch_size")
-        self.grad_accum_steps = effective_batch_size // self.train_loader.batch_size
-        self.total_steps_per_epoch = max(
-            1, math.ceil(len(self.train_loader) / self.grad_accum_steps)
-        )
+        self.total_steps_per_epoch = max(1, len(self.train_loader))
 
     @property
     def lr(self) -> float:
@@ -95,6 +86,7 @@ class Trainer(ABC):
             self.scheduler.load_state_dict(state_dict["scheduler"])
         self.epoch = int(state_dict["epoch"])
         self.global_step = int(state_dict["global_step"])
+        self.best_miou = float(state_dict.get("best_miou", 0.0))
 
     def train(self):
         """
@@ -152,46 +144,27 @@ class Trainer(ABC):
         self.timer.mark("log_interval")
 
         step = 0
-        batch_count_in_step = 0  # 当前 step 已处理的 batch 数
-        batch_count_in_epoch = 0  # 当前 epoch 已处理的 batch 数
         epoch_metrics = StatTracker()  # epoch 级统计
-        # total_batches 用于识别 epoch 尾部，保证最后一个不完整累积窗口也能正确缩放和提交。
-        total_batches = len(self.train_loader)
-
+        log_window_metrics = StatTracker()  # 日志窗口级统计
         self.optimizer.zero_grad()
 
-        step_metrics = StatTracker()  # step 级统计
         # batch循环
         for batch in self.train_loader:
-            # 含当前 batch 在内的剩余 batch 数
-            remaining_batches = total_batches - batch_count_in_epoch
-            # 尾批不足 grad_accum_steps 时，按实际 batch 数缩放 loss，避免最后一次梯度被压小。
-            accum_batch_target = min(self.grad_accum_steps, remaining_batches)
-
             # 前向、反向
             loss, metrics = self.train_forward(batch)
-            (loss / accum_batch_target).backward()
+            loss.backward()
 
-            # 当前 step 内指标累积
-            step_metrics.update_mean_stats(metrics)
+            log_window_metrics.update_mean_stats(metrics)
             epoch_metrics.update_mean_stats(metrics)
-            batch_count_in_step += 1
-            batch_count_in_epoch += 1
-
-            # 满足累积窗口或到达 epoch 末尾时，才提交一次 step。
-            if (batch_count_in_step == self.grad_accum_steps) or (
-                batch_count_in_epoch == total_batches
-            ):
-                self._optimize_step()
-                step += 1
-                self.after_step(
-                    step,
-                    step_metrics.get_aggregated_stats(),
-                    is_last_step_of_epoch=(batch_count_in_epoch == total_batches),
-                )
-
-                step_metrics = StatTracker()
-                batch_count_in_step = 0
+            self.optimize_step()
+            step += 1
+            self.after_step(
+                step,
+                log_window_metrics,
+                is_last_step_of_epoch=(step == len(self.train_loader)),
+            )
+            if step % int(self.cfg["log_step_interval"]) == 0 or step == len(self.train_loader):
+                log_window_metrics = StatTracker()
 
         return epoch_metrics.get_aggregated_stats()
 
@@ -219,7 +192,7 @@ class Trainer(ABC):
     def after_step(
         self,
         step: int,
-        step_stats: dict[str, float],
+        step_stats_tracker: StatTracker,
         is_last_step_of_epoch: bool = False,
     ):
         """
@@ -234,7 +207,7 @@ class Trainer(ABC):
                 step=step,
                 total_steps=self.total_steps_per_epoch,
                 global_step=self.global_step,
-                step_stats=step_stats,
+                step_stats=step_stats_tracker.get_aggregated_stats(),
                 interval_time_seconds=self.timer.elapsed("log_interval"),
                 epoch_elapsed_seconds=self.timer.elapsed("epoch"),
                 lr=self.lr,
@@ -251,6 +224,7 @@ class Trainer(ABC):
                 scheduler=self.scheduler,
                 epoch=self.epoch,
                 global_step=self.global_step,
+                best_miou=self.best_miou,
             )
             self.logger.log_checkpoint_saved(path)
 
@@ -278,6 +252,7 @@ class Trainer(ABC):
                 scheduler=self.scheduler,
                 epoch=self.epoch,
                 global_step=self.global_step,
+                best_miou=self.best_miou,
             )
             self.logger.log_checkpoint_saved(path)
 
@@ -294,6 +269,8 @@ class Trainer(ABC):
             epoch=self.epoch,
             val_metrics=val_metrics,
         )
+        miou = val_metrics.get("MIoU", 0.0)
+        self._update_best_miou(miou)
 
     @torch.no_grad()
     def validate(self):
@@ -327,7 +304,12 @@ class Trainer(ABC):
             validation_time_seconds=validation_time_seconds,
         )
 
-    def _optimize_step(self):
+    def optimize_step(self):
         self.optimizer.step()
         self.optimizer.zero_grad()
         self.global_step += 1
+
+    def _update_best_miou(self, miou: float) -> None:
+        if miou > self.best_miou:
+            self.best_miou = miou
+            self.logger.log_best_metric("MIoU_best", self.best_miou)

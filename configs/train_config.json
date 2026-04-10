@@ -55,7 +55,6 @@
     "train": {
         "max_epochs": 50,
         "batch_size": 10,
-        "effective_batch_size": 10,
         "auto_resume": true,
         "log_step_interval": 1,
         "val_epoch_interval": 0,
