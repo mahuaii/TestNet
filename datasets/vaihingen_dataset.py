@@ -228,8 +228,8 @@ class ISPRSMultimodalDataset(Dataset):
             )
 
         if self.split == "train":
-            x1 = random.randint(0, height - patch_h)
-            y1 = random.randint(0, width - patch_w)
+            x1 = random.randint(0, height - patch_h - 1)
+            y1 = random.randint(0, width - patch_w - 1)
         else:
             x1 = (height - patch_h) // 2
             y1 = (width - patch_w) // 2

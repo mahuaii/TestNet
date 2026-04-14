@@ -4,6 +4,7 @@ import random
 
 import numpy as np
 import torch
+from torch.autograd import Variable
 import torch.nn.functional as F
 
 
@@ -28,7 +29,7 @@ class DataUtils:
         dsm = np.asarray(dsm, dtype=np.float32)
         dsm_min = float(np.min(dsm))
         dsm_max = float(np.max(dsm))
-        return (dsm - dsm_min) / (dsm_max - dsm_min + 1e-8)
+        return (dsm - dsm_min) / (dsm_max - dsm_min)
 
     @staticmethod
     def augment_triplet(
@@ -71,7 +72,7 @@ class DataUtils:
 
         target_mask = (target >= 0) & (target != ignore_label)
         if not torch.any(target_mask):
-            return logits.sum() * 0.0
+            return Variable(torch.zeros(1))
 
         filtered_target = target[target_mask]
         filtered_logits = logits.permute(0, 2, 3, 1).contiguous()

@@ -1,7 +1,8 @@
 {
     "model": {
         "type": "mfnet_unetformer",
-        "num_classes": 6
+        "num_classes": 6,
+        "sam_checkpoint": "_Checkpoints/segment-anything/sam_vit_b_01ec64.pth"
     },
     "dataset": {
         "root_dir": "./datasets/Vaihingen",

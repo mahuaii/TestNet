@@ -8,6 +8,7 @@ import tempfile
 import types
 import unittest
 from pathlib import Path
+from unittest.mock import call, patch
 
 from PIL import Image
 import torch
@@ -334,6 +335,14 @@ class MFNetTrainingTest(unittest.TestCase):
         )
         self.assertAlmostEqual(float(loss.detach()), float(expected_loss), places=6)
 
+    def test_normalize_dsm_matches_original_non_hunan_formula(self) -> None:
+        dsm = torch.tensor([[10.0, 20.0], [30.0, 40.0]]).numpy()
+
+        normalized = DataUtils.normalize_dsm(dsm)
+
+        self.assertEqual(float(normalized[0, 0]), 0.0)
+        self.assertEqual(float(normalized[-1, -1]), 1.0)
+
     def test_train_one_epoch_uses_micro_batch_steps_without_grad_accum_state(self) -> None:
         sample = {
             "inputs": {
@@ -422,6 +431,27 @@ class MFNetTrainingTest(unittest.TestCase):
             self.assertEqual(sample["inputs"]["dsm"].shape, (16, 16))
             self.assertEqual(sample["target"].shape, (16, 16))
             self.assertTrue(set(torch.unique(sample["target"]).tolist()).issubset({0, 1}))
+
+    def test_training_crop_bounds_match_original_random_pos(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            self._write_vaihingen_sample(root)
+            dataset = VaihingenDataset(
+                root_dir=str(root),
+                ids=["1"],
+                patch_size=(16, 16),
+                samples_per_epoch=1,
+                cache=True,
+                augmentation=False,
+                split="train",
+            )
+
+            with patch("datasets.vaihingen_dataset.random.randint", side_effect=[3, 5]) as randint:
+                sample = dataset[0]
+
+            self.assertEqual(randint.call_args_list, [call(0, 15), call(0, 15)])
+            self.assertEqual(sample["inputs"]["rgb"].shape, (3, 16, 16))
+            self.assertEqual(sample["inputs"]["dsm"].shape, (16, 16))
 
     def test_build_isprs_dataset_dispatches_to_potsdam(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
