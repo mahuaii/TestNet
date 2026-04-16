@@ -5,6 +5,7 @@
         "sam_checkpoint": "_Checkpoints/segment-anything/sam_vit_b_01ec64.pth"
     },
     "dataset": {
+        "name": "vaihingen",
         "root_dir": "./datasets/Vaihingen",
         "patch_size": [
             256,

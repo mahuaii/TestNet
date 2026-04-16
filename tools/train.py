@@ -12,10 +12,10 @@ if str(ROOT) not in sys.path:
 import torch
 from torch.utils.data import DataLoader
 
-from datasets import VAIHINGEN_TRAIN_IDS, VAIHINGEN_VAL_IDS, VaihingenDataset
+from datasets import get_default_isprs_tile_ids, build_isprs_dataset
 from engine import Evaluator, MFNetTrainer, SlidingWindowInferencer
 from models import build_model
-from utils import CheckpointManager, MFNetLogger, load_config
+from utils import MFNetLogger, load_config
 
 
 def parse_args() -> argparse.Namespace:
@@ -29,7 +29,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _count_model_params(model: torch.nn.Module) -> tuple[int, int, int, int]:
+def count_model_params(model: torch.nn.Module) -> tuple[int, int, int, int]:
     all_params = sum(param.nelement() for param in model.parameters())
     image_encoder_params = 0
     lora_params = 0
@@ -48,7 +48,7 @@ def log_run_summary(
     work_dir: Path,
     experiment_name: str,
 ) -> None:
-    all_params, image_encoder_params, lora_params, other_params = _count_model_params(model)
+    all_params, image_encoder_params, lora_params, other_params = count_model_params(model)
     logger.log_message(f"Experiment: {experiment_name}")
     logger.log_message(f"Workdir: {work_dir}")
     logger.log_message(f"All Params:   {all_params}")
@@ -70,14 +70,18 @@ def main() -> None:
 
     model = build_model(cfg["model"])
 
-    # TODO: config新增数据集名称字段，根据名称加载对应数据集类
-    train_dataset = VaihingenDataset(
-        root_dir=cfg["dataset"]["root_dir"],
-        ids=cfg["dataset"].get("train_ids", VAIHINGEN_TRAIN_IDS),
-        patch_size=cfg["dataset"].get("patch_size", [256, 256]),
-        samples_per_epoch=cfg["dataset"]["train_samples_per_epoch"],
-        cache=cfg["dataset"].get("cache", True),
-        augmentation=cfg["dataset"].get("augmentation", True),
+    dataset_cfg = cfg["dataset"]
+    dataset_name = str(dataset_cfg.get("name", "vaihingen")).strip().lower()
+    default_train_ids, default_val_ids = get_default_isprs_tile_ids(dataset_name)
+
+    train_dataset = build_isprs_dataset(
+        dataset_name,
+        root_dir=dataset_cfg["root_dir"],
+        ids=dataset_cfg.get("train_ids", default_train_ids),
+        patch_size=dataset_cfg.get("patch_size", [256, 256]),
+        samples_per_epoch=dataset_cfg["train_samples_per_epoch"],
+        cache=dataset_cfg.get("cache", True),
+        augmentation=dataset_cfg.get("augmentation", True),
         split="train",
     )
     train_loader = DataLoader(
@@ -89,14 +93,14 @@ def main() -> None:
 
     val_loader: Any = []
     if cfg["train"]["val_epoch_interval"] > 0:
-        val_dataset = VaihingenDataset(
-            root_dir=cfg["dataset"]["root_dir"],
-            ids=cfg["dataset"].get("val_ids", VAIHINGEN_VAL_IDS),
-            patch_size=cfg["dataset"].get("patch_size", [256, 256]),
-            samples_per_epoch=cfg["dataset"].get(
-                "val_samples_per_epoch", len(cfg["dataset"].get("val_ids", VAIHINGEN_VAL_IDS))
-            ),
-            cache=cfg["dataset"].get("cache", True),
+        default_val_ids = dataset_cfg.get("val_ids", default_val_ids)
+        val_dataset = build_isprs_dataset(
+            dataset_name,
+            root_dir=dataset_cfg["root_dir"],
+            ids=default_val_ids,
+            patch_size=dataset_cfg.get("patch_size", [256, 256]),
+            samples_per_epoch=dataset_cfg.get("val_samples_per_epoch", len(default_val_ids)),
+            cache=dataset_cfg.get("cache", True),
             augmentation=False,
             split="val",
         )
@@ -130,7 +134,6 @@ def main() -> None:
         train_loader=train_loader,
         val_loader=val_loader,
         logger=logger,
-        checkpoint_manager=CheckpointManager(str(work_dir)),
         evaluator=Evaluator(),
         device=torch.device(args.device),
         inferencer=SlidingWindowInferencer(),

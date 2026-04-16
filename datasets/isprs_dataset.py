@@ -96,7 +96,7 @@ POTSDAM_PRESET = ISPRSPreset(
 )
 
 
-class ISPRSMultimodalDataset(Dataset):
+class ISPRSDataset(Dataset):
     def __init__(
         self,
         preset: ISPRSPreset,
@@ -121,16 +121,13 @@ class ISPRSMultimodalDataset(Dataset):
         self.split = str(split)
 
         self.rgb_files = [
-            self.root_dir / preset.rgb_subdir / preset.rgb_pattern.format(tile_id=tile_id)
-            for tile_id in self.ids
+            self.root_dir / preset.rgb_subdir / preset.rgb_pattern.format(tile_id=tile_id) for tile_id in self.ids
         ]
         self.dsm_files = [
-            self.root_dir / preset.dsm_subdir / preset.dsm_pattern.format(tile_id=tile_id)
-            for tile_id in self.ids
+            self.root_dir / preset.dsm_subdir / preset.dsm_pattern.format(tile_id=tile_id) for tile_id in self.ids
         ]
         self.label_files = [
-            self.root_dir / preset.label_subdir / preset.label_pattern.format(tile_id=tile_id)
-            for tile_id in self.ids
+            self.root_dir / preset.label_subdir / preset.label_pattern.format(tile_id=tile_id) for tile_id in self.ids
         ]
         self.eval_label_files = [
             self.root_dir
@@ -153,9 +150,9 @@ class ISPRSMultimodalDataset(Dataset):
 
     def __getitem__(self, index: int) -> dict[str, object]:
         tile_index = self._resolve_tile_index(index)
-        rgb = self._load_rgb(tile_index)
-        dsm = self._load_dsm(tile_index)
-        target = self._load_target(tile_index)
+        rgb = self._load_rgb_tile(tile_index)
+        dsm = self._load_dsm_tile(tile_index)
+        target = self._load_target_tile(tile_index)
 
         rgb_patch, dsm_patch, target_patch = self._crop_patch(rgb, dsm, target)
         if self.augmentation:
@@ -176,9 +173,9 @@ class ISPRSMultimodalDataset(Dataset):
 
     def get_tile(self, index: int) -> dict[str, object]:
         tile_index = int(index)
-        rgb = self._load_rgb(tile_index)
-        dsm = self._load_dsm(tile_index)
-        target = self._load_eval_target(tile_index)
+        rgb = self._load_rgb_tile(tile_index)
+        dsm = self._load_dsm_tile(tile_index)
+        target = self._load_eval_target_tile(tile_index)
         return {
             "inputs": {
                 "rgb": torch.from_numpy(rgb.copy()).float(),
@@ -191,7 +188,7 @@ class ISPRSMultimodalDataset(Dataset):
             },
         }
 
-    def _load_rgb(self, tile_index: int) -> np.ndarray:
+    def _load_rgb_tile(self, tile_index: int) -> np.ndarray:
         if tile_index not in self.rgb_cache:
             rgb = np.asarray(imageio.imread(self.rgb_files[tile_index]), dtype=np.float32)
             required_channels = len(self.preset.rgb_channels)
@@ -207,14 +204,12 @@ class ISPRSMultimodalDataset(Dataset):
             rgb = self.rgb_cache[tile_index]
         else:
             rgb = (
-                np.asarray(imageio.imread(self.rgb_files[tile_index]), dtype=np.float32)[
-                    :, :, self.preset.rgb_channels
-                ]
+                np.asarray(imageio.imread(self.rgb_files[tile_index]), dtype=np.float32)[:, :, self.preset.rgb_channels]
                 / 255.0
             ).transpose(2, 0, 1)
         return rgb
 
-    def _load_dsm(self, tile_index: int) -> np.ndarray:
+    def _load_dsm_tile(self, tile_index: int) -> np.ndarray:
         if tile_index not in self.dsm_cache:
             dsm = DataUtils.normalize_dsm(imageio.imread(self.dsm_files[tile_index]))
             if self.cache:
@@ -225,14 +220,14 @@ class ISPRSMultimodalDataset(Dataset):
             dsm = DataUtils.normalize_dsm(imageio.imread(self.dsm_files[tile_index]))
         return dsm
 
-    def _load_target(self, tile_index: int) -> np.ndarray:
+    def _load_target_tile(self, tile_index: int) -> np.ndarray:
         return self._load_label(
             tile_index=tile_index,
             files=self.label_files,
             cache_store=self.label_cache,
         )
 
-    def _load_eval_target(self, tile_index: int) -> np.ndarray:
+    def _load_eval_target_tile(self, tile_index: int) -> np.ndarray:
         return self._load_label(
             tile_index=tile_index,
             files=self.eval_label_files,
@@ -297,7 +292,7 @@ class ISPRSMultimodalDataset(Dataset):
         return augmented
 
 
-class VaihingenDataset(ISPRSMultimodalDataset):
+class VaihingenDataset(ISPRSDataset):
     def __init__(
         self,
         root_dir: str,
@@ -320,7 +315,7 @@ class VaihingenDataset(ISPRSMultimodalDataset):
         )
 
 
-class PotsdamDataset(ISPRSMultimodalDataset):
+class PotsdamDataset(ISPRSDataset):
     def __init__(
         self,
         root_dir: str,
@@ -343,7 +338,16 @@ class PotsdamDataset(ISPRSMultimodalDataset):
         )
 
 
-def build_isprs_dataset(name: str, **kwargs: object) -> ISPRSMultimodalDataset:
+def get_default_isprs_tile_ids(dataset_name: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    normalized_name = str(dataset_name).strip().lower()
+    if normalized_name == "vaihingen":
+        return tuple(VAIHINGEN_TRAIN_IDS), tuple(VAIHINGEN_VAL_IDS)
+    if normalized_name == "potsdam":
+        return tuple(POTSDAM_TRAIN_IDS), tuple(POTSDAM_VAL_IDS)
+    raise ValueError(f"Unsupported dataset {dataset_name!r}: expected 'vaihingen' or 'potsdam'")
+
+
+def build_isprs_dataset(name: str, **kwargs: object) -> ISPRSDataset:
     dataset_name = str(name).strip().lower()
     if dataset_name == "vaihingen":
         return VaihingenDataset(**kwargs)

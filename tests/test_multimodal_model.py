@@ -14,9 +14,10 @@ from PIL import Image
 import torch
 from torch.utils.data import DataLoader, Dataset
 
+from datasets.isprs_dataset import POTSDAM_TRAIN_IDS, POTSDAM_VAL_IDS, VAIHINGEN_TRAIN_IDS, VAIHINGEN_VAL_IDS
 from datasets import PotsdamDataset, VaihingenDataset, build_isprs_dataset
 from engine import MFNetTrainer, SlidingWindowInferencer
-from utils import CheckpointManager, DataUtils, MFNetLogger
+from utils import DataUtils, MFNetLogger
 
 
 class _SingleBatchDataset(Dataset):
@@ -185,11 +186,11 @@ class MFNetTrainingTest(unittest.TestCase):
             train_loader=train_loader,
             val_loader=[],
             logger=MFNetLogger(tmpdir),
-            checkpoint_manager=CheckpointManager(tmpdir),
             evaluator=None,
             inferencer=None,
             device=torch.device("cpu"),
             cfg={
+                "work_dir": tmpdir,
                 "max_epochs": 1,
                 "batch_size": 1,
                 "effective_batch_size": 1,
@@ -278,11 +279,11 @@ class MFNetTrainingTest(unittest.TestCase):
                 train_loader=train_loader,
                 val_loader=[],
                 logger=MFNetLogger(tmpdir),
-                checkpoint_manager=CheckpointManager(tmpdir),
                 evaluator=None,
                 inferencer=None,
                 device=torch.device("cpu"),
                 cfg={
+                    "work_dir": tmpdir,
                     "max_epochs": 1,
                     "batch_size": 1,
                     "effective_batch_size": 1,
@@ -408,11 +409,11 @@ class MFNetTrainingTest(unittest.TestCase):
                 train_loader=train_loader,
                 val_loader=[],
                 logger=MFNetLogger(tmpdir),
-                checkpoint_manager=CheckpointManager(tmpdir),
                 evaluator=None,
                 inferencer=None,
                 device=torch.device("cpu"),
                 cfg={
+                    "work_dir": tmpdir,
                     "max_epochs": 1,
                     "batch_size": 1,
                     "effective_batch_size": 2,
@@ -641,7 +642,7 @@ class MFNetTrainingTest(unittest.TestCase):
                 split="train",
             )
 
-            with patch("datasets.vaihingen_dataset.random.randint", side_effect=[3, 5]) as randint:
+            with patch("datasets.isprs_dataset.random.randint", side_effect=[3, 5]) as randint:
                 sample = dataset[0]
 
             self.assertEqual(randint.call_args_list, [call(0, 15), call(0, 15)])
@@ -732,7 +733,7 @@ class MFNetTrainingTest(unittest.TestCase):
         original_parse_args = module.parse_args
         original_load_config = module.load_config
         original_build_model = module.build_model
-        original_dataset = module.VaihingenDataset
+        original_build_isprs_dataset = module.build_isprs_dataset
         original_dataloader = module.DataLoader
         original_trainer = module.MFNetTrainer
         try:
@@ -755,6 +756,7 @@ class MFNetTrainingTest(unittest.TestCase):
                         "sam_checkpoint": "/tmp/sam_vit_b.pth",
                     },
                     "dataset": {
+                        "name": "vaihingen",
                         "root_dir": tmpdir,
                         "patch_size": [32, 32],
                         "train_ids": ["1"],
@@ -800,7 +802,11 @@ class MFNetTrainingTest(unittest.TestCase):
                     captured_dataset_calls.append(kwargs)
                     return {"dataset_kwargs": kwargs}
 
-                module.VaihingenDataset = fake_dataset
+                def fake_build_isprs_dataset(name: str, **kwargs: object) -> dict[str, object]:
+                    captured_dataset_calls.append({"name": name, **kwargs})
+                    return {"dataset_name": name, "dataset_kwargs": kwargs}
+
+                module.build_isprs_dataset = fake_build_isprs_dataset
                 module.DataLoader = lambda dataset, **kwargs: {
                     "dataset": dataset,
                     "batch_size": kwargs["batch_size"],
@@ -811,6 +817,8 @@ class MFNetTrainingTest(unittest.TestCase):
                 module.main()
 
                 self.assertEqual(len(captured_dataset_calls), 2)
+                self.assertEqual(captured_dataset_calls[0]["name"], "vaihingen")
+                self.assertEqual(captured_dataset_calls[1]["name"], "vaihingen")
                 self.assertEqual(captured_dataset_calls[0]["split"], "train")
                 self.assertEqual(captured_dataset_calls[1]["split"], "val")
                 self.assertEqual(len(captured_trainer_kwargs), 1)
@@ -830,6 +838,7 @@ class MFNetTrainingTest(unittest.TestCase):
                 self.assertEqual(trainer_kwargs["cfg"]["sam_checkpoint"], "/tmp/sam_vit_b.pth")
                 self.assertEqual(trainer_kwargs["cfg"]["resume_from"], str(latest_path))
                 self.assertEqual(trainer_kwargs["cfg"]["work_dir"], str(Path(tmpdir)))
+                self.assertNotIn("checkpoint_manager", trainer_kwargs)
                 self.assertEqual(
                     trainer_kwargs["cfg"]["validation"],
                     {"stride": 32},
@@ -839,9 +848,31 @@ class MFNetTrainingTest(unittest.TestCase):
             module.parse_args = original_parse_args
             module.load_config = original_load_config
             module.build_model = original_build_model
-            module.VaihingenDataset = original_dataset
+            module.build_isprs_dataset = original_build_isprs_dataset
             module.DataLoader = original_dataloader
             module.MFNetTrainer = original_trainer
+
+    def test_train_entry_default_ids_follow_dataset_name(self) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "test_train_module_defaults",
+            Path(__file__).resolve().parents[1] / "tools" / "train.py",
+        )
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        vaihingen_train_ids, vaihingen_val_ids = module.get_default_isprs_tile_ids("vaihingen")
+        potsdam_train_ids, potsdam_val_ids = module.get_default_isprs_tile_ids("potsdam")
+
+        self.assertEqual(vaihingen_train_ids, tuple(VAIHINGEN_TRAIN_IDS))
+        self.assertEqual(vaihingen_val_ids, tuple(VAIHINGEN_VAL_IDS))
+        self.assertEqual(potsdam_train_ids, tuple(POTSDAM_TRAIN_IDS))
+        self.assertEqual(potsdam_val_ids, tuple(POTSDAM_VAL_IDS))
+        with self.assertRaisesRegex(ValueError, "expected 'vaihingen' or 'potsdam'"):
+            module.get_default_isprs_tile_ids("hunan")
+        with self.assertRaisesRegex(ValueError, "expected 'vaihingen' or 'potsdam'"):
+            module.get_default_isprs_tile_ids("unknown")
 
 
 if __name__ == "__main__":

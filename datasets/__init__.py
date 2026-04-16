@@ -1,21 +1,15 @@
 from .dummy_seg_dataset import DummySegDataset
-from .vaihingen_dataset import (
-    POTSDAM_TRAIN_IDS,
-    POTSDAM_VAL_IDS,
-    VAIHINGEN_TRAIN_IDS,
-    VAIHINGEN_VAL_IDS,
+from .isprs_dataset import (
     PotsdamDataset,
     VaihingenDataset,
+    get_default_isprs_tile_ids,
     build_isprs_dataset,
 )
 
 __all__ = [
     "DummySegDataset",
-    "POTSDAM_TRAIN_IDS",
-    "POTSDAM_VAL_IDS",
-    "VAIHINGEN_TRAIN_IDS",
-    "VAIHINGEN_VAL_IDS",
     "PotsdamDataset",
     "VaihingenDataset",
+    "get_default_isprs_tile_ids",
     "build_isprs_dataset",
 ]
