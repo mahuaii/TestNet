@@ -251,8 +251,9 @@ class Trainer(ABC):
             val_metrics=val_metrics,
         )
 
-        miou = val_metrics.get("MIoU", 0.0)
-        self._update_save_best_miou(miou)
+        if "MIoU" in val_metrics:
+            self._update_save_best_miou(float(val_metrics["MIoU"]))
+        self.logger.log_best_metric("MIoU_best", self.best_miou)
 
     @torch.no_grad()
     def validate(self):
@@ -262,7 +263,24 @@ class Trainer(ABC):
         - 调用 evaluator 聚合验证结果
         - 输出验证阶段日志与计时
         """
-        ...
+        self.timer.mark("validation")
+        self.model.eval()
+
+        outputs = [
+            self.inferencer.run_batch_infer(
+                model=self.model,
+                batch=batch,
+                device=self.device,
+            )
+            for batch in self.val_loader
+        ]
+        val_metrics = self.evaluator.evaluate(outputs=outputs, trainer=self)
+        validation_time_seconds = self.timer.elapsed("validation")
+        self.after_val(
+            val_metrics,
+            validation_time_seconds=validation_time_seconds,
+        )
+        self.model.train()
 
     def optimize_step(self):
         self.optimizer.step()
@@ -284,7 +302,6 @@ class Trainer(ABC):
     def _update_save_best_miou(self, miou: float) -> None:
         if miou > self.best_miou:
             self.best_miou = miou
-            self.logger.log_best_metric("MIoU_best", self.best_miou)
 
             self._save_training_state(
                 name="best_miou.pth",

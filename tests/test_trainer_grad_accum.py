@@ -702,7 +702,7 @@ class TrainerGradAccumTest(unittest.TestCase):
 
             self.assertEqual(trainer.best_miou, 0.6)
             log_lines = Path(tmpdir, "train.log").read_text(encoding="utf-8").splitlines()
-            self.assertEqual(sum(line == "MIoU_best: 0.6000" for line in log_lines), 1)
+            self.assertEqual(sum(line == "MIoU_best: 0.6000" for line in log_lines), 2)
 
     def test_validate_ignores_missing_miou_for_best_tracking(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -722,7 +722,7 @@ class TrainerGradAccumTest(unittest.TestCase):
 
             self.assertEqual(trainer.best_miou, 0.4)
             log_lines = Path(tmpdir, "train.log").read_text(encoding="utf-8").splitlines()
-            self.assertFalse(any(line.startswith("MIoU_best:") for line in log_lines))
+            self.assertIn("MIoU_best: 0.4000", log_lines)
 
     def test_train_raises_when_validation_enabled_without_dependencies(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
