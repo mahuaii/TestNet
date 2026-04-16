@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any
 
 import torch
@@ -17,7 +18,7 @@ class Trainer(ABC):
     输入：
     - model、optimizer、scheduler
     - train_loader、val_loader
-    - logger、checkpoint_manager、evaluator
+    - logger、evaluator
     - task、inferencer
     - device、cfg
 
@@ -38,7 +39,6 @@ class Trainer(ABC):
         train_loader: Any,
         val_loader: Any,
         logger: Logger,
-        checkpoint_manager: CheckpointManager,
         evaluator: Evaluator,
         device: torch.device,
         cfg: dict[str, Any],
@@ -52,7 +52,6 @@ class Trainer(ABC):
         self.val_loader = val_loader
         self.evaluator = evaluator
         self.inferencer = inferencer
-        self.checkpoint_manager = checkpoint_manager
         self.logger = logger
         self.device = device
         self.cfg = cfg
@@ -78,7 +77,7 @@ class Trainer(ABC):
         self.model.load_state_dict(model_state)
 
     def _load_training_state(self, path: str):
-        state_dict = self.checkpoint_manager.load(path)
+        state_dict = CheckpointManager.load(path)
         self.model.load_state_dict(state_dict["model"])
         self.optimizer.load_state_dict(state_dict["optimizer"])
         if self.scheduler is not None and state_dict["scheduler"] is not None:
@@ -91,7 +90,7 @@ class Trainer(ABC):
         """
         - 执行完整训练流程
         - 处理权重加载、断点恢复、epoch 循环和验证触发
-        - 通过 logger 和 checkpoint_manager 产生日志与保存结果
+        - 通过 logger 和 CheckpointManager 产生日志与保存结果
         """
         # 权重加载与断点恢复
         resume_from = self.cfg.get("resume_from")
@@ -213,19 +212,10 @@ class Trainer(ABC):
             )
             self.timer.mark("log_interval")
 
-        # 保存训练状态（满足 global step 间隔要求）
+        # 保存训练状态
         save_step_interval = self.cfg["save_step_interval"]
         if save_step_interval > 0 and self.global_step % save_step_interval == 0:
-            path = self.checkpoint_manager.save_training_state(
-                name=f"global_step_{self.global_step}.pth",
-                model=self.model,
-                optimizer=self.optimizer,
-                scheduler=self.scheduler,
-                epoch=self.epoch,
-                global_step=self.global_step,
-                best_miou=self.best_miou,
-            )
-            self.logger.log_checkpoint_saved(path)
+            self._save_training_state(name=f"global_step_{self.global_step}.pth")
 
     def after_epoch(
         self,
@@ -242,18 +232,10 @@ class Trainer(ABC):
             lr=self.lr,
         )
 
+        self._save_training_state(name="latest.pth")
         save_epoch_interval = int(self.cfg["save_epoch_interval"])
         if save_epoch_interval > 0 and self.epoch % save_epoch_interval == 0:
-            path = self.checkpoint_manager.save_training_state(
-                name=f"epoch_{self.epoch}.pth",
-                model=self.model,
-                optimizer=self.optimizer,
-                scheduler=self.scheduler,
-                epoch=self.epoch,
-                global_step=self.global_step,
-                best_miou=self.best_miou,
-            )
-            self.logger.log_checkpoint_saved(path)
+            self._save_training_state(name=f"epoch_{self.epoch}.pth")
 
     def after_val(
         self,
@@ -268,8 +250,9 @@ class Trainer(ABC):
             epoch=self.epoch,
             val_metrics=val_metrics,
         )
+
         miou = val_metrics.get("MIoU", 0.0)
-        self._update_best_miou(miou)
+        self._update_save_best_miou(miou)
 
     @torch.no_grad()
     def validate(self):
@@ -279,36 +262,30 @@ class Trainer(ABC):
         - 调用 evaluator 聚合验证结果
         - 输出验证阶段日志与计时
         """
-        self.timer.mark("validation")
-        outputs = []
-        self.model.eval()
-        for batch in self.val_loader:
-            outputs.append(
-                self.inferencer.run_batch_infer(
-                    model=self.model,
-                    batch=batch,
-                    device=self.device,
-                )
-            )
-        val_metrics = self.evaluator.evaluate(
-            outputs=outputs,
-            model=self.model,
-            dataloader=self.val_loader,
-            inferencer=self.inferencer,
-            trainer=self,
-        )
-        validation_time_seconds = self.timer.elapsed("validation")
-        self.after_val(
-            val_metrics,
-            validation_time_seconds=validation_time_seconds,
-        )
+        ...
 
     def optimize_step(self):
         self.optimizer.step()
         self.optimizer.zero_grad()
         self.global_step += 1
 
-    def _update_best_miou(self, miou: float) -> None:
+    def _save_training_state(self, name: str) -> None:
+        path = CheckpointManager.save_training_state(
+            path=Path(self.cfg["work_dir"]) / name,
+            model=self.model,
+            optimizer=self.optimizer,
+            scheduler=self.scheduler,
+            epoch=self.epoch,
+            global_step=self.global_step,
+            best_miou=self.best_miou,
+        )
+        self.logger.log_checkpoint_saved(path)
+
+    def _update_save_best_miou(self, miou: float) -> None:
         if miou > self.best_miou:
             self.best_miou = miou
             self.logger.log_best_metric("MIoU_best", self.best_miou)
+
+            self._save_training_state(
+                name="best_miou.pth",
+            )

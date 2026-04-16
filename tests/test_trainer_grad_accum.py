@@ -227,12 +227,12 @@ def build_trainer(
         train_loader=train_loader,
         val_loader=[],
         logger=logger_cls(work_dir),
-        checkpoint_manager=CheckpointManager(work_dir),
         evaluator=evaluator,
         device=torch.device("cpu"),
         scheduler=scheduler,
         inferencer=inferencer,
         cfg={
+            "work_dir": work_dir,
             "max_epochs": max_epochs,
             "batch_size": batch_size,
             "log_step_interval": log_step_interval,
@@ -333,11 +333,11 @@ class TrainerGradAccumTest(unittest.TestCase):
                 train_loader=train_loader,
                 val_loader=[],
                 logger=CaptureStepStatsLogger(tmpdir),
-                checkpoint_manager=CheckpointManager(tmpdir),
                 evaluator=CaptureEvaluator(),
                 device=torch.device("cpu"),
                 inferencer=IdentityInferencer(),
                 cfg={
+                    "work_dir": tmpdir,
                     "max_epochs": 1,
                     "batch_size": 1,
                     "log_step_interval": 2,
@@ -366,11 +366,11 @@ class TrainerGradAccumTest(unittest.TestCase):
                 train_loader=train_loader,
                 val_loader=[],
                 logger=CaptureStepStatsLogger(tmpdir),
-                checkpoint_manager=CheckpointManager(tmpdir),
                 evaluator=CaptureEvaluator(),
                 device=torch.device("cpu"),
                 inferencer=IdentityInferencer(),
                 cfg={
+                    "work_dir": tmpdir,
                     "max_epochs": 1,
                     "batch_size": 1,
                     "effective_batch_size": 2,
@@ -509,7 +509,7 @@ class TrainerGradAccumTest(unittest.TestCase):
                 trainer_cls=GradAccumRegressionTrainer,
             )
 
-            trainer.train_one_epoch()
+            trainer.train()
 
             resumed = build_trainer(
                 work_dir=tmpdir,
@@ -518,7 +518,7 @@ class TrainerGradAccumTest(unittest.TestCase):
                 effective_batch_size=4,
                 trainer_cls=GradAccumRegressionTrainer,
             )
-            state_dict = resumed.checkpoint_manager.load(
+            state_dict = CheckpointManager.load(
                 path=str(Path(tmpdir) / "latest.pth")
             )
             resumed.model.load_state_dict(state_dict["model"])
@@ -542,10 +542,10 @@ class TrainerGradAccumTest(unittest.TestCase):
             )
             trainer.best_miou = 0.7
 
-            trainer.train_one_epoch()
+            trainer.train()
 
-            named_state = trainer.checkpoint_manager.load(str(Path(tmpdir) / "global_step_1.pth"))
-            latest_state = trainer.checkpoint_manager.load(str(Path(tmpdir) / "latest.pth"))
+            named_state = CheckpointManager.load(str(Path(tmpdir) / "global_step_1.pth"))
+            latest_state = CheckpointManager.load(str(Path(tmpdir) / "latest.pth"))
             self.assertEqual(float(named_state["best_miou"]), 0.7)
             self.assertEqual(float(latest_state["best_miou"]), 0.7)
 
@@ -626,11 +626,11 @@ class TrainerGradAccumTest(unittest.TestCase):
                 train_loader=train_loader,
                 val_loader=[],
                 logger=MFNetLogger(tmpdir),
-                checkpoint_manager=CheckpointManager(tmpdir),
                 evaluator=CaptureEvaluator(),
                 device=torch.device("cpu"),
                 inferencer=IdentityInferencer(),
                 cfg={
+                    "work_dir": tmpdir,
                     "max_epochs": 1,
                     "batch_size": 1,
                     "effective_batch_size": 1,

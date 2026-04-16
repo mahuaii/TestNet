@@ -1,4 +1,4 @@
-from .checkpoint import CheckpointManager
+from .checkpoint_manager import CheckpointManager
 from .config import load_config
 from .data_utils import DataUtils
 from .logger import Logger

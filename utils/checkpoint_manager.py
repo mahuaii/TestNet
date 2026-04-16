@@ -7,13 +7,9 @@ import torch
 
 
 class CheckpointManager:
-    def __init__(self, work_dir: str) -> None:
-        self.work_dir = Path(work_dir)
-        self.work_dir.mkdir(parents=True, exist_ok=True)
-
+    @staticmethod
     def save_training_state(
-        self,
-        name: str,
+        path: str | Path,
         model: torch.nn.Module,
         optimizer: torch.optim.Optimizer,
         scheduler: Any,
@@ -21,8 +17,9 @@ class CheckpointManager:
         global_step: int,
         best_miou: float,
     ) -> Path:
-        path = self.work_dir / name
-        state_dict = self._state_dict(
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        state_dict = CheckpointManager._state_dict(
             model=model,
             optimizer=optimizer,
             scheduler=scheduler,
@@ -31,15 +28,15 @@ class CheckpointManager:
             best_miou=best_miou,
         )
         torch.save(state_dict, path)
-        torch.save(state_dict, self.work_dir / "latest.pth")
         return path
 
-    def load(self, path: str) -> dict[str, Any]:
+    @staticmethod
+    def load(path: str | Path) -> dict[str, Any]:
         state_dict = torch.load(path, map_location="cpu")
         return state_dict
 
+    @staticmethod
     def _state_dict(
-        self,
         model: torch.nn.Module,
         optimizer: torch.optim.Optimizer,
         scheduler: Any,
