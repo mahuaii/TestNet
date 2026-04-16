@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from typing import Any
+
+import numpy as np
 from typing_extensions import override
 
 from .logger import Logger
@@ -60,19 +63,38 @@ class MFNetLogger(Logger):
         return summary
 
     @override
-    def _format_validation_summary(self, val_metrics: dict[str, float]) -> str | None:
-        preferred_order = ["MIoU", "accuracy", "F1Score", "kappa"]
-        rendered: list[str] = []
-        for key in preferred_order:
-            if key in val_metrics:
-                rendered.append(f"{key}: {float(val_metrics[key]):.4f}")
-        for key, value in val_metrics.items():
-            if key not in preferred_order:
-                rendered.append(f"{key}: {float(value):.4f}")
-        if not rendered:
+    def _format_validation_summary(self, val_metrics: dict[str, Any]) -> str | None:
+        if not val_metrics:
             return None
-        summary = "Validation metrics: " + " | ".join(rendered)
-        return summary
+
+        lines = [
+            "Validation",
+        ]
+        if "pixels_processed" in val_metrics:
+            lines.append(f"  Pixels processed: {int(val_metrics['pixels_processed'])}")
+        if "accuracy" in val_metrics:
+            lines.append(f"  Total accuracy: {float(val_metrics['accuracy']):.4f}")
+        if "F1Score" in val_metrics:
+            lines.append(f"  Mean F1Score: {float(val_metrics['F1Score']):.4f}")
+        if "kappa" in val_metrics:
+            lines.append(f"  Kappa: {float(val_metrics['kappa']):.4f}")
+        if "MIoU" in val_metrics:
+            lines.append(f"  Mean MIoU: {float(val_metrics['MIoU']):.4f}")
+
+        if "confusion_matrix" in val_metrics:
+            lines.extend(
+                [
+                    "",
+                    "Confusion matrix",
+                    self._format_matrix(val_metrics["confusion_matrix"]),
+                ]
+            )
+
+        per_class_lines = self._format_per_class_metrics(val_metrics)
+        if per_class_lines:
+            lines.extend(["", "Per-class metrics", *per_class_lines])
+
+        return "\n".join(lines)
 
     @override
     def _write_step_scalars(
@@ -108,3 +130,41 @@ class MFNetLogger(Logger):
             if key in val_metrics:
                 self._summary_writer.add_scalar(tag, float(val_metrics[key]), epoch)
         self._summary_writer.flush()
+
+    @staticmethod
+    def _format_matrix(matrix: Any) -> str:
+        rendered = np.array2string(np.asarray(matrix), max_line_width=120)
+        return "\n".join(f"  {line}" for line in rendered.splitlines())
+
+    @staticmethod
+    def _format_metric(value: Any) -> str:
+        try:
+            scalar = float(value)
+        except (TypeError, ValueError):
+            return "   nan"
+        if np.isnan(scalar):
+            return "   nan"
+        return f"{scalar:7.4f}"
+
+    def _format_per_class_metrics(self, val_metrics: dict[str, Any]) -> list[str]:
+        required_keys = ["class_names", "per_class_accuracy", "per_class_f1", "per_class_iou"]
+        if any(key not in val_metrics for key in required_keys):
+            return []
+
+        class_names = list(val_metrics["class_names"])
+        per_class_accuracy = np.asarray(val_metrics["per_class_accuracy"])
+        per_class_f1 = np.asarray(val_metrics["per_class_f1"])
+        per_class_iou = np.asarray(val_metrics["per_class_iou"])
+        class_width = max([12, *(len(str(name)) for name in class_names)])
+
+        lines = [f"  {'class':<{class_width}} {'Acc':>7} {'F1':>7} {'IoU':>7}"]
+        for index, class_name in enumerate(class_names):
+            if index >= len(per_class_accuracy) or index >= len(per_class_f1) or index >= len(per_class_iou):
+                break
+            lines.append(
+                f"  {str(class_name):<{class_width}} "
+                f"{self._format_metric(per_class_accuracy[index])} "
+                f"{self._format_metric(per_class_f1[index])} "
+                f"{self._format_metric(per_class_iou[index])}"
+            )
+        return lines

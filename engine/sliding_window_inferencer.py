@@ -6,6 +6,11 @@ from typing import Any
 import numpy as np
 import torch
 
+try:
+    from tqdm import tqdm
+except ImportError:  # pragma: no cover - tqdm is optional at runtime.
+    tqdm = None
+
 
 class SlidingWindowInferencer:
     """
@@ -38,8 +43,12 @@ class SlidingWindowInferencer:
         model_kwargs = model_kwargs or {}
         outputs = []
 
-        for tile_id in range(len(dataset.ids)):
-            tile = dataset.get_tile(tile_id)
+        tile_iterable = range(len(dataset.ids))
+        if tqdm is not None:
+            tile_iterable = tqdm(tile_iterable, total=len(dataset.ids), desc="Validation tiles", leave=False)
+
+        for tile_id in tile_iterable:
+            tile = self._get_tile_by_id(dataset, tile_id)
             inputs = tile["inputs"]
             target = tile["target"]
             input_tensors = [(modal, inputs[modal]) for modal in input_modals]
@@ -47,10 +56,19 @@ class SlidingWindowInferencer:
             height, width = input_tensors[0][1].shape[-2:]
             pred = np.zeros((height, width, num_classes))
 
-            for coords in self._grouper(
+            coord_iterable = self._grouper(
                 batch_size,
                 self._get_sliding_window_coords((height, width), step=stride, window_size=window_size),
-            ):
+            )
+            if tqdm is not None:
+                coord_iterable = tqdm(
+                    coord_iterable,
+                    total=self._count_sliding_window_batches((height, width), step=stride, window_size=window_size, batch_size=batch_size),
+                    desc=f"Tile {tile_id}",
+                    leave=False,
+                )
+
+            for coords in coord_iterable:
                 batch_inputs = [self._crop_batch(input_tensor, coords, device) for _, input_tensor in input_tensors]
                 logits = model(*batch_inputs, **model_kwargs)
                 logits = logits.data.cpu().numpy()
@@ -66,6 +84,10 @@ class SlidingWindowInferencer:
                 }
             )
         return outputs
+
+    @staticmethod
+    def _get_tile_by_id(dataset: Any, tile_id: int) -> dict[str, Any]:
+        return dataset.get_tile(tile_id)
 
     @staticmethod
     def _crop_batch(tensor: torch.Tensor, coords: Any, device: torch.device) -> torch.Tensor:
@@ -92,6 +114,17 @@ class SlidingWindowInferencer:
                 if y + window_size[1] > image_shape[1]:
                     y = image_shape[1] - window_size[1]
                 yield x, y, window_size[0], window_size[1]
+
+    @classmethod
+    def _count_sliding_window_batches(
+        cls,
+        image_shape: tuple[int, int],
+        step: int,
+        window_size: tuple[int, int],
+        batch_size: int,
+    ) -> int:
+        window_count = sum(1 for _ in cls._get_sliding_window_coords(image_shape, step=step, window_size=window_size))
+        return int(np.ceil(window_count / float(batch_size)))
 
     @staticmethod
     def _grouper(n: int, iterable: Any) -> Any:

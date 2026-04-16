@@ -7,7 +7,7 @@ from typing import Any
 import torch
 
 from .evaluator import Evaluator
-from utils.checkpoint import CheckpointManager
+from utils.checkpoint_manager import CheckpointManager
 from utils.logger import Logger
 from utils.stat_tracker import StatTracker
 from utils.timer import AnchorTimer

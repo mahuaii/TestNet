@@ -87,11 +87,11 @@ class MFNetValidateTest(unittest.TestCase):
                 train_loader=[{"unused": torch.tensor(1)}],
                 val_loader=_ValLoader(),
                 logger=MFNetLogger(tmpdir),
-                checkpoint_manager=CheckpointManager(tmpdir),
                 evaluator=evaluator,
                 inferencer=inferencer,
                 device=torch.device("cpu"),
                 cfg={
+                    "work_dir": tmpdir,
                     "max_epochs": 1,
                     "batch_size": 2,
                     "log_step_interval": 1,
@@ -119,14 +119,21 @@ class MFNetValidateTest(unittest.TestCase):
             self.assertEqual(evaluator.num_classes, 6)
             self.assertTrue(trainer.model.training)
             self.assertEqual(trainer.best_miou, 0.7)
+            best_state_path = Path(tmpdir, "best_miou.pth")
+            self.assertTrue(best_state_path.is_file())
+            self.assertFalse(Path(tmpdir, "latest.pth").exists())
+            best_state = CheckpointManager.load(str(best_state_path))
+            self.assertEqual(float(best_state["best_miou"]), 0.7)
 
             log_lines = Path(tmpdir, "train.log").read_text(encoding="utf-8").splitlines()
             self.assertTrue(
                 any(
-                    "Validation metrics: MIoU: 0.7000 | accuracy: 88.0000" in line
+                    "Total accuracy: 88.0000" in line
                     for line in log_lines
                 )
             )
+            self.assertIn("Validation", log_lines)
+            self.assertTrue(any("Mean MIoU: 0.7000" in line for line in log_lines))
             self.assertIn("MIoU_best: 0.7000", log_lines)
 
 

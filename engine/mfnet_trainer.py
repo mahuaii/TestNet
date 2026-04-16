@@ -71,6 +71,10 @@ class MFNetTrainer(Trainer):
         rgb = inputs["rgb"].to(self.device, non_blocking=True)
         dsm = inputs["dsm"].to(self.device, non_blocking=True)
         target = batch["target"].to(self.device, non_blocking=True)
+        if dsm.ndim != 3:
+            raise ValueError(f"expected DSM with shape [B, H, W], got {tuple(dsm.shape)}")
+        if target.dtype != torch.long:
+            raise TypeError(f"expected target dtype torch.long, got {target.dtype}")
         return rgb, dsm, target
 
     def _compute_loss_and_metrics(

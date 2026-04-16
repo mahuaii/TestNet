@@ -151,8 +151,10 @@ class LoggerTest(unittest.TestCase):
                 log_lines[6],
             )
             self.assertEqual(log_lines[7], "Test time: 0:01:01")
-            self.assertIn("Validation metrics: MIoU: 0.6000 | accuracy: 88.0000", log_lines[8])
-            self.assertEqual(log_lines[9], "MIoU_best: 0.6000")
+            self.assertEqual(log_lines[8], "Validation")
+            self.assertIn("Total accuracy: 88.0000", log_lines[9])
+            self.assertIn("Mean MIoU: 0.6000", "\n".join(log_lines))
+            self.assertEqual(log_lines[-1], "MIoU_best: 0.6000")
 
     def test_mfnet_logger_tensorboard_scalars_are_written_with_fake_writer(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
