@@ -429,22 +429,14 @@ model(x, y, z, mode="Train")
 
 ```text
 models/
-  backbones/
-    sam_adapter.py
-  fusion/
-    cross_modal_fusion.py
-  decode_heads/
-    simple_seg_head.py
-  segmentor.py
+  mfnet/
+    UNetFormer_MMSAM.py
   build.py
 ```
 
 其中：
 
-- `sam_adapter.py` 负责接入外部 backbone
-- `cross_modal_fusion.py` 负责模态交互
-- `simple_seg_head.py` 负责输出分割 logits
-- `segmentor.py` 负责组装
+- `UNetFormer_MMSAM.py` 负责 MFNet 主模型和多模态融合
 - `build.py` 负责根据配置创建模型
 
 如果模型更复杂，再继续细拆。
@@ -514,4 +506,3 @@ intermediate features
 9. 如果需要辅助监督，请使用 aux head，不要把辅助逻辑散落在 trainer 中。
 10. 除非已有现成体系，否则不要额外设计复杂 registry / hook / callback 框架。
 ```
-
