@@ -13,7 +13,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from datasets import VAIHINGEN_TRAIN_IDS, VAIHINGEN_VAL_IDS, VaihingenDataset
-from engine import Evaluator, Inferencer, MFNetTrainer
+from engine import Evaluator, MFNetTrainer, SlidingWindowInferencer
 from models import build_model
 from utils import CheckpointManager, MFNetLogger, load_config
 
@@ -133,7 +133,7 @@ def main() -> None:
         checkpoint_manager=CheckpointManager(str(work_dir)),
         evaluator=Evaluator(),
         device=torch.device(args.device),
-        inferencer=Inferencer(),
+        inferencer=SlidingWindowInferencer(),
         scheduler=scheduler,
         cfg={
             **cfg["train"],
@@ -144,6 +144,7 @@ def main() -> None:
             "sam_checkpoint": cfg["model"].get("sam_checkpoint"),
             "num_classes": cfg["model"]["num_classes"],
             "class_weights": cfg.get("class_weights"),
+            "validation": cfg["validation"],
         },
     )
     log_run_summary(

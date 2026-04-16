@@ -15,6 +15,7 @@ env/
 # Runtime artifacts
 work_dirs/
 _Checkpoints
+_Datasets
 *.pth
 *.pt
 *.ckpt

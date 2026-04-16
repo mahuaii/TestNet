@@ -6,7 +6,6 @@ from typing import Any
 import torch
 
 from .evaluator import Evaluator
-from .inferencer import Inferencer
 from utils.checkpoint import CheckpointManager
 from utils.logger import Logger
 from utils.stat_tracker import StatTracker
@@ -43,7 +42,7 @@ class Trainer(ABC):
         evaluator: Evaluator,
         device: torch.device,
         cfg: dict[str, Any],
-        inferencer: Inferencer,
+        inferencer: Any,
         scheduler: Any = None,
     ):
         self.model = model.to(device)

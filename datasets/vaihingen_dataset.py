@@ -62,6 +62,8 @@ class ISPRSPreset:
     label_pattern: str
     invert_palette: dict[tuple[int, int, int], int]
     rgb_channels: tuple[int, ...] = (0, 1, 2)
+    eval_label_subdir: str | None = None
+    eval_label_pattern: str | None = None
 
 
 VAIHINGEN_PRESET = ISPRSPreset(
@@ -75,6 +77,8 @@ VAIHINGEN_PRESET = ISPRSPreset(
     label_subdir="labels",
     label_pattern="top_mosaic_09cm_area{tile_id}.tif",
     invert_palette=VAIHINGEN_INVERT_PALETTE,
+    eval_label_subdir="labels_eroded",
+    eval_label_pattern="top_mosaic_09cm_area{tile_id}_noBoundary.tif",
 )
 POTSDAM_PRESET = ISPRSPreset(
     name="potsdam",
@@ -87,6 +91,8 @@ POTSDAM_PRESET = ISPRSPreset(
     label_subdir="labels",
     label_pattern="top_potsdam_{tile_id}_label.tif",
     invert_palette=POTSDAM_INVERT_PALETTE,
+    eval_label_subdir="labels_eroded",
+    eval_label_pattern="top_potsdam_{tile_id}_label_noBoundary.tif",
 )
 
 
@@ -126,6 +132,12 @@ class ISPRSMultimodalDataset(Dataset):
             self.root_dir / preset.label_subdir / preset.label_pattern.format(tile_id=tile_id)
             for tile_id in self.ids
         ]
+        self.eval_label_files = [
+            self.root_dir
+            / (preset.eval_label_subdir or preset.label_subdir)
+            / (preset.eval_label_pattern or preset.label_pattern).format(tile_id=tile_id)
+            for tile_id in self.ids
+        ]
 
         for path in [*self.rgb_files, *self.dsm_files, *self.label_files]:
             if not path.is_file():
@@ -134,6 +146,7 @@ class ISPRSMultimodalDataset(Dataset):
         self.rgb_cache: dict[int, np.ndarray] = {}
         self.dsm_cache: dict[int, np.ndarray] = {}
         self.label_cache: dict[int, np.ndarray] = {}
+        self.eval_label_cache: dict[int, np.ndarray] = {}
 
     def __len__(self) -> int:
         return self.samples_per_epoch
@@ -160,6 +173,23 @@ class ISPRSMultimodalDataset(Dataset):
             },
         }
         return sample
+
+    def get_tile(self, index: int) -> dict[str, object]:
+        tile_index = int(index)
+        rgb = self._load_rgb(tile_index)
+        dsm = self._load_dsm(tile_index)
+        target = self._load_eval_target(tile_index)
+        return {
+            "inputs": {
+                "rgb": torch.from_numpy(rgb.copy()).float(),
+                "dsm": torch.from_numpy(dsm.copy()).float(),
+            },
+            "target": torch.from_numpy(target.copy()).long(),
+            "meta": {
+                "sample_index": index,
+                "tile_id": self.ids[tile_index],
+            },
+        }
 
     def _load_rgb(self, tile_index: int) -> np.ndarray:
         if tile_index not in self.rgb_cache:
@@ -196,18 +226,37 @@ class ISPRSMultimodalDataset(Dataset):
         return dsm
 
     def _load_target(self, tile_index: int) -> np.ndarray:
-        if tile_index not in self.label_cache:
+        return self._load_label(
+            tile_index=tile_index,
+            files=self.label_files,
+            cache_store=self.label_cache,
+        )
+
+    def _load_eval_target(self, tile_index: int) -> np.ndarray:
+        return self._load_label(
+            tile_index=tile_index,
+            files=self.eval_label_files,
+            cache_store=self.eval_label_cache,
+        )
+
+    def _load_label(
+        self,
+        tile_index: int,
+        files: list[Path],
+        cache_store: dict[int, np.ndarray],
+    ) -> np.ndarray:
+        if tile_index not in cache_store:
             target = DataUtils.convert_from_color(
-                np.asarray(imageio.imread(self.label_files[tile_index])),
+                np.asarray(imageio.imread(files[tile_index])),
                 invert_palette=self.preset.invert_palette,
             )
             if self.cache:
-                self.label_cache[tile_index] = target
+                cache_store[tile_index] = target
         if self.cache:
-            target = self.label_cache[tile_index]
+            target = cache_store[tile_index]
         else:
             target = DataUtils.convert_from_color(
-                np.asarray(imageio.imread(self.label_files[tile_index])),
+                np.asarray(imageio.imread(files[tile_index])),
                 invert_palette=self.preset.invert_palette,
             )
         return target

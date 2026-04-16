@@ -15,7 +15,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 
 from datasets import PotsdamDataset, VaihingenDataset, build_isprs_dataset
-from engine import MFNetTrainer
+from engine import MFNetTrainer, SlidingWindowInferencer
 from utils import CheckpointManager, DataUtils, MFNetLogger
 
 
@@ -88,11 +88,50 @@ class _DelegatingMFNetTrainer(MFNetTrainer):
         return loss, {"loss": 3.0, "accuracy": 25.0}
 
 
+class _WholeTileDataset(Dataset):
+    def __init__(self, sample: dict[str, object]) -> None:
+        self.sample = sample
+        self.ids = ["1"]
+        self.requested_indices: list[int] = []
+
+    def __len__(self) -> int:
+        raise AssertionError("Whole-tile inference should iterate tile ids, not dataset length")
+
+    def get_tile(self, index: int) -> dict[str, object]:
+        self.requested_indices.append(index)
+        return self.sample
+
+
+class _RecordingWholeTileModel:
+    def __init__(self) -> None:
+        self.modes: list[str] = []
+        self.call_shapes: list[tuple[tuple[int, ...], tuple[int, ...]]] = []
+
+    def __call__(self, rgb: torch.Tensor, dsm: torch.Tensor, mode: str = "Train") -> torch.Tensor:
+        self.modes.append(str(mode))
+        self.call_shapes.append((tuple(rgb.shape), tuple(dsm.shape)))
+        class0 = torch.zeros_like(rgb[:, 0])
+        class1 = torch.ones_like(rgb[:, 0])
+        return torch.stack([class0, class1], dim=1)
+
+
+class _RecordingSingleInputWholeTileModel:
+    def __init__(self) -> None:
+        self.batch_shapes: list[tuple[int, ...]] = []
+
+    def __call__(self, image: torch.Tensor) -> torch.Tensor:
+        self.batch_shapes.append(tuple(image.shape))
+        class0 = torch.zeros_like(image[:, 0])
+        class1 = torch.ones_like(image[:, 0])
+        return torch.stack([class0, class1], dim=1)
+
+
 class MFNetTrainingTest(unittest.TestCase):
     def _write_vaihingen_sample(self, root: Path, tile_id: str = "1") -> None:
         (root / "rgb").mkdir()
         (root / "dsm").mkdir()
         (root / "labels").mkdir()
+        (root / "labels_eroded").mkdir()
 
         rgb = torch.zeros(32, 32, 3, dtype=torch.uint8).numpy()
         rgb[:, :, 0] = 255
@@ -100,15 +139,19 @@ class MFNetTrainingTest(unittest.TestCase):
         label = torch.zeros(32, 32, 3, dtype=torch.uint8).numpy()
         label[:, :16] = torch.tensor([255, 255, 255], dtype=torch.uint8).numpy()
         label[:, 16:] = torch.tensor([0, 0, 255], dtype=torch.uint8).numpy()
+        eroded_label = torch.zeros(32, 32, 3, dtype=torch.uint8).numpy()
+        eroded_label[:, :] = torch.tensor([0, 0, 255], dtype=torch.uint8).numpy()
 
         Image.fromarray(rgb).save(root / "rgb" / f"top_mosaic_09cm_area{tile_id}.tif")
         Image.fromarray(dsm).save(root / "dsm" / f"dsm_09cm_matching_area{tile_id}.tif")
         Image.fromarray(label).save(root / "labels" / f"top_mosaic_09cm_area{tile_id}.tif")
+        Image.fromarray(eroded_label).save(root / "labels_eroded" / f"top_mosaic_09cm_area{tile_id}_noBoundary.tif")
 
     def _write_potsdam_sample(self, root: Path, tile_id: str = "6_10") -> None:
         (root / "rgbir").mkdir()
         (root / "dsm").mkdir()
         (root / "labels").mkdir()
+        (root / "labels_eroded").mkdir()
 
         rgbir = torch.zeros(32, 32, 4, dtype=torch.uint8).numpy()
         rgbir[:, :, 0] = 255
@@ -119,10 +162,12 @@ class MFNetTrainingTest(unittest.TestCase):
         label = torch.zeros(32, 32, 3, dtype=torch.uint8).numpy()
         label[:, :16] = torch.tensor([255, 255, 255], dtype=torch.uint8).numpy()
         label[:, 16:] = torch.tensor([0, 0, 255], dtype=torch.uint8).numpy()
+        eroded_label = label.copy()
 
         Image.fromarray(rgbir).save(root / "rgbir" / f"top_potsdam_{tile_id}_RGBIR.tif")
         Image.fromarray(dsm).save(root / "dsm" / f"dsm_potsdam_{tile_id}_normalized_lastools.jpg")
         Image.fromarray(label).save(root / "labels" / f"top_potsdam_{tile_id}_label.tif")
+        Image.fromarray(eroded_label).save(root / "labels_eroded" / f"top_potsdam_{tile_id}_label_noBoundary.tif")
 
     def _build_trainer(
         self,
@@ -408,6 +453,156 @@ class MFNetTrainingTest(unittest.TestCase):
             self.assertEqual(sample["target"].shape, (16, 16))
             self.assertTrue(set(torch.unique(sample["target"]).tolist()).issubset({0, 1}))
 
+    def test_vaihingen_dataset_get_tile_returns_uncropped_full_tile(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            self._write_vaihingen_sample(root)
+
+            dataset = VaihingenDataset(
+                root_dir=str(root),
+                ids=["1"],
+                patch_size=(16, 16),
+                samples_per_epoch=1,
+                cache=True,
+                augmentation=True,
+                split="val",
+            )
+
+            sample = dataset.get_tile(0)
+
+            self.assertEqual(sample["inputs"]["rgb"].shape, (3, 32, 32))
+            self.assertEqual(sample["inputs"]["dsm"].shape, (32, 32))
+            self.assertEqual(sample["target"].shape, (32, 32))
+            self.assertEqual(sample["meta"]["tile_id"], "1")
+            self.assertEqual(set(torch.unique(sample["target"]).tolist()), {1})
+
+    def test_whole_tile_sliding_window_matches_original_mfnet_path(self) -> None:
+        rgb = torch.arange(3 * 5 * 5, dtype=torch.float32).reshape(3, 5, 5)
+        dsm = torch.arange(5 * 5, dtype=torch.float32).reshape(5, 5)
+        target = torch.zeros(5, 5, dtype=torch.long)
+        dataset = _WholeTileDataset(
+            {
+                "inputs": {"rgb": rgb, "dsm": dsm},
+                "target": target,
+                "meta": {"tile_id": "1"},
+            }
+        )
+        model = _RecordingWholeTileModel()
+
+        outputs = SlidingWindowInferencer().run(
+            model=model,
+            dataset=dataset,
+            device=torch.device("cpu"),
+            stride=3,
+            batch_size=2,
+            window_size=(3, 3),
+            num_classes=2,
+            input_modals=("rgb", "dsm"),
+            model_kwargs={"mode": "Test"},
+        )
+
+        self.assertEqual(len(outputs), 1)
+        self.assertEqual(outputs[0]["pred"].shape, (5, 5))
+        self.assertTrue(torch.equal(outputs[0]["pred"], torch.ones(5, 5, dtype=torch.long)))
+        self.assertIs(outputs[0]["target"], target)
+        self.assertEqual(outputs[0]["meta"], {"tile_id": "1"})
+        self.assertEqual(dataset.requested_indices, [0])
+        self.assertTrue(model.modes)
+        self.assertTrue(all(mode == "Test" for mode in model.modes))
+
+    def test_whole_tile_sliding_window_uses_explicit_rgb_dsm_order(self) -> None:
+        rgb = torch.arange(3 * 5 * 5, dtype=torch.float32).reshape(3, 5, 5)
+        dsm = torch.arange(5 * 5, dtype=torch.float32).reshape(5, 5)
+        target = torch.zeros(5, 5, dtype=torch.long)
+        dataset = _WholeTileDataset(
+            {
+                "inputs": {"dsm": dsm, "rgb": rgb},
+                "target": target,
+                "meta": {"tile_id": "1"},
+            }
+        )
+        model = _RecordingWholeTileModel()
+
+        SlidingWindowInferencer().run(
+            model=model,
+            dataset=dataset,
+            device=torch.device("cpu"),
+            stride=3,
+            batch_size=2,
+            window_size=(3, 3),
+            num_classes=2,
+            input_modals=("rgb", "dsm"),
+            model_kwargs={"mode": "Test"},
+        )
+
+        self.assertTrue(model.modes)
+        self.assertTrue(all(mode == "Test" for mode in model.modes))
+        self.assertEqual(model.call_shapes[0], ((2, 3, 3, 3), (2, 3, 3)))
+
+    def test_whole_tile_sliding_window_accepts_generic_multimodal_inputs(self) -> None:
+        rgb = torch.arange(3 * 5 * 5, dtype=torch.float32).reshape(3, 5, 5)
+        dsm = torch.arange(5 * 5, dtype=torch.float32).reshape(5, 5)
+        target = torch.zeros(5, 5, dtype=torch.long)
+        dataset = _WholeTileDataset(
+            {
+                "inputs": {"rgb": rgb, "dsm": dsm},
+                "target": target,
+                "meta": {"tile_id": "1"},
+            }
+        )
+        model = _RecordingWholeTileModel()
+
+        outputs = SlidingWindowInferencer().run(
+            model=model,
+            dataset=dataset,
+            device=torch.device("cpu"),
+            stride=3,
+            batch_size=2,
+            window_size=(3, 3),
+            num_classes=2,
+            input_modals=("rgb", "dsm"),
+            model_kwargs={"mode": "Test"},
+        )
+
+        self.assertEqual(len(outputs), 1)
+        self.assertEqual(outputs[0]["pred"].shape, (5, 5))
+        self.assertTrue(torch.equal(outputs[0]["pred"], torch.ones(5, 5, dtype=torch.long)))
+        self.assertIs(outputs[0]["target"], target)
+        self.assertEqual(outputs[0]["meta"], {"tile_id": "1"})
+        self.assertEqual(dataset.requested_indices, [0])
+        self.assertTrue(model.modes)
+        self.assertTrue(all(mode == "Test" for mode in model.modes))
+
+    def test_whole_tile_sliding_window_accepts_single_input_key(self) -> None:
+        image = torch.arange(3 * 5 * 5, dtype=torch.float32).reshape(3, 5, 5)
+        target = torch.zeros(5, 5, dtype=torch.long)
+        dataset = _WholeTileDataset(
+            {
+                "inputs": {"image": image},
+                "target": target,
+                "meta": {"tile_id": "1"},
+            }
+        )
+        model = _RecordingSingleInputWholeTileModel()
+
+        outputs = SlidingWindowInferencer().run(
+            model=model,
+            dataset=dataset,
+            device=torch.device("cpu"),
+            stride=3,
+            batch_size=2,
+            window_size=(3, 3),
+            num_classes=2,
+            input_modals=("image",),
+        )
+
+        self.assertEqual(len(outputs), 1)
+        self.assertTrue(torch.equal(outputs[0]["pred"], torch.ones(5, 5, dtype=torch.long)))
+        self.assertIs(outputs[0]["target"], target)
+        self.assertEqual(outputs[0]["meta"], {"tile_id": "1"})
+        self.assertEqual(dataset.requested_indices, [0])
+        self.assertEqual(model.batch_shapes[0], (2, 3, 3, 3))
+
     def test_potsdam_dataset_emits_same_training_contract(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -577,12 +772,15 @@ class MFNetTrainingTest(unittest.TestCase):
                         "weight_decay": 0.0005,
                     },
                     "scheduler": {"type": "MultiStepLR", "milestones": [1, 2], "gamma": 0.1},
+                    "validation": {
+                        "stride": 32,
+                    },
                     "train": {
                         "max_epochs": 1,
                         "batch_size": 2,
                         "auto_resume": True,
                         "log_step_interval": 1,
-                        "val_epoch_interval": 0,
+                        "val_epoch_interval": 1,
                         "save_epoch_interval": 1,
                         "save_step_interval": 0,
                         "use_tensorboard": True,
@@ -612,8 +810,9 @@ class MFNetTrainingTest(unittest.TestCase):
 
                 module.main()
 
-                self.assertEqual(len(captured_dataset_calls), 1)
+                self.assertEqual(len(captured_dataset_calls), 2)
                 self.assertEqual(captured_dataset_calls[0]["split"], "train")
+                self.assertEqual(captured_dataset_calls[1]["split"], "val")
                 self.assertEqual(len(captured_trainer_kwargs), 1)
                 trainer_kwargs = captured_trainer_kwargs[0]
                 self.assertIsInstance(trainer_kwargs["optimizer"], torch.optim.SGD)
@@ -625,12 +824,16 @@ class MFNetTrainingTest(unittest.TestCase):
                 self.assertEqual(captured_model_cfg[0]["sam_checkpoint"], "/tmp/sam_vit_b.pth")
                 self.assertIsInstance(trainer_kwargs["logger"], MFNetLogger)
                 self.assertTrue(trainer_kwargs["logger"].use_tensorboard)
-                self.assertEqual(trainer_kwargs["cfg"]["val_epoch_interval"], 0)
+                self.assertEqual(trainer_kwargs["cfg"]["val_epoch_interval"], 1)
                 self.assertEqual(trainer_kwargs["cfg"]["batch_size"], 2)
                 self.assertEqual(trainer_kwargs["cfg"]["experiment_name"], Path(tmpdir).name)
                 self.assertEqual(trainer_kwargs["cfg"]["sam_checkpoint"], "/tmp/sam_vit_b.pth")
                 self.assertEqual(trainer_kwargs["cfg"]["resume_from"], str(latest_path))
                 self.assertEqual(trainer_kwargs["cfg"]["work_dir"], str(Path(tmpdir)))
+                self.assertEqual(
+                    trainer_kwargs["cfg"]["validation"],
+                    {"stride": 32},
+                )
                 self.assertNotIn("effective_batch_size", trainer_kwargs["cfg"])
         finally:
             module.parse_args = original_parse_args

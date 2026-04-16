@@ -29,10 +29,39 @@ class MFNetTrainer(Trainer):
     @override
     def train_forward(self, batch: dict[str, Any]) -> tuple[torch.Tensor, dict[str, float]]:
         rgb, dsm, target = self._extract_train_tensors(batch)
-        self._validate_train_tensors(rgb=rgb, dsm=dsm, target=target)
         logits = self.model(rgb, dsm, mode="Train")
         loss, metrics = self._compute_loss_and_metrics(logits=logits, target=target)
         return loss, metrics
+
+    @override
+    @torch.no_grad()
+    def validate(self) -> None:
+        self.timer.mark("validation")
+        self.model.eval()
+
+        validation_cfg = self.cfg["validation"]
+        dataset = self.val_loader.dataset
+        outputs = self.inferencer.run(
+            model=self.model,
+            dataset=dataset,
+            device=self.device,
+            stride=int(validation_cfg["stride"]),
+            batch_size=int(self.cfg["batch_size"]),
+            window_size=tuple(dataset.patch_size),
+            num_classes=int(self.cfg["num_classes"]),
+            input_modals=("rgb", "dsm"),
+            model_kwargs={"mode": "Test"},
+        )
+        val_metrics = self.evaluator.evaluate(
+            outputs=outputs,
+            num_classes=int(self.cfg["num_classes"]),
+        )
+        validation_time_seconds = self.timer.elapsed("validation")
+        self.after_val(
+            val_metrics,
+            validation_time_seconds=validation_time_seconds,
+        )
+        self.model.train()
 
     def _extract_train_tensors(
         self,
@@ -43,27 +72,6 @@ class MFNetTrainer(Trainer):
         dsm = inputs["dsm"].to(self.device, non_blocking=True)
         target = batch["target"].to(self.device, non_blocking=True)
         return rgb, dsm, target
-
-    def _validate_train_tensors(
-        self,
-        rgb: torch.Tensor,
-        dsm: torch.Tensor,
-        target: torch.Tensor,
-    ) -> None:
-        if rgb.ndim != 4:
-            raise ValueError(
-                f"MFNetTrainer expected RGB with shape [B, 3, H, W], got {tuple(rgb.shape)}"
-            )
-        if dsm.ndim != 3:
-            raise ValueError(
-                f"MFNetTrainer expected DSM with shape [B, H, W], got {tuple(dsm.shape)}"
-            )
-        if target.ndim != 3:
-            raise ValueError(
-                f"MFNetTrainer expected target with shape [B, H, W], got {tuple(target.shape)}"
-            )
-        if target.dtype != torch.long:
-            raise TypeError(f"MFNetTrainer expected target dtype torch.long, got {target.dtype}")
 
     def _compute_loss_and_metrics(
         self,
