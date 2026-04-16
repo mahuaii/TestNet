@@ -6,7 +6,7 @@
     },
     "dataset": {
         "name": "vaihingen",
-        "root_dir": "./datasets/Vaihingen",
+        "root_dir": "./datasets/vaihingen",
         "patch_size": [
             256,
             256
@@ -33,7 +33,7 @@
             "15",
             "30"
         ],
-        "train_samples_per_epoch": 10000,
+        "train_samples_per_epoch": 10000, //BATCH_SIZE * 1000
         "val_samples_per_epoch": 4
     },
     "dataloader": {
@@ -61,7 +61,7 @@
         "max_epochs": 50,
         "batch_size": 10,
         "auto_resume": true,
-        "log_step_interval": 1,
+        "log_step_interval": 100,
         "val_epoch_interval": 2,
         "save_epoch_interval": 2,
         "save_step_interval": 0,

@@ -12,29 +12,6 @@ from torch.utils.data import Dataset
 
 from utils import DataUtils
 
-VAIHINGEN_TRAIN_IDS = ["1", "3", "23", "26", "7", "11", "13", "28", "17", "32", "34", "37"]
-VAIHINGEN_VAL_IDS = ["5", "21", "15", "30"]
-POTSDAM_TRAIN_IDS = [
-    "6_10",
-    "7_10",
-    "2_12",
-    "3_11",
-    "2_10",
-    "7_8",
-    "5_10",
-    "3_12",
-    "5_12",
-    "7_11",
-    "7_9",
-    "6_9",
-    "7_7",
-    "4_12",
-    "6_8",
-    "6_12",
-    "6_7",
-    "4_11",
-]
-POTSDAM_VAL_IDS = ["4_10", "5_11", "2_11", "3_10", "6_11", "7_12"]
 VAIHINGEN_PALETTE = {
     0: (255, 255, 255),
     1: (0, 0, 255),
@@ -52,8 +29,6 @@ POTSDAM_INVERT_PALETTE = {value: key for key, value in POTSDAM_PALETTE.items()}
 @dataclass(frozen=True)
 class ISPRSPreset:
     name: str
-    train_ids: tuple[str, ...]
-    val_ids: tuple[str, ...]
     rgb_subdir: str
     rgb_pattern: str
     dsm_subdir: str
@@ -68,8 +43,6 @@ class ISPRSPreset:
 
 VAIHINGEN_PRESET = ISPRSPreset(
     name="vaihingen",
-    train_ids=tuple(VAIHINGEN_TRAIN_IDS),
-    val_ids=tuple(VAIHINGEN_VAL_IDS),
     rgb_subdir="rgb",
     rgb_pattern="top_mosaic_09cm_area{tile_id}.tif",
     dsm_subdir="dsm",
@@ -82,8 +55,6 @@ VAIHINGEN_PRESET = ISPRSPreset(
 )
 POTSDAM_PRESET = ISPRSPreset(
     name="potsdam",
-    train_ids=tuple(POTSDAM_TRAIN_IDS),
-    val_ids=tuple(POTSDAM_VAL_IDS),
     rgb_subdir="rgbir",
     rgb_pattern="top_potsdam_{tile_id}_RGBIR.tif",
     dsm_subdir="dsm",
@@ -152,11 +123,19 @@ class ISPRSDataset(Dataset):
         tile_index = self._resolve_tile_index(index)
         rgb = self._load_rgb_tile(tile_index)
         dsm = self._load_dsm_tile(tile_index)
-        target = self._load_target_tile(tile_index)
+        target = self._load_label_tile(
+            tile_index=tile_index,
+            files=self.label_files,
+            cache_store=self.label_cache,
+        )
 
-        rgb_patch, dsm_patch, target_patch = self._crop_patch(rgb, dsm, target)
+        rgb_patch, dsm_patch, target_patch = self._crop_random_patch(rgb, dsm, target)
         if self.augmentation:
-            rgb_patch, dsm_patch, target_patch = self._augment(rgb_patch, dsm_patch, target_patch)
+            rgb_patch, dsm_patch, target_patch = DataUtils.augment_triplet(
+                rgb=rgb_patch,
+                dsm=dsm_patch,
+                target=target_patch,
+            )
 
         sample = {
             "inputs": {
@@ -166,7 +145,7 @@ class ISPRSDataset(Dataset):
             "target": torch.from_numpy(target_patch.copy()).long(),
             "meta": {
                 "sample_index": index,
-                "tile_id": self.ids[tile_index],
+                "source_tile_id": self.ids[tile_index],
             },
         }
         return sample
@@ -175,7 +154,11 @@ class ISPRSDataset(Dataset):
         tile_index = int(index)
         rgb = self._load_rgb_tile(tile_index)
         dsm = self._load_dsm_tile(tile_index)
-        target = self._load_eval_target_tile(tile_index)
+        target = self._load_label_tile(
+            tile_index=tile_index,
+            files=self.eval_label_files,
+            cache_store=self.eval_label_cache,
+        )
         return {
             "inputs": {
                 "rgb": torch.from_numpy(rgb.copy()).float(),
@@ -220,21 +203,14 @@ class ISPRSDataset(Dataset):
             dsm = DataUtils.normalize_dsm(imageio.imread(self.dsm_files[tile_index]))
         return dsm
 
-    def _load_target_tile(self, tile_index: int) -> np.ndarray:
-        return self._load_label(
-            tile_index=tile_index,
-            files=self.label_files,
-            cache_store=self.label_cache,
-        )
-
     def _load_eval_target_tile(self, tile_index: int) -> np.ndarray:
-        return self._load_label(
+        return self._load_label_tile(
             tile_index=tile_index,
             files=self.eval_label_files,
             cache_store=self.eval_label_cache,
         )
 
-    def _load_label(
+    def _load_label_tile(
         self,
         tile_index: int,
         files: list[Path],
@@ -261,15 +237,11 @@ class ISPRSDataset(Dataset):
             return random.randrange(len(self.ids))
         return index % len(self.ids)
 
-    def _crop_patch(
+    def _crop_random_patch(
         self, rgb: np.ndarray, dsm: np.ndarray, target: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         patch_h, patch_w = self.patch_size
         height, width = rgb.shape[-2:]
-        if patch_h > height or patch_w > width:
-            raise ValueError(
-                f"Patch size {self.patch_size} exceeds tile size {(height, width)} for split {self.split!r}"
-            )
 
         if self.split == "train":
             x1 = random.randint(0, height - patch_h - 1)
@@ -285,72 +257,11 @@ class ISPRSDataset(Dataset):
         target_patch = target[x1:x2, y1:y2]
         return rgb_patch, dsm_patch, target_patch
 
-    def _augment(
-        self, rgb: np.ndarray, dsm: np.ndarray, target: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        augmented = DataUtils.augment_triplet(rgb=rgb, dsm=dsm, target=target)
-        return augmented
-
-
-class VaihingenDataset(ISPRSDataset):
-    def __init__(
-        self,
-        root_dir: str,
-        ids: Sequence[str],
-        patch_size: Sequence[int] = (256, 256),
-        samples_per_epoch: int | None = None,
-        cache: bool = True,
-        augmentation: bool = True,
-        split: str = "train",
-    ) -> None:
-        super().__init__(
-            preset=VAIHINGEN_PRESET,
-            root_dir=root_dir,
-            ids=ids,
-            patch_size=patch_size,
-            samples_per_epoch=samples_per_epoch,
-            cache=cache,
-            augmentation=augmentation,
-            split=split,
-        )
-
-
-class PotsdamDataset(ISPRSDataset):
-    def __init__(
-        self,
-        root_dir: str,
-        ids: Sequence[str],
-        patch_size: Sequence[int] = (256, 256),
-        samples_per_epoch: int | None = None,
-        cache: bool = True,
-        augmentation: bool = True,
-        split: str = "train",
-    ) -> None:
-        super().__init__(
-            preset=POTSDAM_PRESET,
-            root_dir=root_dir,
-            ids=ids,
-            patch_size=patch_size,
-            samples_per_epoch=samples_per_epoch,
-            cache=cache,
-            augmentation=augmentation,
-            split=split,
-        )
-
-
-def get_default_isprs_tile_ids(dataset_name: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    normalized_name = str(dataset_name).strip().lower()
-    if normalized_name == "vaihingen":
-        return tuple(VAIHINGEN_TRAIN_IDS), tuple(VAIHINGEN_VAL_IDS)
-    if normalized_name == "potsdam":
-        return tuple(POTSDAM_TRAIN_IDS), tuple(POTSDAM_VAL_IDS)
-    raise ValueError(f"Unsupported dataset {dataset_name!r}: expected 'vaihingen' or 'potsdam'")
-
 
 def build_isprs_dataset(name: str, **kwargs: object) -> ISPRSDataset:
     dataset_name = str(name).strip().lower()
     if dataset_name == "vaihingen":
-        return VaihingenDataset(**kwargs)
+        return ISPRSDataset(preset=VAIHINGEN_PRESET, **kwargs)
     if dataset_name == "potsdam":
-        return PotsdamDataset(**kwargs)
+        return ISPRSDataset(preset=POTSDAM_PRESET, **kwargs)
     raise KeyError(f"Unsupported ISPRS dataset: {name!r}")

@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import importlib.util
 import random
+import re
 import sys
 import tempfile
 import types
@@ -14,8 +15,12 @@ from PIL import Image
 import torch
 from torch.utils.data import DataLoader, Dataset
 
-from datasets.isprs_dataset import POTSDAM_TRAIN_IDS, POTSDAM_VAL_IDS, VAIHINGEN_TRAIN_IDS, VAIHINGEN_VAL_IDS
-from datasets import PotsdamDataset, VaihingenDataset, build_isprs_dataset
+from datasets.isprs_dataset import (
+    ISPRSDataset,
+    POTSDAM_PRESET,
+    VAIHINGEN_PRESET,
+)
+from datasets import build_isprs_dataset
 from engine import MFNetTrainer, SlidingWindowInferencer
 from utils import DataUtils, MFNetLogger
 
@@ -41,36 +46,6 @@ class _ListDataset(Dataset):
 
     def __getitem__(self, index: int) -> dict[str, object]:
         return self.batches[index]
-
-
-class _CaptureModel(torch.nn.Module):
-    def __init__(self, num_classes: int = 2) -> None:
-        super().__init__()
-        self.num_classes = num_classes
-        self.weight = torch.nn.Parameter(torch.tensor(1.0))
-        self.last_call: tuple[torch.Tensor, torch.Tensor, str] | None = None
-
-    def forward(self, rgb: torch.Tensor, dsm: torch.Tensor, mode: str = "Train") -> torch.Tensor:
-        self.last_call = (rgb.detach().clone(), dsm.detach().clone(), str(mode))
-        logits = torch.stack(
-            [
-                rgb[:, 0] - self.weight,
-                rgb[:, 0] + self.weight,
-            ],
-            dim=1,
-        )
-        return logits
-
-
-class _FixedLogitsModel(torch.nn.Module):
-    def __init__(self, logits: torch.Tensor) -> None:
-        super().__init__()
-        self.weight = torch.nn.Parameter(torch.tensor(1.0))
-        self.logits = logits.detach().clone()
-
-    def forward(self, rgb: torch.Tensor, dsm: torch.Tensor, mode: str = "Train") -> torch.Tensor:
-        del rgb, dsm, mode
-        return self.logits.to(self.weight.device) + (self.weight * 0.0)
 
 
 class _DelegatingMFNetTrainer(MFNetTrainer):
@@ -103,31 +78,31 @@ class _WholeTileDataset(Dataset):
         return self.sample
 
 
-class _RecordingWholeTileModel:
-    def __init__(self) -> None:
-        self.modes: list[str] = []
-        self.call_shapes: list[tuple[tuple[int, ...], tuple[int, ...]]] = []
-
-    def __call__(self, rgb: torch.Tensor, dsm: torch.Tensor, mode: str = "Train") -> torch.Tensor:
-        self.modes.append(str(mode))
-        self.call_shapes.append((tuple(rgb.shape), tuple(dsm.shape)))
-        class0 = torch.zeros_like(rgb[:, 0])
-        class1 = torch.ones_like(rgb[:, 0])
-        return torch.stack([class0, class1], dim=1)
-
-
-class _RecordingSingleInputWholeTileModel:
-    def __init__(self) -> None:
-        self.batch_shapes: list[tuple[int, ...]] = []
-
-    def __call__(self, image: torch.Tensor) -> torch.Tensor:
-        self.batch_shapes.append(tuple(image.shape))
-        class0 = torch.zeros_like(image[:, 0])
-        class1 = torch.ones_like(image[:, 0])
-        return torch.stack([class0, class1], dim=1)
-
-
 class MFNetTrainingTest(unittest.TestCase):
+    def _make_train_spy_model(self) -> torch.nn.Module:
+        model = torch.nn.Module()
+        model.weight = torch.nn.Parameter(torch.tensor(1.0))
+        model.last_call = None
+
+        def forward(self: torch.nn.Module, rgb: torch.Tensor, dsm: torch.Tensor, mode: str = "Train") -> torch.Tensor:
+            self.last_call = (rgb.detach().clone(), dsm.detach().clone(), str(mode))
+            return torch.stack([rgb[:, 0] - self.weight, rgb[:, 0] + self.weight], dim=1)
+
+        model.forward = types.MethodType(forward, model)
+        return model
+
+    def _make_fixed_logits_model(self, logits: torch.Tensor) -> torch.nn.Module:
+        model = torch.nn.Module()
+        model.weight = torch.nn.Parameter(torch.tensor(1.0))
+        model.logits = logits.detach().clone()
+
+        def forward(self: torch.nn.Module, rgb: torch.Tensor, dsm: torch.Tensor, mode: str = "Train") -> torch.Tensor:
+            del rgb, dsm, mode
+            return self.logits.to(self.weight.device) + (self.weight * 0.0)
+
+        model.forward = types.MethodType(forward, model)
+        return model
+
     def _write_vaihingen_sample(self, root: Path, tile_id: str = "1") -> None:
         (root / "rgb").mkdir()
         (root / "dsm").mkdir()
@@ -210,7 +185,7 @@ class MFNetTrainingTest(unittest.TestCase):
             "target": torch.randint(0, 2, (16, 16), dtype=torch.long),
             "meta": {"tile_id": "1"},
         }
-        model = _CaptureModel()
+        model = self._make_train_spy_model()
         with tempfile.TemporaryDirectory() as tmpdir:
             trainer = self._build_trainer(tmpdir, model, sample)
             batch = next(iter(trainer.train_loader))
@@ -234,7 +209,7 @@ class MFNetTrainingTest(unittest.TestCase):
             "target": torch.randint(0, 2, (12, 12), dtype=torch.long),
             "meta": {"tile_id": "1"},
         }
-        model = _CaptureModel()
+        model = self._make_train_spy_model()
         with tempfile.TemporaryDirectory() as tmpdir:
             trainer = self._build_trainer(tmpdir, model, sample)
             batch = next(iter(trainer.train_loader))
@@ -251,7 +226,7 @@ class MFNetTrainingTest(unittest.TestCase):
             "target": torch.randint(0, 2, (12, 12), dtype=torch.int32),
             "meta": {"tile_id": "1"},
         }
-        model = _CaptureModel()
+        model = self._make_train_spy_model()
         with tempfile.TemporaryDirectory() as tmpdir:
             trainer = self._build_trainer(tmpdir, model, sample)
             batch = next(iter(trainer.train_loader))
@@ -268,7 +243,7 @@ class MFNetTrainingTest(unittest.TestCase):
             "target": torch.randint(0, 2, (12, 12), dtype=torch.long),
             "meta": {"tile_id": "1"},
         }
-        model = _CaptureModel()
+        model = self._make_train_spy_model()
         with tempfile.TemporaryDirectory() as tmpdir:
             train_loader = DataLoader(_SingleBatchDataset(sample), batch_size=1, shuffle=False)
             optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
@@ -319,7 +294,7 @@ class MFNetTrainingTest(unittest.TestCase):
             ],
             dtype=torch.float32,
         )
-        model = _FixedLogitsModel(logits)
+        model = self._make_fixed_logits_model(logits)
         with tempfile.TemporaryDirectory() as tmpdir:
             trainer = self._build_trainer(tmpdir, model, sample)
             batch = next(iter(trainer.train_loader))
@@ -351,7 +326,7 @@ class MFNetTrainingTest(unittest.TestCase):
             ],
             dtype=torch.float32,
         )
-        model = _FixedLogitsModel(logits)
+        model = self._make_fixed_logits_model(logits)
         with tempfile.TemporaryDirectory() as tmpdir:
             trainer = self._build_trainer(tmpdir, model, sample)
             batch = next(iter(trainer.train_loader))
@@ -398,7 +373,7 @@ class MFNetTrainingTest(unittest.TestCase):
             "target": torch.randint(0, 2, (12, 12), dtype=torch.long),
             "meta": {"tile_id": "1"},
         }
-        model = _CaptureModel()
+        model = self._make_train_spy_model()
         with tempfile.TemporaryDirectory() as tmpdir:
             train_loader = DataLoader(_ListDataset([sample, sample]), batch_size=1, shuffle=False)
             optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
@@ -436,7 +411,8 @@ class MFNetTrainingTest(unittest.TestCase):
             self._write_vaihingen_sample(root)
 
             random.seed(0)
-            dataset = VaihingenDataset(
+            dataset = ISPRSDataset(
+                preset=VAIHINGEN_PRESET,
                 root_dir=str(root),
                 ids=["1"],
                 patch_size=(16, 16),
@@ -454,12 +430,36 @@ class MFNetTrainingTest(unittest.TestCase):
             self.assertEqual(sample["target"].shape, (16, 16))
             self.assertTrue(set(torch.unique(sample["target"]).tolist()).issubset({0, 1}))
 
+    def test_vaihingen_dataset_augments_cropped_patch_not_full_tile(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            self._write_vaihingen_sample(root)
+
+            random.seed(0)
+            dataset = ISPRSDataset(
+                preset=VAIHINGEN_PRESET,
+                root_dir=str(root),
+                ids=["1"],
+                patch_size=(16, 16),
+                samples_per_epoch=1,
+                cache=True,
+                augmentation=True,
+                split="train",
+            )
+
+            sample = dataset[0]
+
+            self.assertEqual(sample["inputs"]["rgb"].shape, (3, 16, 16))
+            self.assertEqual(sample["inputs"]["dsm"].shape, (16, 16))
+            self.assertEqual(sample["target"].shape, (16, 16))
+
     def test_vaihingen_dataset_get_tile_returns_uncropped_full_tile(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             self._write_vaihingen_sample(root)
 
-            dataset = VaihingenDataset(
+            dataset = ISPRSDataset(
+                preset=VAIHINGEN_PRESET,
                 root_dir=str(root),
                 ids=["1"],
                 patch_size=(16, 16),
@@ -488,7 +488,12 @@ class MFNetTrainingTest(unittest.TestCase):
                 "meta": {"tile_id": "1"},
             }
         )
-        model = _RecordingWholeTileModel()
+        modes: list[str] = []
+
+        def model(rgb: torch.Tensor, dsm: torch.Tensor, mode: str = "Train") -> torch.Tensor:
+            del dsm
+            modes.append(str(mode))
+            return torch.stack([torch.zeros_like(rgb[:, 0]), torch.ones_like(rgb[:, 0])], dim=1)
 
         outputs = SlidingWindowInferencer().run(
             model=model,
@@ -508,8 +513,8 @@ class MFNetTrainingTest(unittest.TestCase):
         self.assertIs(outputs[0]["target"], target)
         self.assertEqual(outputs[0]["meta"], {"tile_id": "1"})
         self.assertEqual(dataset.requested_indices, [0])
-        self.assertTrue(model.modes)
-        self.assertTrue(all(mode == "Test" for mode in model.modes))
+        self.assertTrue(modes)
+        self.assertTrue(all(mode == "Test" for mode in modes))
 
     def test_whole_tile_sliding_window_uses_explicit_rgb_dsm_order(self) -> None:
         rgb = torch.arange(3 * 5 * 5, dtype=torch.float32).reshape(3, 5, 5)
@@ -522,7 +527,13 @@ class MFNetTrainingTest(unittest.TestCase):
                 "meta": {"tile_id": "1"},
             }
         )
-        model = _RecordingWholeTileModel()
+        modes: list[str] = []
+        call_shapes: list[tuple[tuple[int, ...], tuple[int, ...]]] = []
+
+        def model(rgb: torch.Tensor, dsm: torch.Tensor, mode: str = "Train") -> torch.Tensor:
+            modes.append(str(mode))
+            call_shapes.append((tuple(rgb.shape), tuple(dsm.shape)))
+            return torch.stack([torch.zeros_like(rgb[:, 0]), torch.ones_like(rgb[:, 0])], dim=1)
 
         SlidingWindowInferencer().run(
             model=model,
@@ -536,9 +547,9 @@ class MFNetTrainingTest(unittest.TestCase):
             model_kwargs={"mode": "Test"},
         )
 
-        self.assertTrue(model.modes)
-        self.assertTrue(all(mode == "Test" for mode in model.modes))
-        self.assertEqual(model.call_shapes[0], ((2, 3, 3, 3), (2, 3, 3)))
+        self.assertTrue(modes)
+        self.assertTrue(all(mode == "Test" for mode in modes))
+        self.assertEqual(call_shapes[0], ((2, 3, 3, 3), (2, 3, 3)))
 
     def test_whole_tile_sliding_window_accepts_generic_multimodal_inputs(self) -> None:
         rgb = torch.arange(3 * 5 * 5, dtype=torch.float32).reshape(3, 5, 5)
@@ -551,7 +562,12 @@ class MFNetTrainingTest(unittest.TestCase):
                 "meta": {"tile_id": "1"},
             }
         )
-        model = _RecordingWholeTileModel()
+        modes: list[str] = []
+
+        def model(rgb: torch.Tensor, dsm: torch.Tensor, mode: str = "Train") -> torch.Tensor:
+            del dsm
+            modes.append(str(mode))
+            return torch.stack([torch.zeros_like(rgb[:, 0]), torch.ones_like(rgb[:, 0])], dim=1)
 
         outputs = SlidingWindowInferencer().run(
             model=model,
@@ -571,8 +587,8 @@ class MFNetTrainingTest(unittest.TestCase):
         self.assertIs(outputs[0]["target"], target)
         self.assertEqual(outputs[0]["meta"], {"tile_id": "1"})
         self.assertEqual(dataset.requested_indices, [0])
-        self.assertTrue(model.modes)
-        self.assertTrue(all(mode == "Test" for mode in model.modes))
+        self.assertTrue(modes)
+        self.assertTrue(all(mode == "Test" for mode in modes))
 
     def test_whole_tile_sliding_window_accepts_single_input_key(self) -> None:
         image = torch.arange(3 * 5 * 5, dtype=torch.float32).reshape(3, 5, 5)
@@ -584,7 +600,11 @@ class MFNetTrainingTest(unittest.TestCase):
                 "meta": {"tile_id": "1"},
             }
         )
-        model = _RecordingSingleInputWholeTileModel()
+        batch_shapes: list[tuple[int, ...]] = []
+
+        def model(image: torch.Tensor) -> torch.Tensor:
+            batch_shapes.append(tuple(image.shape))
+            return torch.stack([torch.zeros_like(image[:, 0]), torch.ones_like(image[:, 0])], dim=1)
 
         outputs = SlidingWindowInferencer().run(
             model=model,
@@ -602,7 +622,7 @@ class MFNetTrainingTest(unittest.TestCase):
         self.assertIs(outputs[0]["target"], target)
         self.assertEqual(outputs[0]["meta"], {"tile_id": "1"})
         self.assertEqual(dataset.requested_indices, [0])
-        self.assertEqual(model.batch_shapes[0], (2, 3, 3, 3))
+        self.assertEqual(batch_shapes[0], (2, 3, 3, 3))
 
     def test_potsdam_dataset_emits_same_training_contract(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -610,7 +630,8 @@ class MFNetTrainingTest(unittest.TestCase):
             self._write_potsdam_sample(root)
 
             random.seed(0)
-            dataset = PotsdamDataset(
+            dataset = ISPRSDataset(
+                preset=POTSDAM_PRESET,
                 root_dir=str(root),
                 ids=["6_10"],
                 patch_size=(16, 16),
@@ -632,7 +653,8 @@ class MFNetTrainingTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             self._write_vaihingen_sample(root)
-            dataset = VaihingenDataset(
+            dataset = ISPRSDataset(
+                preset=VAIHINGEN_PRESET,
                 root_dir=str(root),
                 ids=["1"],
                 patch_size=(16, 16),
@@ -665,7 +687,8 @@ class MFNetTrainingTest(unittest.TestCase):
                 split="val",
             )
 
-            self.assertIsInstance(dataset, PotsdamDataset)
+            self.assertIsInstance(dataset, ISPRSDataset)
+            self.assertEqual(dataset.preset.name, "potsdam")
             sample = dataset[0]
             self.assertEqual(sample["inputs"]["rgb"].shape, (3, 16, 16))
 
@@ -703,6 +726,34 @@ class MFNetTrainingTest(unittest.TestCase):
             else:
                 sys.modules["models.mfnet"] = original_mfnet_module
 
+    def test_train_default_work_dir_uses_model_dataset_and_timestamp(self) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "test_train_module",
+            Path(__file__).resolve().parents[1] / "tools" / "train.py",
+        )
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        with patch.object(sys, "argv", ["train.py"]):
+            args = module.parse_args()
+
+        self.assertIsNone(args.work_dir)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            work_dir = module.build_default_work_dir(
+                model_name="MFNet UNetFormer",
+                dataset_name="Potsdam/RGB",
+                root_dir=tmpdir,
+            )
+
+            self.assertEqual(work_dir.parent, Path(tmpdir))
+            self.assertRegex(
+                work_dir.name,
+                re.compile(r"^mfnet_unetformer_potsdam_rgb_\d{6}_\d{6}$"),
+            )
+
     def test_train_entry_builds_mfnet_trainer_with_sgd_and_scheduler(self) -> None:
         spec = importlib.util.spec_from_file_location(
             "test_train_module",
@@ -738,12 +789,17 @@ class MFNetTrainingTest(unittest.TestCase):
         original_trainer = module.MFNetTrainer
         try:
             with tempfile.TemporaryDirectory() as tmpdir:
+                config_dir = Path(tmpdir) / "config"
+                config_dir.mkdir()
+                config_path = config_dir / "train_config.jsonc"
+                config_path.write_text('{"train": {}}', encoding="utf-8")
+                work_dir = Path(tmpdir) / "work"
                 module.parse_args = lambda: type(
                     "Args",
                     (),
                     {
-                        "config": "unused.json",
-                        "work_dir": tmpdir,
+                        "config": str(config_path),
+                        "work_dir": str(work_dir),
                         "device": "cpu",
                         "resume_from": None,
                         "load_from": None,
@@ -757,7 +813,7 @@ class MFNetTrainingTest(unittest.TestCase):
                     },
                     "dataset": {
                         "name": "vaihingen",
-                        "root_dir": tmpdir,
+                        "root_dir": str(work_dir),
                         "patch_size": [32, 32],
                         "train_ids": ["1"],
                         "val_ids": ["5"],
@@ -788,7 +844,7 @@ class MFNetTrainingTest(unittest.TestCase):
                         "use_tensorboard": True,
                     },
                 }
-                latest_path = Path(tmpdir) / "latest.pth"
+                latest_path = work_dir / "latest.pth"
                 latest_path.parent.mkdir(parents=True, exist_ok=True)
                 latest_path.write_bytes(b"checkpoint")
 
@@ -821,6 +877,8 @@ class MFNetTrainingTest(unittest.TestCase):
                 self.assertEqual(captured_dataset_calls[1]["name"], "vaihingen")
                 self.assertEqual(captured_dataset_calls[0]["split"], "train")
                 self.assertEqual(captured_dataset_calls[1]["split"], "val")
+                self.assertEqual(captured_dataset_calls[0]["ids"], ["1"])
+                self.assertEqual(captured_dataset_calls[1]["ids"], ["5"])
                 self.assertEqual(len(captured_trainer_kwargs), 1)
                 trainer_kwargs = captured_trainer_kwargs[0]
                 self.assertIsInstance(trainer_kwargs["optimizer"], torch.optim.SGD)
@@ -834,16 +892,17 @@ class MFNetTrainingTest(unittest.TestCase):
                 self.assertTrue(trainer_kwargs["logger"].use_tensorboard)
                 self.assertEqual(trainer_kwargs["cfg"]["val_epoch_interval"], 1)
                 self.assertEqual(trainer_kwargs["cfg"]["batch_size"], 2)
-                self.assertEqual(trainer_kwargs["cfg"]["experiment_name"], Path(tmpdir).name)
+                self.assertEqual(trainer_kwargs["cfg"]["experiment_name"], work_dir.name)
                 self.assertEqual(trainer_kwargs["cfg"]["sam_checkpoint"], "/tmp/sam_vit_b.pth")
                 self.assertEqual(trainer_kwargs["cfg"]["resume_from"], str(latest_path))
-                self.assertEqual(trainer_kwargs["cfg"]["work_dir"], str(Path(tmpdir)))
+                self.assertEqual(trainer_kwargs["cfg"]["work_dir"], str(work_dir))
                 self.assertNotIn("checkpoint_manager", trainer_kwargs)
                 self.assertEqual(
                     trainer_kwargs["cfg"]["validation"],
                     {"stride": 32},
                 )
                 self.assertNotIn("effective_batch_size", trainer_kwargs["cfg"])
+                self.assertTrue((work_dir / "train_config.jsonc").is_file())
         finally:
             module.parse_args = original_parse_args
             module.load_config = original_load_config
@@ -852,9 +911,9 @@ class MFNetTrainingTest(unittest.TestCase):
             module.DataLoader = original_dataloader
             module.MFNetTrainer = original_trainer
 
-    def test_train_entry_default_ids_follow_dataset_name(self) -> None:
+    def test_auto_resume_ignores_missing_latest_checkpoint(self) -> None:
         spec = importlib.util.spec_from_file_location(
-            "test_train_module_defaults",
+            "test_train_module",
             Path(__file__).resolve().parents[1] / "tools" / "train.py",
         )
         self.assertIsNotNone(spec)
@@ -862,18 +921,37 @@ class MFNetTrainingTest(unittest.TestCase):
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
 
-        vaihingen_train_ids, vaihingen_val_ids = module.get_default_isprs_tile_ids("vaihingen")
-        potsdam_train_ids, potsdam_val_ids = module.get_default_isprs_tile_ids("potsdam")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            work_dir = Path(tmpdir) / "work"
 
-        self.assertEqual(vaihingen_train_ids, tuple(VAIHINGEN_TRAIN_IDS))
-        self.assertEqual(vaihingen_val_ids, tuple(VAIHINGEN_VAL_IDS))
-        self.assertEqual(potsdam_train_ids, tuple(POTSDAM_TRAIN_IDS))
-        self.assertEqual(potsdam_val_ids, tuple(POTSDAM_VAL_IDS))
-        with self.assertRaisesRegex(ValueError, "expected 'vaihingen' or 'potsdam'"):
-            module.get_default_isprs_tile_ids("hunan")
-        with self.assertRaisesRegex(ValueError, "expected 'vaihingen' or 'potsdam'"):
-            module.get_default_isprs_tile_ids("unknown")
+            self.assertIsNone(
+                module.resolve_resume_from(
+                    explicit_resume_from=None,
+                    work_dir=work_dir,
+                    auto_resume=True,
+                )
+            )
 
+            latest_path = work_dir / "latest.pth"
+            latest_path.parent.mkdir(parents=True, exist_ok=True)
+            latest_path.write_bytes(b"checkpoint")
+
+            self.assertEqual(
+                module.resolve_resume_from(
+                    explicit_resume_from=None,
+                    work_dir=work_dir,
+                    auto_resume=True,
+                ),
+                str(latest_path),
+            )
+            self.assertEqual(
+                module.resolve_resume_from(
+                    explicit_resume_from="manual.pth",
+                    work_dir=work_dir,
+                    auto_resume=True,
+                ),
+                "manual.pth",
+            )
 
 if __name__ == "__main__":
     unittest.main()
