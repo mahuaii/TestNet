@@ -15,12 +15,12 @@ from PIL import Image
 import torch
 from torch.utils.data import DataLoader, Dataset
 
-from datasets.isprs_dataset import (
+from data.isprs_dataset import (
     ISPRSDataset,
     POTSDAM_PRESET,
     VAIHINGEN_PRESET,
 )
-from datasets import build_isprs_dataset
+from data import build_isprs_dataset
 from engine import MFNetTrainer, SlidingWindowInferencer
 from utils import DataUtils, MFNetLogger
 
@@ -664,7 +664,7 @@ class MFNetTrainingTest(unittest.TestCase):
                 split="train",
             )
 
-            with patch("datasets.isprs_dataset.random.randint", side_effect=[3, 5]) as randint:
+            with patch("data.isprs_dataset.random.randint", side_effect=[3, 5]) as randint:
                 sample = dataset[0]
 
             self.assertEqual(randint.call_args_list, [call(0, 15), call(0, 15)])

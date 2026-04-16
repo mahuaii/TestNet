@@ -16,6 +16,8 @@ env/
 work_dirs/
 _Checkpoints
 _Datasets
+/datasets/*
+!/datasets/.gitkeep
 *.pth
 *.pt
 *.ckpt

@@ -15,7 +15,7 @@ if str(ROOT) not in sys.path:
 import torch
 from torch.utils.data import DataLoader
 
-from datasets import build_isprs_dataset
+from data import build_isprs_dataset
 from engine import Evaluator, MFNetTrainer, SlidingWindowInferencer
 from models import build_model
 from utils import MFNetLogger, load_config

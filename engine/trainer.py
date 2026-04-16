@@ -19,12 +19,12 @@ class Trainer(ABC):
     - model、optimizer、scheduler
     - train_loader、val_loader
     - logger、evaluator
-    - task、inferencer
+    - inferencer
     - device、cfg
 
     职责：
     - 统一编排训练、验证、日志和保存流程
-    - 串联模型、任务层、推理层和评估层
+    - 串联模型、推理层和评估层
     - 管理 epoch、step 等训练状态
 
     输出：
