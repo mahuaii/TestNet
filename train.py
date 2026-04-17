@@ -8,7 +8,7 @@ import shutil
 import sys
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
@@ -134,7 +134,7 @@ def main() -> None:
     train_dataset = build_isprs_dataset(
         dataset_name,
         root_dir=dataset_cfg["root_dir"],
-        ids=dataset_cfg["train_ids"],
+        tile_names=dataset_cfg["train_tile_names"],
         patch_size=dataset_cfg.get("patch_size", [256, 256]),
         samples_per_epoch=dataset_cfg["train_samples_per_epoch"],
         cache=dataset_cfg.get("cache", True),
@@ -153,9 +153,9 @@ def main() -> None:
         val_dataset = build_isprs_dataset(
             dataset_name,
             root_dir=dataset_cfg["root_dir"],
-            ids=dataset_cfg["val_ids"],
+            tile_names=dataset_cfg["val_tile_names"],
             patch_size=dataset_cfg.get("patch_size", [256, 256]),
-            samples_per_epoch=dataset_cfg.get("val_samples_per_epoch", len(dataset_cfg["val_ids"])),
+            samples_per_epoch=dataset_cfg.get("val_samples_per_epoch", len(dataset_cfg["val_tile_names"])),
             cache=dataset_cfg.get("cache", True),
             augmentation=False,
             split="val",

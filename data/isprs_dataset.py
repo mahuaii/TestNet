@@ -72,39 +72,42 @@ class ISPRSDataset(Dataset):
         self,
         preset: ISPRSPreset,
         root_dir: str,
-        ids: Sequence[str],
+        tile_names: Sequence[str],
         patch_size: Sequence[int] = (256, 256),
         samples_per_epoch: int | None = None,
         cache: bool = True,
         augmentation: bool = True,
         split: str = "train",
     ) -> None:
-        if not ids:
-            raise ValueError(f"{preset.name} dataset requires at least one tile id")
+        if not tile_names:
+            raise ValueError(f"{preset.name} dataset requires at least one tile name")
 
         self.preset = preset
         self.root_dir = Path(root_dir)
-        self.ids = [str(item) for item in ids]
+        self.tile_names = [str(item) for item in tile_names]
         self.patch_size = (int(patch_size[0]), int(patch_size[1]))
-        self.samples_per_epoch = int(samples_per_epoch or len(self.ids))
+        self.samples_per_epoch = int(samples_per_epoch or len(self.tile_names))
         self.cache = bool(cache)
         self.augmentation = bool(augmentation)
         self.split = str(split)
 
         self.rgb_files = [
-            self.root_dir / preset.rgb_subdir / preset.rgb_pattern.format(tile_id=tile_id) for tile_id in self.ids
+            self.root_dir / preset.rgb_subdir / preset.rgb_pattern.format(tile_id=tile_name)
+            for tile_name in self.tile_names
         ]
         self.dsm_files = [
-            self.root_dir / preset.dsm_subdir / preset.dsm_pattern.format(tile_id=tile_id) for tile_id in self.ids
+            self.root_dir / preset.dsm_subdir / preset.dsm_pattern.format(tile_id=tile_name)
+            for tile_name in self.tile_names
         ]
         self.label_files = [
-            self.root_dir / preset.label_subdir / preset.label_pattern.format(tile_id=tile_id) for tile_id in self.ids
+            self.root_dir / preset.label_subdir / preset.label_pattern.format(tile_id=tile_name)
+            for tile_name in self.tile_names
         ]
         self.eval_label_files = [
             self.root_dir
             / (preset.eval_label_subdir or preset.label_subdir)
-            / (preset.eval_label_pattern or preset.label_pattern).format(tile_id=tile_id)
-            for tile_id in self.ids
+            / (preset.eval_label_pattern or preset.label_pattern).format(tile_id=tile_name)
+            for tile_name in self.tile_names
         ]
 
         for path in [*self.rgb_files, *self.dsm_files, *self.label_files]:
@@ -145,7 +148,7 @@ class ISPRSDataset(Dataset):
             "target": torch.from_numpy(target_patch.copy()).long(),
             "meta": {
                 "sample_index": index,
-                "source_tile_id": self.ids[tile_index],
+                "source_tile_name": self.tile_names[tile_index],
             },
         }
         return sample
@@ -167,7 +170,7 @@ class ISPRSDataset(Dataset):
             "target": torch.from_numpy(target.copy()).long(),
             "meta": {
                 "sample_index": index,
-                "tile_id": self.ids[tile_index],
+                "tile_name": self.tile_names[tile_index],
             },
         }
 
@@ -234,8 +237,8 @@ class ISPRSDataset(Dataset):
 
     def _resolve_tile_index(self, index: int) -> int:
         if self.split == "train":
-            return random.randrange(len(self.ids))
-        return index % len(self.ids)
+            return random.randrange(len(self.tile_names))
+        return index % len(self.tile_names)
 
     def _crop_random_patch(
         self, rgb: np.ndarray, dsm: np.ndarray, target: np.ndarray
