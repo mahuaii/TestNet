@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from pathlib import Path
+import re
 from typing import Any
 
 
+# Empty SummaryWriter replacement used when TensorBoard is disabled or unavailable.
 class _NoOpSummaryWriter:
     def add_scalar(self, tag: str, scalar_value: float, global_step: int) -> None:
         del tag, scalar_value, global_step
@@ -17,6 +19,9 @@ class _NoOpSummaryWriter:
 
 
 class Logger(ABC):
+    _SECTION_WIDTH = 80
+    _EPOCH_HEADER_PATTERN = re.compile(r"^\s*EPOCH\s+(\d+)\s*/")
+
     def __init__(
         self,
         work_dir: str,
@@ -39,9 +44,7 @@ class Logger(ABC):
 
     def log_epoch_start(self, epoch: int, max_epochs: int) -> None:
         self.log_message("")
-        self.log_message("=" * 80)
-        self.log_message(f"  EPOCH  {epoch} / {max_epochs}")
-        self.log_message("=" * 80)
+        self._log_section_header(f"EPOCH {epoch} / {max_epochs}", fill="=")
 
     def log_train_step(
         self,
@@ -80,6 +83,7 @@ class Logger(ABC):
         train_metrics: dict[str, float],
         lr: float | None = None,
     ) -> None:
+        self._log_section_header("TRAINING SUMMARY", fill="-")
         self.log_message(f"Training time: {self.format_time(train_time_seconds)}")
         message = self._format_train_summary(
             train_metrics=train_metrics,
@@ -94,7 +98,9 @@ class Logger(ABC):
         epoch: int,
         val_metrics: dict[str, float] | None = None,
     ) -> None:
-        self.log_message(f"Test time: {self.format_time(test_time_seconds)}")
+        self.log_message("")
+        self._log_section_header(f"VALIDATION EPOCH {epoch}", fill="-")
+        self.log_message(f"Validation time: {self.format_time(test_time_seconds)}")
         if val_metrics:
             message = self._format_validation_summary(val_metrics=val_metrics)
             if message is not None:
@@ -105,13 +111,56 @@ class Logger(ABC):
         self.log_message(f"Saved checkpoint: {path}", False)
 
     def log_best_metric(self, name: str, value: float) -> None:
-        self.log_message(f"{name}: {value:.4f}")
+        self.log_message(f"[{name}: {value:.4f}]")
 
     def log_message(self, message: str, writefile: bool = True) -> None:
         print(message)
         if writefile:
             with self.log_path.open("a", encoding="utf-8") as f:
                 f.write(message + "\n")
+
+    def truncate_after_completed_epoch(self, completed_epoch: int) -> bool:
+        if not self.log_path.is_file():
+            return False
+
+        lines = self.log_path.read_text(encoding="utf-8").splitlines(keepends=True)
+        truncate_at: int | None = None
+        for index, line in enumerate(lines):
+            match = self._EPOCH_HEADER_PATTERN.match(line)
+            if match is None:
+                continue
+            epoch = int(match.group(1))
+            if epoch <= completed_epoch:
+                continue
+
+            truncate_at = self._epoch_block_start(lines=lines, header_index=index)
+            break
+
+        if truncate_at is None:
+            return False
+
+        self.log_path.write_text("".join(lines[:truncate_at]), encoding="utf-8")
+        return True
+
+    def purge_tensorboard_after_global_step(self, global_step: int) -> None:
+        self._summary_writer.close()
+        self._summary_writer = self._build_summary_writer(
+            log_dir=str(self.log_path.parent),
+            purge_step=global_step + 1,
+        )
+
+    @staticmethod
+    def _epoch_block_start(lines: list[str], header_index: int) -> int:
+        block_start = max(0, header_index - 1)
+        if block_start > 0 and lines[block_start - 1].strip() == "":
+            block_start -= 1
+        return block_start
+
+    def _log_section_header(self, title: str, fill: str) -> None:
+        line = fill * self._SECTION_WIDTH
+        self.log_message(line)
+        self.log_message(f"  {title}")
+        self.log_message(line)
 
     def close(self) -> None:
         self._summary_writer.close()
@@ -162,6 +211,7 @@ class Logger(ABC):
     def _build_summary_writer(
         self,
         log_dir: str,
+        purge_step: int | None = None,
     ) -> Any:
         if not self.use_tensorboard:
             summary_writer = _NoOpSummaryWriter()
@@ -171,5 +221,5 @@ class Logger(ABC):
         except Exception:
             summary_writer = _NoOpSummaryWriter()
             return summary_writer
-        summary_writer = SummaryWriter(log_dir)
+        summary_writer = SummaryWriter(log_dir, purge_step=purge_step)
         return summary_writer

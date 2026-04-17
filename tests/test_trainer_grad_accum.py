@@ -498,7 +498,7 @@ class TrainerGradAccumTest(unittest.TestCase):
                     trainer_cls=GradAccumRegressionTrainer,
                 )
 
-    def test_checkpoint_resume_restores_optimizer_step_semantics(self) -> None:
+    def test_checkpoint_resume_restores_recorded_epoch_and_optimizer_step(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             trainer = build_trainer(
                 work_dir=tmpdir,
@@ -518,17 +518,13 @@ class TrainerGradAccumTest(unittest.TestCase):
                 effective_batch_size=4,
                 trainer_cls=GradAccumRegressionTrainer,
             )
-            state_dict = CheckpointManager.load(
-                path=str(Path(tmpdir) / "latest.pth")
-            )
-            resumed.model.load_state_dict(state_dict["model"])
-            resumed.optimizer.load_state_dict(state_dict["optimizer"])
-            if resumed.scheduler is not None and state_dict["scheduler"] is not None:
-                resumed.scheduler.load_state_dict(state_dict["scheduler"])
-            resumed.epoch = int(state_dict["epoch"])
-            resumed.global_step = int(state_dict["global_step"])
-            resumed.best_miou = float(state_dict.get("best_miou", 0.0))
+            latest_path = Path(tmpdir) / "latest.pth"
+            state_dict = CheckpointManager.load(path=str(latest_path))
+            self.assertEqual(state_dict["epoch"], 1)
 
+            resumed._load_training_state(str(latest_path))
+
+            self.assertEqual(resumed.epoch, 1)
             self.assertEqual(resumed.global_step, 1)
 
     def test_checkpoint_persists_best_miou_in_named_and_latest_files(self) -> None:
@@ -682,7 +678,7 @@ class TrainerGradAccumTest(unittest.TestCase):
 
             self.assertEqual(trainer.best_miou, 0.6)
             log_lines = Path(tmpdir, "train.log").read_text(encoding="utf-8").splitlines()
-            self.assertIn("MIoU_best: 0.6000", log_lines[-1])
+            self.assertIn("[MIoU_best: 0.6000]", log_lines[-1])
 
     def test_validate_keeps_best_miou_when_metric_does_not_improve(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -702,7 +698,7 @@ class TrainerGradAccumTest(unittest.TestCase):
 
             self.assertEqual(trainer.best_miou, 0.6)
             log_lines = Path(tmpdir, "train.log").read_text(encoding="utf-8").splitlines()
-            self.assertEqual(sum(line == "MIoU_best: 0.6000" for line in log_lines), 2)
+            self.assertEqual(sum(line == "[MIoU_best: 0.6000]" for line in log_lines), 2)
 
     def test_validate_ignores_missing_miou_for_best_tracking(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -722,7 +718,7 @@ class TrainerGradAccumTest(unittest.TestCase):
 
             self.assertEqual(trainer.best_miou, 0.4)
             log_lines = Path(tmpdir, "train.log").read_text(encoding="utf-8").splitlines()
-            self.assertIn("MIoU_best: 0.4000", log_lines)
+            self.assertIn("[MIoU_best: 0.4000]", log_lines)
 
     def test_train_raises_when_validation_enabled_without_dependencies(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -792,14 +788,17 @@ class TrainerGradAccumTest(unittest.TestCase):
             trainer.train()
 
             log_lines = Path(tmpdir, "train.log").read_text(encoding="utf-8").strip().splitlines()
-            self.assertEqual(len(log_lines), 7)
+            self.assertEqual(len(log_lines), 10)
             self.assertEqual(log_lines[0], "=" * 80)
-            self.assertEqual(log_lines[1], "  EPOCH  1 / 1")
+            self.assertEqual(log_lines[1], "  EPOCH 1 / 1")
             self.assertEqual(log_lines[2], "=" * 80)
             self.assertIn("Train (epoch 1/1) [3/4]", log_lines[3])
             self.assertIn("Train (epoch 1/1) [4/4]", log_lines[4])
-            self.assertTrue(log_lines[5].startswith("Training time: "))
-            self.assertTrue(log_lines[6].startswith("Train summary: "))
+            self.assertEqual(log_lines[5], "-" * 80)
+            self.assertEqual(log_lines[6], "  TRAINING SUMMARY")
+            self.assertEqual(log_lines[7], "-" * 80)
+            self.assertTrue(log_lines[8].startswith("Training time: "))
+            self.assertTrue(log_lines[9].startswith("Train summary: "))
 
 
 if __name__ == "__main__":

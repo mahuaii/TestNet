@@ -48,8 +48,7 @@ class CheckpointManager:
             "model": model.state_dict(),
             "optimizer": optimizer.state_dict(),
             "scheduler": None if scheduler is None else scheduler.state_dict(),
-            # Persist the next epoch to run so training continues from the following epoch.
-            "epoch": epoch + 1,
+            "epoch": epoch,
             "global_step": global_step,
             "best_miou": float(best_miou),
         }

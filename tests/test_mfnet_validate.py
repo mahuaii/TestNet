@@ -33,7 +33,7 @@ class _Inferencer:
             {
                 "pred": torch.zeros(2, 2, dtype=torch.long),
                 "target": torch.zeros(2, 2, dtype=torch.long),
-                "meta": {"tile_id": "1"},
+                "meta": {"tile_name": "1"},
             }
         ]
 
@@ -132,9 +132,10 @@ class MFNetValidateTest(unittest.TestCase):
                     for line in log_lines
                 )
             )
-            self.assertIn("Validation", log_lines)
+            self.assertIn("  VALIDATION EPOCH 1", log_lines)
+            self.assertIn("Validation Report", log_lines)
             self.assertTrue(any("Mean MIoU: 0.7000" in line for line in log_lines))
-            self.assertIn("MIoU_best: 0.7000", log_lines)
+            self.assertIn("[MIoU_best: 0.7000]", log_lines)
 
 
 if __name__ == "__main__":

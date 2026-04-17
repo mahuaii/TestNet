@@ -68,7 +68,7 @@ class MFNetLogger(Logger):
             return None
 
         lines = [
-            "Validation",
+            "Validation Report",
         ]
         if "pixels_processed" in val_metrics:
             lines.append(f"  Pixels processed: {int(val_metrics['pixels_processed'])}")
@@ -85,14 +85,14 @@ class MFNetLogger(Logger):
             lines.extend(
                 [
                     "",
-                    "Confusion matrix",
+                    "[Confusion matrix]",
                     self._format_matrix(val_metrics["confusion_matrix"]),
                 ]
             )
 
         per_class_lines = self._format_per_class_metrics(val_metrics)
         if per_class_lines:
-            lines.extend(["", "Per-class metrics", *per_class_lines])
+            lines.extend(["", "[Per-class metrics]", *per_class_lines])
 
         return "\n".join(lines)
 

@@ -68,6 +68,17 @@ class _BaseStyleLogger(Logger):
         return None
 
 
+class _PurgeTrackingLogger(_BaseStyleLogger):
+    def _build_summary_writer(
+        self,
+        log_dir: str,
+        purge_step: int | None = None,
+    ) -> _FakeSummaryWriter:
+        self.build_calls = getattr(self, "build_calls", [])
+        self.build_calls.append((log_dir, purge_step))
+        return _FakeSummaryWriter(log_dir)
+
+
 class LoggerTest(unittest.TestCase):
     def test_base_logger_only_emits_generic_timing_messages(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -100,10 +111,17 @@ class LoggerTest(unittest.TestCase):
             log_lines = Path(tmpdir, "train.log").read_text(encoding="utf-8").splitlines()
             self.assertEqual(log_lines[0], "")
             self.assertEqual(log_lines[1], "=" * 80)
-            self.assertEqual(log_lines[2], "  EPOCH  1 / 3")
+            self.assertEqual(log_lines[2], "  EPOCH 1 / 3")
             self.assertEqual(log_lines[3], "=" * 80)
-            self.assertEqual(log_lines[4], "Training time: 1:01:01")
-            self.assertEqual(log_lines[5], "Test time: 0:01:01")
+            self.assertEqual(log_lines[4], "-" * 80)
+            self.assertEqual(log_lines[5], "  TRAINING SUMMARY")
+            self.assertEqual(log_lines[6], "-" * 80)
+            self.assertEqual(log_lines[7], "Training time: 1:01:01")
+            self.assertEqual(log_lines[8], "")
+            self.assertEqual(log_lines[9], "-" * 80)
+            self.assertEqual(log_lines[10], "  VALIDATION EPOCH 2")
+            self.assertEqual(log_lines[11], "-" * 80)
+            self.assertEqual(log_lines[12], "Validation time: 0:01:01")
 
     def test_mfnet_logger_formats_mfnet_style_messages(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -138,23 +156,94 @@ class LoggerTest(unittest.TestCase):
             log_lines = Path(tmpdir, "train.log").read_text(encoding="utf-8").splitlines()
             self.assertEqual(log_lines[0], "")
             self.assertEqual(log_lines[1], "=" * 80)
-            self.assertEqual(log_lines[2], "  EPOCH  1 / 3")
+            self.assertEqual(log_lines[2], "  EPOCH 1 / 3")
             self.assertEqual(log_lines[3], "=" * 80)
             self.assertIn("Train (epoch 1/3) [2/5]", log_lines[4])
             self.assertIn("Loss: 1.250000", log_lines[4])
             self.assertIn("Accuracy: 87.5000", log_lines[4])
             self.assertIn("Time: 0:01:05", log_lines[4])
             self.assertIn("(Elapsed: 0:02:10)", log_lines[4])
-            self.assertEqual(log_lines[5], "Training time: 1:01:01")
+            self.assertEqual(log_lines[5], "-" * 80)
+            self.assertEqual(log_lines[6], "  TRAINING SUMMARY")
+            self.assertEqual(log_lines[7], "-" * 80)
+            self.assertEqual(log_lines[8], "Training time: 1:01:01")
             self.assertIn(
                 "Train summary: Loss: 0.500000 | Accuracy: 90.0000 | LR: 0.010000",
-                log_lines[6],
+                log_lines[9],
             )
-            self.assertEqual(log_lines[7], "Test time: 0:01:01")
-            self.assertEqual(log_lines[8], "Validation")
-            self.assertIn("Total accuracy: 88.0000", log_lines[9])
+            self.assertEqual(log_lines[10], "")
+            self.assertEqual(log_lines[11], "-" * 80)
+            self.assertEqual(log_lines[12], "  VALIDATION EPOCH 2")
+            self.assertEqual(log_lines[13], "-" * 80)
+            self.assertEqual(log_lines[14], "Validation time: 0:01:01")
+            self.assertEqual(log_lines[15], "Validation Report")
+            self.assertIn("Total accuracy: 88.0000", log_lines[16])
             self.assertIn("Mean MIoU: 0.6000", "\n".join(log_lines))
-            self.assertEqual(log_lines[-1], "MIoU_best: 0.6000")
+            self.assertEqual(log_lines[-1], "[MIoU_best: 0.6000]")
+
+    def test_truncate_after_completed_epoch_removes_incomplete_epoch_tail(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            logger = MFNetLogger(tmpdir, use_tensorboard=False)
+            logger.log_message("Experiment: resume-test")
+            logger.log_epoch_start(epoch=1, max_epochs=3)
+            logger.log_epoch_end(
+                train_time_seconds=10,
+                train_metrics={"loss": 0.5, "accuracy": 90.0},
+                lr=0.01,
+            )
+            logger.log_epoch_start(epoch=2, max_epochs=3)
+            logger.log_train_step(
+                epoch=2,
+                max_epochs=3,
+                step=1,
+                total_steps=5,
+                step_stats={"loss": 1.25, "accuracy": 87.5},
+                interval_time_seconds=1,
+                epoch_elapsed_seconds=1,
+                global_step=6,
+                lr=0.01,
+            )
+
+            changed = logger.truncate_after_completed_epoch(completed_epoch=1)
+
+            self.assertTrue(changed)
+            log_text = Path(tmpdir, "train.log").read_text(encoding="utf-8")
+            self.assertIn("Experiment: resume-test", log_text)
+            self.assertIn("  EPOCH 1 / 3", log_text)
+            self.assertIn("Train summary:", log_text)
+            self.assertNotIn("  EPOCH 2 / 3", log_text)
+            self.assertNotIn("Train (epoch 2/3)", log_text)
+            logger.close()
+
+    def test_truncate_after_completed_epoch_is_noop_when_log_is_already_clean(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            logger = MFNetLogger(tmpdir, use_tensorboard=False)
+            logger.log_epoch_start(epoch=1, max_epochs=1)
+            logger.log_epoch_end(
+                train_time_seconds=10,
+                train_metrics={"loss": 0.5},
+            )
+
+            changed = logger.truncate_after_completed_epoch(completed_epoch=1)
+
+            self.assertFalse(changed)
+            log_text = Path(tmpdir, "train.log").read_text(encoding="utf-8")
+            self.assertIn("  EPOCH 1 / 1", log_text)
+            logger.close()
+
+    def test_purge_tensorboard_after_global_step_reopens_writer_with_next_step(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            logger = _PurgeTrackingLogger(tmpdir, use_tensorboard=True)
+            original_writer = logger._summary_writer
+
+            logger.purge_tensorboard_after_global_step(global_step=7)
+
+            self.assertTrue(original_writer.closed)
+            self.assertEqual(
+                logger.build_calls,
+                [(tmpdir, None), (tmpdir, 8)],
+            )
+            logger.close()
 
     def test_mfnet_logger_tensorboard_scalars_are_written_with_fake_writer(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

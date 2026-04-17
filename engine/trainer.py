@@ -82,8 +82,13 @@ class Trainer(ABC):
         self.optimizer.load_state_dict(state_dict["optimizer"])
         if self.scheduler is not None and state_dict["scheduler"] is not None:
             self.scheduler.load_state_dict(state_dict["scheduler"])
-        self.epoch = int(state_dict["epoch"])
-        self.global_step = int(state_dict["global_step"])
+        # Checkpoints store the current in-progress epoch, so resume that epoch.
+        checkpoint_epoch = int(state_dict["epoch"])
+        checkpoint_global_step = int(state_dict["global_step"])
+        self.logger.truncate_after_completed_epoch(max(0, checkpoint_epoch - 1))
+        self.logger.purge_tensorboard_after_global_step(checkpoint_global_step)
+        self.epoch = checkpoint_epoch
+        self.global_step = checkpoint_global_step
         self.best_miou = float(state_dict.get("best_miou", 0.0))
 
     def train(self):
