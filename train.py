@@ -24,9 +24,9 @@ from utils import MFNetLogger, load_config
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="configs/train_config.jsonc")
-    parser.add_argument("--work-dir", default=None)
     parser.add_argument("--device", default="cuda")
-    parser.add_argument("--resume-from", default=None)
+    parser.add_argument("--resume-dir", default=None)
+    parser.add_argument("--resume-ckpt", default=None)
     parser.add_argument("--load-from", default=None)
     return parser.parse_args()
 
@@ -52,32 +52,6 @@ def build_default_work_dir(
         ]
     )
     return Path(root_dir) / experiment_name
-
-
-def copy_config_snapshot(config_path: str, work_dir: Path) -> Path | None:
-    source = Path(config_path)
-    if not source.is_file():
-        return None
-
-    destination = work_dir / source.name
-    if destination.exists():
-        return destination
-
-    shutil.copy2(source, destination)
-    return destination
-
-
-def resolve_resume_from(explicit_resume_from: str | None, work_dir: Path, auto_resume: bool) -> str | None:
-    if explicit_resume_from is not None:
-        return explicit_resume_from
-
-    if not auto_resume:
-        return None
-
-    latest_path = work_dir / "latest.pth"
-    if latest_path.is_file():
-        return str(latest_path)
-    return None
 
 
 def count_model_params(model: torch.nn.Module) -> tuple[int, int, int, int]:
@@ -110,24 +84,26 @@ def log_run_summary(
 
 def main() -> None:
     args = parse_args()
-    cfg = load_config(args.config)
+    if args.resume_dir is not None:
+        work_dir = Path(args.resume_dir)
+        config_path = sorted([*work_dir.glob("*.jsonc"), *work_dir.glob("*.json")])[0]
+        cfg = load_config(str(config_path))
+        resume_from = str(work_dir / "latest.pth")
+        load_from = None
+    else:
+        cfg = load_config(args.config)
+        dataset_cfg = cfg["dataset"]
+        dataset_name = str(dataset_cfg.get("name", "vaihingen")).strip().lower()
+        model_name = cfg["model"].get("type", "model")
+        work_dir = build_default_work_dir(model_name=model_name, dataset_name=dataset_name)
+        work_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(args.config, work_dir)
+        resume_from = args.resume_ckpt
+        load_from = args.load_from
 
     dataset_cfg = cfg["dataset"]
     dataset_name = str(dataset_cfg.get("name", "vaihingen")).strip().lower()
-    model_name = cfg["model"].get("type", "model")
-    work_dir = (
-        build_default_work_dir(model_name=model_name, dataset_name=dataset_name)
-        if args.work_dir is None
-        else Path(args.work_dir)
-    )
-    work_dir.mkdir(parents=True, exist_ok=True)
-    copy_config_snapshot(args.config, work_dir)
     experiment_name = work_dir.name or "mfnet"
-    resume_from = resolve_resume_from(
-        explicit_resume_from=args.resume_from,
-        work_dir=work_dir,
-        auto_resume=cfg["train"].get("auto_resume", False),
-    )
 
     model = build_model(cfg["model"])
 
@@ -199,7 +175,7 @@ def main() -> None:
             "work_dir": str(work_dir),
             "experiment_name": experiment_name,
             "resume_from": resume_from,
-            "load_from": args.load_from,
+            "load_from": load_from,
             "sam_checkpoint": cfg["model"].get("sam_checkpoint"),
             "num_classes": cfg["model"]["num_classes"],
             "class_weights": cfg.get("class_weights"),

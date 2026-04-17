@@ -726,7 +726,7 @@ class MFNetTrainingTest(unittest.TestCase):
             else:
                 sys.modules["models.mfnet"] = original_mfnet_module
 
-    def test_train_default_work_dir_uses_model_dataset_and_timestamp(self) -> None:
+    def _load_train_entry_module(self):
         spec = importlib.util.spec_from_file_location(
             "test_train_module",
             Path(__file__).resolve().parents[1] / "train.py",
@@ -735,11 +735,155 @@ class MFNetTrainingTest(unittest.TestCase):
         self.assertIsNotNone(spec.loader)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
+        return module
+
+    def _make_train_entry_config(self, root_dir: str) -> dict[str, object]:
+        return {
+            "model": {
+                "type": "mfnet_unetformer",
+                "num_classes": 6,
+                "sam_checkpoint": "/tmp/sam_vit_b.pth",
+            },
+            "dataset": {
+                "name": "vaihingen",
+                "root_dir": root_dir,
+                "patch_size": [32, 32],
+                "train_tile_names": ["1"],
+                "val_tile_names": ["5"],
+                "train_samples_per_epoch": 4,
+                "val_samples_per_epoch": 1,
+                "cache": True,
+                "augmentation": True,
+            },
+            "dataloader": {"num_workers": 0},
+            "optimizer": {
+                "type": "SGD",
+                "lr": 0.01,
+                "momentum": 0.9,
+                "weight_decay": 0.0005,
+            },
+            "scheduler": {"type": "MultiStepLR", "milestones": [1, 2], "gamma": 0.1},
+            "validation": {
+                "stride": 32,
+            },
+            "train": {
+                "max_epochs": 1,
+                "batch_size": 2,
+                "auto_resume": True,
+                "log_step_interval": 1,
+                "val_epoch_interval": 1,
+                "save_epoch_interval": 1,
+                "save_step_interval": 0,
+                "use_tensorboard": True,
+            },
+        }
+
+    def _run_train_entry(
+        self,
+        module,
+        args: object,
+        cfg: dict[str, object],
+        default_work_dir: Path | None,
+    ) -> dict[str, object]:
+        class FakeModel(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.weight = torch.nn.Parameter(torch.ones(1))
+                self.image_encoder = torch.nn.Linear(1, 1, bias=False)
+
+        captured_dataset_calls: list[dict[str, object]] = []
+        captured_trainer_kwargs: list[dict[str, object]] = []
+        captured_model_cfg: list[dict[str, object]] = []
+        captured_load_config_paths: list[str] = []
+        captured_default_work_dir_calls: list[dict[str, object]] = []
+
+        class FakeTrainer:
+            def __init__(self, **kwargs: object) -> None:
+                captured_trainer_kwargs.append(kwargs)
+
+            def train(self) -> None:
+                return None
+
+        original_parse_args = module.parse_args
+        original_load_config = module.load_config
+        original_build_default_work_dir = module.build_default_work_dir
+        original_build_model = module.build_model
+        original_build_isprs_dataset = module.build_isprs_dataset
+        original_dataloader = module.DataLoader
+        original_trainer = module.MFNetTrainer
+        try:
+            module.parse_args = lambda: args
+
+            def fake_load_config(path: str) -> dict[str, object]:
+                captured_load_config_paths.append(path)
+                return cfg
+
+            module.load_config = fake_load_config
+
+            def fake_build_default_work_dir(
+                model_name: object,
+                dataset_name: object,
+                root_dir: str | Path = "work_dirs",
+            ) -> Path:
+                captured_default_work_dir_calls.append(
+                    {
+                        "model_name": model_name,
+                        "dataset_name": dataset_name,
+                        "root_dir": root_dir,
+                    }
+                )
+                if default_work_dir is None:
+                    raise AssertionError("resume-dir should not build a new workdir")
+                return default_work_dir
+
+            module.build_default_work_dir = fake_build_default_work_dir
+
+            def fake_build_model(model_cfg: dict[str, object]) -> FakeModel:
+                captured_model_cfg.append(model_cfg)
+                return FakeModel()
+
+            module.build_model = fake_build_model
+
+            def fake_build_isprs_dataset(name: str, **kwargs: object) -> dict[str, object]:
+                captured_dataset_calls.append({"name": name, **kwargs})
+                return {"dataset_name": name, "dataset_kwargs": kwargs}
+
+            module.build_isprs_dataset = fake_build_isprs_dataset
+            module.DataLoader = lambda dataset, **kwargs: {
+                "dataset": dataset,
+                "batch_size": kwargs["batch_size"],
+                "loader_kwargs": kwargs,
+            }
+            module.MFNetTrainer = FakeTrainer
+
+            module.main()
+        finally:
+            module.parse_args = original_parse_args
+            module.load_config = original_load_config
+            module.build_default_work_dir = original_build_default_work_dir
+            module.build_model = original_build_model
+            module.build_isprs_dataset = original_build_isprs_dataset
+            module.DataLoader = original_dataloader
+            module.MFNetTrainer = original_trainer
+
+        return {
+            "dataset_calls": captured_dataset_calls,
+            "trainer_kwargs": captured_trainer_kwargs,
+            "model_cfg": captured_model_cfg,
+            "load_config_paths": captured_load_config_paths,
+            "default_work_dir_calls": captured_default_work_dir_calls,
+        }
+
+    def test_train_default_work_dir_uses_model_dataset_and_timestamp(self) -> None:
+        module = self._load_train_entry_module()
 
         with patch.object(sys, "argv", ["train.py"]):
             args = module.parse_args()
 
-        self.assertIsNone(args.work_dir)
+        self.assertFalse(hasattr(args, "work_dir"))
+        self.assertFalse(hasattr(args, "resume_from"))
+        self.assertIsNone(args.resume_dir)
+        self.assertIsNone(args.resume_ckpt)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             work_dir = module.build_default_work_dir(
@@ -755,203 +899,141 @@ class MFNetTrainingTest(unittest.TestCase):
             )
 
     def test_train_entry_builds_mfnet_trainer_with_sgd_and_scheduler(self) -> None:
-        spec = importlib.util.spec_from_file_location(
-            "test_train_module",
-            Path(__file__).resolve().parents[1] / "train.py",
-        )
-        self.assertIsNotNone(spec)
-        self.assertIsNotNone(spec.loader)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-
-        class FakeModel(torch.nn.Module):
-            def __init__(self) -> None:
-                super().__init__()
-                self.weight = torch.nn.Parameter(torch.ones(1))
-                self.image_encoder = torch.nn.Linear(1, 1, bias=False)
-
-        captured_dataset_calls: list[dict[str, object]] = []
-        captured_trainer_kwargs: list[dict[str, object]] = []
-        captured_model_cfg: list[dict[str, object]] = []
-
-        class FakeTrainer:
-            def __init__(self, **kwargs: object) -> None:
-                captured_trainer_kwargs.append(kwargs)
-
-            def train(self) -> None:
-                return None
-
-        original_parse_args = module.parse_args
-        original_load_config = module.load_config
-        original_build_model = module.build_model
-        original_build_isprs_dataset = module.build_isprs_dataset
-        original_dataloader = module.DataLoader
-        original_trainer = module.MFNetTrainer
-        try:
-            with tempfile.TemporaryDirectory() as tmpdir:
-                config_dir = Path(tmpdir) / "config"
-                config_dir.mkdir()
-                config_path = config_dir / "train_config.jsonc"
-                config_path.write_text('{"train": {}}', encoding="utf-8")
-                work_dir = Path(tmpdir) / "work"
-                module.parse_args = lambda: type(
-                    "Args",
-                    (),
-                    {
-                        "config": str(config_path),
-                        "work_dir": str(work_dir),
-                        "device": "cpu",
-                        "resume_from": None,
-                        "load_from": None,
-                    },
-                )()
-                module.load_config = lambda _path: {
-                    "model": {
-                        "type": "mfnet_unetformer",
-                        "num_classes": 6,
-                        "sam_checkpoint": "/tmp/sam_vit_b.pth",
-                    },
-                    "dataset": {
-                        "name": "vaihingen",
-                        "root_dir": str(work_dir),
-                        "patch_size": [32, 32],
-                        "train_tile_names": ["1"],
-                        "val_tile_names": ["5"],
-                        "train_samples_per_epoch": 4,
-                        "val_samples_per_epoch": 1,
-                        "cache": True,
-                        "augmentation": True,
-                    },
-                    "dataloader": {"num_workers": 0},
-                    "optimizer": {
-                        "type": "SGD",
-                        "lr": 0.01,
-                        "momentum": 0.9,
-                        "weight_decay": 0.0005,
-                    },
-                    "scheduler": {"type": "MultiStepLR", "milestones": [1, 2], "gamma": 0.1},
-                    "validation": {
-                        "stride": 32,
-                    },
-                    "train": {
-                        "max_epochs": 1,
-                        "batch_size": 2,
-                        "auto_resume": True,
-                        "log_step_interval": 1,
-                        "val_epoch_interval": 1,
-                        "save_epoch_interval": 1,
-                        "save_step_interval": 0,
-                        "use_tensorboard": True,
-                    },
-                }
-                latest_path = work_dir / "latest.pth"
-                latest_path.parent.mkdir(parents=True, exist_ok=True)
-                latest_path.write_bytes(b"checkpoint")
-
-                def fake_build_model(model_cfg: dict[str, object]) -> FakeModel:
-                    captured_model_cfg.append(model_cfg)
-                    return FakeModel()
-
-                module.build_model = fake_build_model
-
-                def fake_dataset(**kwargs: object) -> dict[str, object]:
-                    captured_dataset_calls.append(kwargs)
-                    return {"dataset_kwargs": kwargs}
-
-                def fake_build_isprs_dataset(name: str, **kwargs: object) -> dict[str, object]:
-                    captured_dataset_calls.append({"name": name, **kwargs})
-                    return {"dataset_name": name, "dataset_kwargs": kwargs}
-
-                module.build_isprs_dataset = fake_build_isprs_dataset
-                module.DataLoader = lambda dataset, **kwargs: {
-                    "dataset": dataset,
-                    "batch_size": kwargs["batch_size"],
-                    "loader_kwargs": kwargs,
-                }
-                module.MFNetTrainer = FakeTrainer
-
-                module.main()
-
-                self.assertEqual(len(captured_dataset_calls), 2)
-                self.assertEqual(captured_dataset_calls[0]["name"], "vaihingen")
-                self.assertEqual(captured_dataset_calls[1]["name"], "vaihingen")
-                self.assertEqual(captured_dataset_calls[0]["split"], "train")
-                self.assertEqual(captured_dataset_calls[1]["split"], "val")
-                self.assertEqual(captured_dataset_calls[0]["tile_names"], ["1"])
-                self.assertEqual(captured_dataset_calls[1]["tile_names"], ["5"])
-                self.assertEqual(len(captured_trainer_kwargs), 1)
-                trainer_kwargs = captured_trainer_kwargs[0]
-                self.assertIsInstance(trainer_kwargs["optimizer"], torch.optim.SGD)
-                self.assertIsInstance(
-                    trainer_kwargs["scheduler"],
-                    torch.optim.lr_scheduler.MultiStepLR,
-                )
-                self.assertEqual(len(captured_model_cfg), 1)
-                self.assertEqual(captured_model_cfg[0]["sam_checkpoint"], "/tmp/sam_vit_b.pth")
-                self.assertIsInstance(trainer_kwargs["logger"], MFNetLogger)
-                self.assertTrue(trainer_kwargs["logger"].use_tensorboard)
-                self.assertEqual(trainer_kwargs["cfg"]["val_epoch_interval"], 1)
-                self.assertEqual(trainer_kwargs["cfg"]["batch_size"], 2)
-                self.assertEqual(trainer_kwargs["cfg"]["experiment_name"], work_dir.name)
-                self.assertEqual(trainer_kwargs["cfg"]["sam_checkpoint"], "/tmp/sam_vit_b.pth")
-                self.assertEqual(trainer_kwargs["cfg"]["resume_from"], str(latest_path))
-                self.assertEqual(trainer_kwargs["cfg"]["work_dir"], str(work_dir))
-                self.assertNotIn("checkpoint_manager", trainer_kwargs)
-                self.assertEqual(
-                    trainer_kwargs["cfg"]["validation"],
-                    {"stride": 32},
-                )
-                self.assertNotIn("effective_batch_size", trainer_kwargs["cfg"])
-                self.assertTrue((work_dir / "train_config.jsonc").is_file())
-        finally:
-            module.parse_args = original_parse_args
-            module.load_config = original_load_config
-            module.build_model = original_build_model
-            module.build_isprs_dataset = original_build_isprs_dataset
-            module.DataLoader = original_dataloader
-            module.MFNetTrainer = original_trainer
-
-    def test_auto_resume_ignores_missing_latest_checkpoint(self) -> None:
-        spec = importlib.util.spec_from_file_location(
-            "test_train_module",
-            Path(__file__).resolve().parents[1] / "train.py",
-        )
-        self.assertIsNotNone(spec)
-        self.assertIsNotNone(spec.loader)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-
+        module = self._load_train_entry_module()
         with tempfile.TemporaryDirectory() as tmpdir:
-            work_dir = Path(tmpdir) / "work"
+            config_dir = Path(tmpdir) / "config"
+            config_dir.mkdir()
+            config_path = config_dir / "external_config.jsonc"
+            config_text = '{"train": {"max_epochs": 1}}\n'
+            config_path.write_text(config_text, encoding="utf-8")
+            work_dir = Path(tmpdir) / "auto_work"
+            args = type(
+                "Args",
+                (),
+                {
+                    "config": str(config_path),
+                    "device": "cpu",
+                    "resume_dir": None,
+                    "resume_ckpt": None,
+                    "load_from": "/tmp/pretrained.pth",
+                },
+            )()
 
-            self.assertIsNone(
-                module.resolve_resume_from(
-                    explicit_resume_from=None,
-                    work_dir=work_dir,
-                    auto_resume=True,
-                )
+            result = self._run_train_entry(
+                module=module,
+                args=args,
+                cfg=self._make_train_entry_config(root_dir=str(work_dir)),
+                default_work_dir=work_dir,
             )
 
-            latest_path = work_dir / "latest.pth"
-            latest_path.parent.mkdir(parents=True, exist_ok=True)
-            latest_path.write_bytes(b"checkpoint")
-
+            dataset_calls = result["dataset_calls"]
+            self.assertEqual(len(dataset_calls), 2)
+            self.assertEqual(dataset_calls[0]["name"], "vaihingen")
+            self.assertEqual(dataset_calls[1]["name"], "vaihingen")
+            self.assertEqual(dataset_calls[0]["split"], "train")
+            self.assertEqual(dataset_calls[1]["split"], "val")
+            self.assertEqual(dataset_calls[0]["tile_names"], ["1"])
+            self.assertEqual(dataset_calls[1]["tile_names"], ["5"])
+            self.assertEqual(result["load_config_paths"], [str(config_path)])
+            self.assertEqual(len(result["default_work_dir_calls"]), 1)
+            self.assertEqual(len(result["trainer_kwargs"]), 1)
+            trainer_kwargs = result["trainer_kwargs"][0]
+            self.assertIsInstance(trainer_kwargs["optimizer"], torch.optim.SGD)
+            self.assertIsInstance(
+                trainer_kwargs["scheduler"],
+                torch.optim.lr_scheduler.MultiStepLR,
+            )
+            self.assertEqual(len(result["model_cfg"]), 1)
+            self.assertEqual(result["model_cfg"][0]["sam_checkpoint"], "/tmp/sam_vit_b.pth")
+            self.assertIsInstance(trainer_kwargs["logger"], MFNetLogger)
+            self.assertTrue(trainer_kwargs["logger"].use_tensorboard)
+            self.assertEqual(trainer_kwargs["cfg"]["val_epoch_interval"], 1)
+            self.assertEqual(trainer_kwargs["cfg"]["batch_size"], 2)
+            self.assertEqual(trainer_kwargs["cfg"]["experiment_name"], work_dir.name)
+            self.assertEqual(trainer_kwargs["cfg"]["sam_checkpoint"], "/tmp/sam_vit_b.pth")
+            self.assertIsNone(trainer_kwargs["cfg"]["resume_from"])
+            self.assertEqual(trainer_kwargs["cfg"]["load_from"], "/tmp/pretrained.pth")
+            self.assertEqual(trainer_kwargs["cfg"]["work_dir"], str(work_dir))
+            self.assertNotIn("checkpoint_manager", trainer_kwargs)
             self.assertEqual(
-                module.resolve_resume_from(
-                    explicit_resume_from=None,
-                    work_dir=work_dir,
-                    auto_resume=True,
-                ),
-                str(latest_path),
+                trainer_kwargs["cfg"]["validation"],
+                {"stride": 32},
             )
-            self.assertEqual(
-                module.resolve_resume_from(
-                    explicit_resume_from="manual.pth",
-                    work_dir=work_dir,
-                    auto_resume=True,
-                ),
-                "manual.pth",
+            self.assertNotIn("effective_batch_size", trainer_kwargs["cfg"])
+            self.assertEqual((work_dir / config_path.name).read_text(encoding="utf-8"), config_text)
+            self.assertFalse((work_dir / "train_config.jsonc").exists())
+
+    def test_train_entry_uses_resume_ckpt_for_new_experiment_only(self) -> None:
+        module = self._load_train_entry_module()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "external_config.jsonc"
+            config_path.write_text('{"train": {"max_epochs": 1}}\n', encoding="utf-8")
+            work_dir = Path(tmpdir) / "auto_work"
+            resume_ckpt = Path(tmpdir) / "manual_resume.pth"
+            args = type(
+                "Args",
+                (),
+                {
+                    "config": str(config_path),
+                    "device": "cpu",
+                    "resume_dir": None,
+                    "resume_ckpt": str(resume_ckpt),
+                    "load_from": "/tmp/pretrained.pth",
+                },
+            )()
+
+            result = self._run_train_entry(
+                module=module,
+                args=args,
+                cfg=self._make_train_entry_config(root_dir=str(work_dir)),
+                default_work_dir=work_dir,
             )
+
+            trainer_kwargs = result["trainer_kwargs"][0]
+            self.assertEqual(result["load_config_paths"], [str(config_path)])
+            self.assertEqual(trainer_kwargs["cfg"]["work_dir"], str(work_dir))
+            self.assertEqual(trainer_kwargs["cfg"]["resume_from"], str(resume_ckpt))
+            self.assertEqual(trainer_kwargs["cfg"]["load_from"], "/tmp/pretrained.pth")
+            self.assertTrue((work_dir / config_path.name).is_file())
+
+    def test_train_entry_resume_dir_overrides_file_parameters(self) -> None:
+        module = self._load_train_entry_module()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            resume_dir = Path(tmpdir) / "resume_work"
+            resume_dir.mkdir()
+            resume_config_path = resume_dir / "resume_config.json"
+            resume_config_text = '{"train": {"max_epochs": 9}}\n'
+            resume_config_path.write_text(resume_config_text, encoding="utf-8")
+            external_config_path = Path(tmpdir) / "external_config.jsonc"
+            external_config_path.write_text('{"train": {"max_epochs": 1}}\n', encoding="utf-8")
+            args = type(
+                "Args",
+                (),
+                {
+                    "config": str(external_config_path),
+                    "device": "cpu",
+                    "resume_dir": str(resume_dir),
+                    "resume_ckpt": str(Path(tmpdir) / "manual_resume.pth"),
+                    "load_from": "/tmp/pretrained.pth",
+                },
+            )()
+
+            result = self._run_train_entry(
+                module=module,
+                args=args,
+                cfg=self._make_train_entry_config(root_dir=str(resume_dir)),
+                default_work_dir=None,
+            )
+
+            trainer_kwargs = result["trainer_kwargs"][0]
+            self.assertEqual(result["load_config_paths"], [str(resume_config_path)])
+            self.assertEqual(result["default_work_dir_calls"], [])
+            self.assertEqual(trainer_kwargs["cfg"]["work_dir"], str(resume_dir))
+            self.assertEqual(trainer_kwargs["cfg"]["experiment_name"], resume_dir.name)
+            self.assertEqual(trainer_kwargs["cfg"]["resume_from"], str(resume_dir / "latest.pth"))
+            self.assertIsNone(trainer_kwargs["cfg"]["load_from"])
+            self.assertEqual(resume_config_path.read_text(encoding="utf-8"), resume_config_text)
+            self.assertFalse((resume_dir / external_config_path.name).exists())
 
 if __name__ == "__main__":
     unittest.main()
