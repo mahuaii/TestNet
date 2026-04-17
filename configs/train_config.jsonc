@@ -13,7 +13,7 @@
         ],
         "cache": true,
         "augmentation": true,
-        "train_tile_names": [
+        "train_ids": [
             "1",
             "3",
             "23",
@@ -27,7 +27,7 @@
             "34",
             "37"
         ],
-        "val_tile_names": [
+        "val_ids": [
             "5",
             "21",
             "15",

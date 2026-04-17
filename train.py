@@ -110,7 +110,7 @@ def main() -> None:
     train_dataset = build_isprs_dataset(
         dataset_name,
         root_dir=dataset_cfg["root_dir"],
-        tile_names=dataset_cfg["train_tile_names"],
+        ids=dataset_cfg["train_ids"],
         patch_size=dataset_cfg.get("patch_size", [256, 256]),
         samples_per_epoch=dataset_cfg["train_samples_per_epoch"],
         cache=dataset_cfg.get("cache", True),
@@ -129,9 +129,9 @@ def main() -> None:
         val_dataset = build_isprs_dataset(
             dataset_name,
             root_dir=dataset_cfg["root_dir"],
-            tile_names=dataset_cfg["val_tile_names"],
+            ids=dataset_cfg["val_ids"],
             patch_size=dataset_cfg.get("patch_size", [256, 256]),
-            samples_per_epoch=dataset_cfg.get("val_samples_per_epoch", len(dataset_cfg["val_tile_names"])),
+            samples_per_epoch=dataset_cfg.get("val_samples_per_epoch", len(dataset_cfg["val_ids"])),
             cache=dataset_cfg.get("cache", True),
             augmentation=False,
             split="val",

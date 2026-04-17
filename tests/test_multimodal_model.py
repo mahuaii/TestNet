@@ -67,11 +67,11 @@ class _DelegatingMFNetTrainer(MFNetTrainer):
 class _WholeTileDataset(Dataset):
     def __init__(self, sample: dict[str, object]) -> None:
         self.sample = sample
-        self.tile_names = ["1"]
+        self.ids = ["1"]
         self.requested_indices: list[int] = []
 
     def __len__(self) -> int:
-        raise AssertionError("Whole-tile inference should iterate tile names, not dataset length")
+        raise AssertionError("Whole-tile inference should iterate tile ids, not dataset length")
 
     def get_tile(self, index: int) -> dict[str, object]:
         self.requested_indices.append(index)
@@ -103,7 +103,7 @@ class MFNetTrainingTest(unittest.TestCase):
         model.forward = types.MethodType(forward, model)
         return model
 
-    def _write_vaihingen_sample(self, root: Path, tile_name: str = "1") -> None:
+    def _write_vaihingen_sample(self, root: Path, tile_id: str = "1") -> None:
         (root / "rgb").mkdir()
         (root / "dsm").mkdir()
         (root / "labels").mkdir()
@@ -118,12 +118,12 @@ class MFNetTrainingTest(unittest.TestCase):
         eroded_label = torch.zeros(32, 32, 3, dtype=torch.uint8).numpy()
         eroded_label[:, :] = torch.tensor([0, 0, 255], dtype=torch.uint8).numpy()
 
-        Image.fromarray(rgb).save(root / "rgb" / f"top_mosaic_09cm_area{tile_name}.tif")
-        Image.fromarray(dsm).save(root / "dsm" / f"dsm_09cm_matching_area{tile_name}.tif")
-        Image.fromarray(label).save(root / "labels" / f"top_mosaic_09cm_area{tile_name}.tif")
-        Image.fromarray(eroded_label).save(root / "labels_eroded" / f"top_mosaic_09cm_area{tile_name}_noBoundary.tif")
+        Image.fromarray(rgb).save(root / "rgb" / f"top_mosaic_09cm_area{tile_id}.tif")
+        Image.fromarray(dsm).save(root / "dsm" / f"dsm_09cm_matching_area{tile_id}.tif")
+        Image.fromarray(label).save(root / "labels" / f"top_mosaic_09cm_area{tile_id}.tif")
+        Image.fromarray(eroded_label).save(root / "labels_eroded" / f"top_mosaic_09cm_area{tile_id}_noBoundary.tif")
 
-    def _write_potsdam_sample(self, root: Path, tile_name: str = "6_10") -> None:
+    def _write_potsdam_sample(self, root: Path, tile_id: str = "6_10") -> None:
         (root / "rgbir").mkdir()
         (root / "dsm").mkdir()
         (root / "labels").mkdir()
@@ -140,10 +140,10 @@ class MFNetTrainingTest(unittest.TestCase):
         label[:, 16:] = torch.tensor([0, 0, 255], dtype=torch.uint8).numpy()
         eroded_label = label.copy()
 
-        Image.fromarray(rgbir).save(root / "rgbir" / f"top_potsdam_{tile_name}_RGBIR.tif")
-        Image.fromarray(dsm).save(root / "dsm" / f"dsm_potsdam_{tile_name}_normalized_lastools.jpg")
-        Image.fromarray(label).save(root / "labels" / f"top_potsdam_{tile_name}_label.tif")
-        Image.fromarray(eroded_label).save(root / "labels_eroded" / f"top_potsdam_{tile_name}_label_noBoundary.tif")
+        Image.fromarray(rgbir).save(root / "rgbir" / f"top_potsdam_{tile_id}_RGBIR.tif")
+        Image.fromarray(dsm).save(root / "dsm" / f"dsm_potsdam_{tile_id}_normalized_lastools.jpg")
+        Image.fromarray(label).save(root / "labels" / f"top_potsdam_{tile_id}_label.tif")
+        Image.fromarray(eroded_label).save(root / "labels_eroded" / f"top_potsdam_{tile_id}_label_noBoundary.tif")
 
     def _build_trainer(
         self,
@@ -183,7 +183,7 @@ class MFNetTrainingTest(unittest.TestCase):
                 "dsm": torch.rand(16, 16),
             },
             "target": torch.randint(0, 2, (16, 16), dtype=torch.long),
-            "meta": {"tile_name": "1"},
+            "meta": {"tile_id": "1"},
         }
         model = self._make_train_spy_model()
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -207,7 +207,7 @@ class MFNetTrainingTest(unittest.TestCase):
                 "dsm": torch.rand(1, 12, 12),
             },
             "target": torch.randint(0, 2, (12, 12), dtype=torch.long),
-            "meta": {"tile_name": "1"},
+            "meta": {"tile_id": "1"},
         }
         model = self._make_train_spy_model()
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -224,7 +224,7 @@ class MFNetTrainingTest(unittest.TestCase):
                 "dsm": torch.rand(12, 12),
             },
             "target": torch.randint(0, 2, (12, 12), dtype=torch.int32),
-            "meta": {"tile_name": "1"},
+            "meta": {"tile_id": "1"},
         }
         model = self._make_train_spy_model()
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -241,7 +241,7 @@ class MFNetTrainingTest(unittest.TestCase):
                 "dsm": torch.rand(12, 12),
             },
             "target": torch.randint(0, 2, (12, 12), dtype=torch.long),
-            "meta": {"tile_name": "1"},
+            "meta": {"tile_id": "1"},
         }
         model = self._make_train_spy_model()
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -283,7 +283,7 @@ class MFNetTrainingTest(unittest.TestCase):
                 "dsm": torch.rand(2, 2),
             },
             "target": torch.tensor([[0, 255], [1, 255]], dtype=torch.long),
-            "meta": {"tile_name": "1"},
+            "meta": {"tile_id": "1"},
         }
         logits = torch.tensor(
             [
@@ -315,7 +315,7 @@ class MFNetTrainingTest(unittest.TestCase):
                 "dsm": torch.rand(2, 2),
             },
             "target": torch.full((2, 2), 255, dtype=torch.long),
-            "meta": {"tile_name": "1"},
+            "meta": {"tile_id": "1"},
         }
         logits = torch.tensor(
             [
@@ -371,7 +371,7 @@ class MFNetTrainingTest(unittest.TestCase):
                 "dsm": torch.rand(12, 12),
             },
             "target": torch.randint(0, 2, (12, 12), dtype=torch.long),
-            "meta": {"tile_name": "1"},
+            "meta": {"tile_id": "1"},
         }
         model = self._make_train_spy_model()
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -414,7 +414,7 @@ class MFNetTrainingTest(unittest.TestCase):
             dataset = ISPRSDataset(
                 preset=VAIHINGEN_PRESET,
                 root_dir=str(root),
-                tile_names=["1"],
+                ids=["1"],
                 patch_size=(16, 16),
                 samples_per_epoch=1,
                 cache=True,
@@ -439,7 +439,7 @@ class MFNetTrainingTest(unittest.TestCase):
             dataset = ISPRSDataset(
                 preset=VAIHINGEN_PRESET,
                 root_dir=str(root),
-                tile_names=["1"],
+                ids=["1"],
                 patch_size=(16, 16),
                 samples_per_epoch=1,
                 cache=True,
@@ -461,7 +461,7 @@ class MFNetTrainingTest(unittest.TestCase):
             dataset = ISPRSDataset(
                 preset=VAIHINGEN_PRESET,
                 root_dir=str(root),
-                tile_names=["1"],
+                ids=["1"],
                 patch_size=(16, 16),
                 samples_per_epoch=1,
                 cache=True,
@@ -474,7 +474,7 @@ class MFNetTrainingTest(unittest.TestCase):
             self.assertEqual(sample["inputs"]["rgb"].shape, (3, 32, 32))
             self.assertEqual(sample["inputs"]["dsm"].shape, (32, 32))
             self.assertEqual(sample["target"].shape, (32, 32))
-            self.assertEqual(sample["meta"]["tile_name"], "1")
+            self.assertEqual(sample["meta"]["tile_id"], "1")
             self.assertEqual(set(torch.unique(sample["target"]).tolist()), {1})
 
     def test_whole_tile_sliding_window_matches_original_mfnet_path(self) -> None:
@@ -485,7 +485,7 @@ class MFNetTrainingTest(unittest.TestCase):
             {
                 "inputs": {"rgb": rgb, "dsm": dsm},
                 "target": target,
-                "meta": {"tile_name": "1"},
+                "meta": {"tile_id": "1"},
             }
         )
         modes: list[str] = []
@@ -511,7 +511,7 @@ class MFNetTrainingTest(unittest.TestCase):
         self.assertEqual(outputs[0]["pred"].shape, (5, 5))
         self.assertTrue(torch.equal(outputs[0]["pred"], torch.ones(5, 5, dtype=torch.long)))
         self.assertIs(outputs[0]["target"], target)
-        self.assertEqual(outputs[0]["meta"], {"tile_name": "1"})
+        self.assertEqual(outputs[0]["meta"], {"tile_id": "1"})
         self.assertEqual(dataset.requested_indices, [0])
         self.assertTrue(modes)
         self.assertTrue(all(mode == "Test" for mode in modes))
@@ -524,7 +524,7 @@ class MFNetTrainingTest(unittest.TestCase):
             {
                 "inputs": {"dsm": dsm, "rgb": rgb},
                 "target": target,
-                "meta": {"tile_name": "1"},
+                "meta": {"tile_id": "1"},
             }
         )
         modes: list[str] = []
@@ -559,7 +559,7 @@ class MFNetTrainingTest(unittest.TestCase):
             {
                 "inputs": {"rgb": rgb, "dsm": dsm},
                 "target": target,
-                "meta": {"tile_name": "1"},
+                "meta": {"tile_id": "1"},
             }
         )
         modes: list[str] = []
@@ -585,7 +585,7 @@ class MFNetTrainingTest(unittest.TestCase):
         self.assertEqual(outputs[0]["pred"].shape, (5, 5))
         self.assertTrue(torch.equal(outputs[0]["pred"], torch.ones(5, 5, dtype=torch.long)))
         self.assertIs(outputs[0]["target"], target)
-        self.assertEqual(outputs[0]["meta"], {"tile_name": "1"})
+        self.assertEqual(outputs[0]["meta"], {"tile_id": "1"})
         self.assertEqual(dataset.requested_indices, [0])
         self.assertTrue(modes)
         self.assertTrue(all(mode == "Test" for mode in modes))
@@ -597,7 +597,7 @@ class MFNetTrainingTest(unittest.TestCase):
             {
                 "inputs": {"image": image},
                 "target": target,
-                "meta": {"tile_name": "1"},
+                "meta": {"tile_id": "1"},
             }
         )
         batch_shapes: list[tuple[int, ...]] = []
@@ -620,7 +620,7 @@ class MFNetTrainingTest(unittest.TestCase):
         self.assertEqual(len(outputs), 1)
         self.assertTrue(torch.equal(outputs[0]["pred"], torch.ones(5, 5, dtype=torch.long)))
         self.assertIs(outputs[0]["target"], target)
-        self.assertEqual(outputs[0]["meta"], {"tile_name": "1"})
+        self.assertEqual(outputs[0]["meta"], {"tile_id": "1"})
         self.assertEqual(dataset.requested_indices, [0])
         self.assertEqual(batch_shapes[0], (2, 3, 3, 3))
 
@@ -633,7 +633,7 @@ class MFNetTrainingTest(unittest.TestCase):
             dataset = ISPRSDataset(
                 preset=POTSDAM_PRESET,
                 root_dir=str(root),
-                tile_names=["6_10"],
+                ids=["6_10"],
                 patch_size=(16, 16),
                 samples_per_epoch=1,
                 cache=True,
@@ -656,7 +656,7 @@ class MFNetTrainingTest(unittest.TestCase):
             dataset = ISPRSDataset(
                 preset=VAIHINGEN_PRESET,
                 root_dir=str(root),
-                tile_names=["1"],
+                ids=["1"],
                 patch_size=(16, 16),
                 samples_per_epoch=1,
                 cache=True,
@@ -679,7 +679,7 @@ class MFNetTrainingTest(unittest.TestCase):
             dataset = build_isprs_dataset(
                 "potsdam",
                 root_dir=str(root),
-                tile_names=["6_10"],
+                ids=["6_10"],
                 patch_size=(16, 16),
                 samples_per_epoch=1,
                 cache=True,
@@ -748,8 +748,8 @@ class MFNetTrainingTest(unittest.TestCase):
                 "name": "vaihingen",
                 "root_dir": root_dir,
                 "patch_size": [32, 32],
-                "train_tile_names": ["1"],
-                "val_tile_names": ["5"],
+                "train_ids": ["1"],
+                "val_ids": ["5"],
                 "train_samples_per_epoch": 4,
                 "val_samples_per_epoch": 1,
                 "cache": True,
@@ -932,8 +932,8 @@ class MFNetTrainingTest(unittest.TestCase):
             self.assertEqual(dataset_calls[1]["name"], "vaihingen")
             self.assertEqual(dataset_calls[0]["split"], "train")
             self.assertEqual(dataset_calls[1]["split"], "val")
-            self.assertEqual(dataset_calls[0]["tile_names"], ["1"])
-            self.assertEqual(dataset_calls[1]["tile_names"], ["5"])
+            self.assertEqual(dataset_calls[0]["ids"], ["1"])
+            self.assertEqual(dataset_calls[1]["ids"], ["5"])
             self.assertEqual(result["load_config_paths"], [str(config_path)])
             self.assertEqual(len(result["default_work_dir_calls"]), 1)
             self.assertEqual(len(result["trainer_kwargs"]), 1)

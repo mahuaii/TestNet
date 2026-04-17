@@ -40,8 +40,8 @@ class SlidingWindowInferencer:
         outputs = []
 
         tile_iterable = tqdm(
-            range(len(dataset.tile_names)),
-            total=len(dataset.tile_names),
+            range(len(dataset.ids)),
+            total=len(dataset.ids),
             desc="Validation tiles",
             leave=False,
         )

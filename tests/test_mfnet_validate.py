@@ -33,7 +33,7 @@ class _Inferencer:
             {
                 "pred": torch.zeros(2, 2, dtype=torch.long),
                 "target": torch.zeros(2, 2, dtype=torch.long),
-                "meta": {"tile_name": "1"},
+                "meta": {"tile_id": "1"},
             }
         ]
 
