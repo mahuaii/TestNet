@@ -1004,6 +1004,9 @@ class MFNetTrainingTest(unittest.TestCase):
             resume_config_path = resume_dir / "resume_config.json"
             resume_config_text = '{"train": {"max_epochs": 9}}\n'
             resume_config_path.write_text(resume_config_text, encoding="utf-8")
+            existing_log_path = resume_dir / "train.log"
+            existing_log_text = "Experiment: existing-run\n"
+            existing_log_path.write_text(existing_log_text, encoding="utf-8")
             external_config_path = Path(tmpdir) / "external_config.jsonc"
             external_config_path.write_text('{"train": {"max_epochs": 1}}\n', encoding="utf-8")
             args = type(
@@ -1033,6 +1036,7 @@ class MFNetTrainingTest(unittest.TestCase):
             self.assertEqual(trainer_kwargs["cfg"]["resume_from"], str(resume_dir / "latest.pth"))
             self.assertIsNone(trainer_kwargs["cfg"]["load_from"])
             self.assertEqual(resume_config_path.read_text(encoding="utf-8"), resume_config_text)
+            self.assertEqual(existing_log_path.read_text(encoding="utf-8"), existing_log_text)
             self.assertFalse((resume_dir / external_config_path.name).exists())
 
 if __name__ == "__main__":

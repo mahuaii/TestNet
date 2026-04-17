@@ -182,12 +182,15 @@ def main() -> None:
             "validation": cfg["validation"],
         },
     )
-    log_run_summary(
-        logger=logger,
-        model=model,
-        work_dir=work_dir,
-        experiment_name=experiment_name,
-    )
+    # A --resume-dir run reuses the existing work_dir and train.log, so the
+    # initial run summary should already be present and must not be duplicated.
+    if args.resume_dir is None:
+        log_run_summary(
+            logger=logger,
+            model=model,
+            work_dir=work_dir,
+            experiment_name=experiment_name,
+        )
     trainer.train()
 
 
