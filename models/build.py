@@ -10,10 +10,8 @@ def build_model(cfg: dict[str, Any]) -> Any:
 
         model = UNetFormer(
             num_classes=int(cfg["num_classes"]),
+            sam_backbone=str(cfg["sam_backbone"]),
             sam_checkpoint=str(cfg["sam_checkpoint"]),
         )
         return model
-    raise KeyError(
-        "Unsupported model type: "
-        f"{model_type!r}. Supported types: 'mfnet_unetformer'."
-    )
+    raise KeyError("Unsupported model type: " f"{model_type!r}. Supported types: 'mfnet_unetformer'.")
