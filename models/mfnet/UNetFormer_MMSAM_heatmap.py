@@ -8,8 +8,8 @@ import timm
 import cv2
 import os
 import torch.autograd as autograd
-from .MedSAM.models.sam import sam_model_registry
-from .MedSAM import cfg
+from .sam_adapted.sam import sam_model_registry
+from . import cfg
 import matplotlib.pyplot as plt
 
 class Norm2d(nn.Module):

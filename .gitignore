@@ -27,3 +27,5 @@ _Datasets
 .codex
 .pytest_cache/
 .DS_Store
+
+backup/
