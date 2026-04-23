@@ -57,14 +57,14 @@ def build_default_work_dir(
 def count_model_params(model: torch.nn.Module) -> tuple[int, int, int, int]:
     all_params = sum(param.nelement() for param in model.parameters())
     image_encoder_params = 0
-    lora_params = 0
+    adapter_params = 0
     for name, param in model.image_encoder.named_parameters():
-        if "lora_" in name:
-            lora_params += param.nelement()
+        if "Adapter" in name:
+            adapter_params += param.nelement()
         else:
             image_encoder_params += param.nelement()
-    other_params = all_params - image_encoder_params - lora_params
-    return all_params, image_encoder_params, lora_params, other_params
+    other_params = all_params - image_encoder_params - adapter_params
+    return all_params, image_encoder_params, adapter_params, other_params
 
 
 def log_run_summary(
@@ -73,12 +73,12 @@ def log_run_summary(
     work_dir: Path,
     experiment_name: str,
 ) -> None:
-    all_params, image_encoder_params, lora_params, other_params = count_model_params(model)
+    all_params, image_encoder_params, adapter_params, other_params = count_model_params(model)
     logger.log_message(f"Experiment: {experiment_name}")
     logger.log_message(f"Workdir: {work_dir}")
     logger.log_message(f"All Params:   {all_params}")
     logger.log_message(f"ImgEncoder:   {image_encoder_params}")
-    logger.log_message(f"Lora: {lora_params}")
+    logger.log_message(f"Adapter: {adapter_params}")
     logger.log_message(f"Others: {other_params}")
 
 
