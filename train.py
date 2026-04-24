@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime
 from pathlib import Path
+import random
 import re
 import shutil
 import sys
@@ -13,6 +14,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import torch
+import numpy as np
 from torch.utils.data import DataLoader
 
 from data import build_isprs_dataset
@@ -54,6 +56,16 @@ def build_default_work_dir(
     return Path(root_dir) / experiment_name
 
 
+def set_reproducibility(seed: int) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = False
+    torch.backends.cudnn.benchmark = True
+
+
 def count_model_params(model: torch.nn.Module) -> tuple[int, int, int, int]:
     all_params = sum(param.nelement() for param in model.parameters())
     image_encoder_params = 0
@@ -72,10 +84,12 @@ def log_run_summary(
     model: torch.nn.Module,
     work_dir: Path,
     experiment_name: str,
+    seed: int,
 ) -> None:
     all_params, image_encoder_params, adapter_params, other_params = count_model_params(model)
     logger.log_message(f"Experiment: {experiment_name}")
     logger.log_message(f"Workdir: {work_dir}")
+    logger.log_message(f"Seed: {seed}")
     logger.log_message(f"All Params:   {all_params}")
     logger.log_message(f"ImgEncoder:   {image_encoder_params}")
     logger.log_message(f"Adapter: {adapter_params}")
@@ -104,6 +118,8 @@ def main() -> None:
     dataset_cfg = cfg["dataset"]
     dataset_name = str(dataset_cfg.get("name", "vaihingen")).strip().lower()
     experiment_name = work_dir.name or "mfnet"
+    seed = int(cfg.get("seed", 80))
+    set_reproducibility(seed)
 
     model = build_model(cfg["model"])
 
@@ -117,11 +133,15 @@ def main() -> None:
         augmentation=dataset_cfg.get("augmentation", True),
         split="train",
     )
+    train_generator = torch.Generator()
+    train_generator.manual_seed(seed)
     train_loader = DataLoader(
         train_dataset,
         batch_size=cfg["train"]["batch_size"],
         shuffle=True,
         num_workers=cfg["dataloader"].get("num_workers", 0),
+        pin_memory=True,
+        generator=train_generator,
     )
 
     val_loader: Any = []
@@ -141,6 +161,7 @@ def main() -> None:
             batch_size=cfg["train"]["batch_size"],
             shuffle=False,
             num_workers=cfg["dataloader"].get("num_workers", 0),
+            pin_memory=True,
         )
 
     optimizer = torch.optim.SGD(
@@ -176,6 +197,8 @@ def main() -> None:
             "experiment_name": experiment_name,
             "resume_from": resume_from,
             "load_from": load_from,
+            "seed": seed,
+            "log_seed_after_resume": args.resume_dir is not None,
             "sam_checkpoint": cfg["model"].get("sam_checkpoint"),
             "num_classes": cfg["model"]["num_classes"],
             "class_weights": cfg.get("class_weights"),
@@ -190,6 +213,7 @@ def main() -> None:
             model=model,
             work_dir=work_dir,
             experiment_name=experiment_name,
+            seed=seed,
         )
     trainer.train()
 
