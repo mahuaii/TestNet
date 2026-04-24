@@ -711,6 +711,7 @@ class MFNetTrainingTest(unittest.TestCase):
                 {
                     "type": "mfnet_unetformer",
                     "num_classes": 6,
+                    "sam_backbone": "vit_b",
                     "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
                 }
             )
@@ -718,13 +719,189 @@ class MFNetTrainingTest(unittest.TestCase):
             self.assertIsInstance(model, FakeUNetFormer)
             self.assertEqual(
                 captured_kwargs,
-                [{"num_classes": 6, "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth"}],
+                [{"num_classes": 6, "sam_backbone": "vit_b", "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth"}],
             )
         finally:
             if original_mfnet_module is None:
                 del sys.modules["models.mfnet"]
             else:
                 sys.modules["models.mfnet"] = original_mfnet_module
+
+    def test_build_model_dispatches_to_mfnet_prealign(self) -> None:
+        build_module = importlib.import_module("models.build")
+        captured_kwargs: list[dict[str, object]] = []
+
+        class FakeUNetFormerPreAlign:
+            def __init__(self, **kwargs: object) -> None:
+                captured_kwargs.append(kwargs)
+
+        fake_mfnet_module = types.ModuleType("models.mfnet")
+        fake_mfnet_module.UNetFormerPreAlign = FakeUNetFormerPreAlign
+        original_mfnet_module = sys.modules.get("models.mfnet")
+
+        try:
+            sys.modules["models.mfnet"] = fake_mfnet_module
+
+            model = build_module.build_model(
+                {
+                    "type": "mfnet_unetformer_prealign",
+                    "num_classes": 6,
+                    "sam_backbone": "vit_b",
+                    "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
+                }
+            )
+
+            self.assertIsInstance(model, FakeUNetFormerPreAlign)
+            self.assertEqual(
+                captured_kwargs,
+                [{"num_classes": 6, "sam_backbone": "vit_b", "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth"}],
+            )
+        finally:
+            if original_mfnet_module is None:
+                del sys.modules["models.mfnet"]
+            else:
+                sys.modules["models.mfnet"] = original_mfnet_module
+
+    def test_build_model_dispatches_to_mfnet_prealign_auxalign(self) -> None:
+        build_module = importlib.import_module("models.build")
+        captured_kwargs: list[dict[str, object]] = []
+
+        class FakeUNetFormerPreAlignAuxAlign:
+            def __init__(self, **kwargs: object) -> None:
+                captured_kwargs.append(kwargs)
+
+        fake_mfnet_module = types.ModuleType("models.mfnet")
+        fake_mfnet_module.UNetFormerPreAlignAuxAlign = FakeUNetFormerPreAlignAuxAlign
+        original_mfnet_module = sys.modules.get("models.mfnet")
+
+        try:
+            sys.modules["models.mfnet"] = fake_mfnet_module
+
+            model = build_module.build_model(
+                {
+                    "type": "mfnet_unetformer_prealign_auxalign",
+                    "num_classes": 6,
+                    "sam_backbone": "vit_b",
+                    "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
+                }
+            )
+
+            self.assertIsInstance(model, FakeUNetFormerPreAlignAuxAlign)
+            self.assertEqual(
+                captured_kwargs,
+                [{"num_classes": 6, "sam_backbone": "vit_b", "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth"}],
+            )
+        finally:
+            if original_mfnet_module is None:
+                del sys.modules["models.mfnet"]
+            else:
+                sys.modules["models.mfnet"] = original_mfnet_module
+
+    def test_unetformer_prealign_expands_auxiliary_input_before_encoder(self) -> None:
+        fake_timm_module = types.ModuleType("timm")
+        fake_timm_models_module = types.ModuleType("timm.models")
+        fake_timm_layers_module = types.ModuleType("timm.models.layers")
+        fake_timm_layers_module.DropPath = torch.nn.Identity
+        fake_timm_layers_module.to_2tuple = lambda value: (value, value)
+        fake_timm_layers_module.trunc_normal_ = lambda tensor, std=0.02: tensor
+        fake_cv2_module = types.ModuleType("cv2")
+        fake_cv2_module.COLORMAP_JET = 2
+        fake_cv2_module.applyColorMap = lambda image, color_map: image
+        fake_cv2_module.imwrite = lambda path, image: True
+        original_timm_module = sys.modules.get("timm")
+        original_timm_models_module = sys.modules.get("timm.models")
+        original_timm_layers_module = sys.modules.get("timm.models.layers")
+        original_cv2_module = sys.modules.get("cv2")
+
+        try:
+            sys.modules["timm"] = fake_timm_module
+            sys.modules["timm.models"] = fake_timm_models_module
+            sys.modules["timm.models.layers"] = fake_timm_layers_module
+            sys.modules["cv2"] = fake_cv2_module
+            from models.mfnet.UNetFormer_MMSAM_prealign import UNetFormerPreAlign
+        finally:
+            if original_timm_module is None:
+                del sys.modules["timm"]
+            else:
+                sys.modules["timm"] = original_timm_module
+            if original_timm_models_module is None:
+                del sys.modules["timm.models"]
+            else:
+                sys.modules["timm.models"] = original_timm_models_module
+            if original_timm_layers_module is None:
+                del sys.modules["timm.models.layers"]
+            else:
+                sys.modules["timm.models.layers"] = original_timm_layers_module
+            if original_cv2_module is None:
+                del sys.modules["cv2"]
+            else:
+                sys.modules["cv2"] = original_cv2_module
+
+        class FakeAuxPreAlign(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.input_shape: tuple[int, ...] | None = None
+
+            def forward(self, y: torch.Tensor) -> torch.Tensor:
+                self.input_shape = tuple(y.shape)
+                return y.repeat(1, 3, 1, 1)
+
+        class FakeImageEncoder(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.aux_shape: tuple[int, ...] | None = None
+
+            def forward(self, x: torch.Tensor, y: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+                self.aux_shape = tuple(y.shape)
+                batch_size = x.shape[0]
+                return torch.ones(batch_size, 256, 2, 2), torch.ones(batch_size, 256, 2, 2)
+
+        class FakeFusion(torch.nn.Module):
+            def forward(self, rgb: torch.Tensor, aux: torch.Tensor) -> torch.Tensor:
+                return rgb + aux
+
+        class FakeDecoder(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.output_size: tuple[int, int] | None = None
+
+            def forward(
+                self,
+                res1: torch.Tensor,
+                res2: torch.Tensor,
+                res3: torch.Tensor,
+                res4: torch.Tensor,
+                h: int,
+                w: int,
+            ) -> torch.Tensor:
+                del res1, res2, res3, res4
+                self.output_size = (h, w)
+                return torch.zeros(2, 6, h, w)
+
+        model = UNetFormerPreAlign.__new__(UNetFormerPreAlign)
+        torch.nn.Module.__init__(model)
+        model.aux_prealign = FakeAuxPreAlign()
+        model.image_encoder = FakeImageEncoder()
+        model.fpn1x = torch.nn.Identity()
+        model.fpn2x = torch.nn.Identity()
+        model.fpn3x = torch.nn.Identity()
+        model.fpn4x = torch.nn.Identity()
+        model.fpn1y = torch.nn.Identity()
+        model.fpn2y = torch.nn.Identity()
+        model.fpn3y = torch.nn.Identity()
+        model.fpn4y = torch.nn.Identity()
+        model.fusion1 = FakeFusion()
+        model.fusion2 = FakeFusion()
+        model.fusion3 = FakeFusion()
+        model.fusion4 = FakeFusion()
+        model.decoder = FakeDecoder()
+
+        output = model(torch.zeros(2, 3, 8, 8), torch.ones(2, 8, 8))
+
+        self.assertEqual(model.aux_prealign.input_shape, (2, 1, 8, 8))
+        self.assertEqual(model.image_encoder.aux_shape, (2, 3, 8, 8))
+        self.assertEqual(model.decoder.output_size, (8, 8))
+        self.assertEqual(tuple(output.shape), (2, 6, 8, 8))
 
     def _load_train_entry_module(self):
         spec = importlib.util.spec_from_file_location(
