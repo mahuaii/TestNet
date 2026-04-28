@@ -1,7 +1,7 @@
 {
     "seed": 80,
     "model": {
-        "type": "mfnet_unetformer",
+        "type": "",
         "num_classes": 6,
         "sam_backbone": "vit_b",
         "sam_checkpoint": "_Checkpoints/segment-anything/sam_vit_b_01ec64.pth"
@@ -35,7 +35,7 @@
             "15",
             "30"
         ],
-        "train_samples_per_epoch": 10000, //BATCH_SIZE * 1000
+        "train_samples_per_epoch": 10000,
         "val_samples_per_epoch": 4
     },
     "dataloader": {
@@ -60,12 +60,12 @@
         "stride": 32
     },
     "train": {
-        "max_epochs": 50,
+        "max_epochs": 48,
         "batch_size": 10,
         "auto_resume": true,
         "log_step_interval": 100,
-        "val_epoch_interval": 2,
-        "save_epoch_interval": 2,
+        "val_epoch_interval": 4,
+        "save_epoch_interval": 4,
         "save_step_interval": 0,
         "use_tensorboard": true
     }
