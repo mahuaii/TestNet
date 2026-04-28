@@ -5,6 +5,7 @@ from typing import Any
 _MODEL_EXPORTS = {
     "UNetFormer": (".UNetFormer_MMSAM", "UNetFormer"),
     "UNetFormerDGA": (".UNetFormer_MMSAM_dga", "UNetFormerDGA"),
+    "UNetFormerDGA2": (".UNetFormer_MMSAM_dga2", "UNetFormerDGA2"),
     "UNetFormerPreAlign": (".UNetFormer_MMSAM_prealign", "UNetFormerPreAlign"),
     "UNetFormerPreAlignAuxAlign": (".UNetFormer_MMSAM_prealign_auxalign", "UNetFormerPreAlignAuxAlign"),
     "UNetFormerPreAlignDGA": (".UNetFormer_MMSAM_prealign_dga", "UNetFormerPreAlignDGA"),
@@ -25,6 +26,7 @@ def __getattr__(name: str) -> Any:
 __all__ = [
     "UNetFormer",
     "UNetFormerDGA",
+    "UNetFormerDGA2",
     "UNetFormerPreAlign",
     "UNetFormerPreAlignAuxAlign",
     "UNetFormerPreAlignDGA",
