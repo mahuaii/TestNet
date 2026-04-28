@@ -5,7 +5,7 @@ import unittest
 
 import torch
 
-from models.mfnet.aux_prealign import AuxPreAlign
+from models.mfnet.modules import AuxPreAlign
 
 if importlib.util.find_spec("timm") is not None:
     from models.mfnet.UNetFormer_MMSAM_prealign import UNetFormerPreAlign

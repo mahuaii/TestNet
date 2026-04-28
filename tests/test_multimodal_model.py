@@ -797,6 +797,41 @@ class MFNetTrainingTest(unittest.TestCase):
             else:
                 sys.modules["models.mfnet"] = original_mfnet_module
 
+    def test_build_model_dispatches_to_mfnet_prealign_dga(self) -> None:
+        build_module = importlib.import_module("models.build")
+        captured_kwargs: list[dict[str, object]] = []
+
+        class FakeUNetFormerPreAlignDGA:
+            def __init__(self, **kwargs: object) -> None:
+                captured_kwargs.append(kwargs)
+
+        fake_mfnet_module = types.ModuleType("models.mfnet")
+        fake_mfnet_module.UNetFormerPreAlignDGA = FakeUNetFormerPreAlignDGA
+        original_mfnet_module = sys.modules.get("models.mfnet")
+
+        try:
+            sys.modules["models.mfnet"] = fake_mfnet_module
+
+            model = build_module.build_model(
+                {
+                    "type": "mfnet_unetformer_prealign_dga",
+                    "num_classes": 6,
+                    "sam_backbone": "vit_b",
+                    "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
+                }
+            )
+
+            self.assertIsInstance(model, FakeUNetFormerPreAlignDGA)
+            self.assertEqual(
+                captured_kwargs,
+                [{"num_classes": 6, "sam_backbone": "vit_b", "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth"}],
+            )
+        finally:
+            if original_mfnet_module is None:
+                del sys.modules["models.mfnet"]
+            else:
+                sys.modules["models.mfnet"] = original_mfnet_module
+
     def test_unetformer_prealign_expands_auxiliary_input_before_encoder(self) -> None:
         fake_timm_module = types.ModuleType("timm")
         fake_timm_models_module = types.ModuleType("timm.models")
@@ -902,6 +937,292 @@ class MFNetTrainingTest(unittest.TestCase):
         self.assertEqual(model.image_encoder.aux_shape, (2, 3, 8, 8))
         self.assertEqual(model.decoder.output_size, (8, 8))
         self.assertEqual(tuple(output.shape), (2, 6, 8, 8))
+
+    def test_unetformer_prealign_dga_applies_dga_after_all_global_blocks(self) -> None:
+        fake_timm_module = types.ModuleType("timm")
+        fake_timm_models_module = types.ModuleType("timm.models")
+        fake_timm_layers_module = types.ModuleType("timm.models.layers")
+        fake_timm_layers_module.DropPath = torch.nn.Identity
+        fake_timm_layers_module.to_2tuple = lambda value: (value, value)
+        fake_timm_layers_module.trunc_normal_ = lambda tensor, std=0.02: tensor
+        fake_cv2_module = types.ModuleType("cv2")
+        fake_cv2_module.COLORMAP_JET = 2
+        fake_cv2_module.applyColorMap = lambda image, color_map: image
+        fake_cv2_module.imwrite = lambda path, image: True
+        original_timm_module = sys.modules.get("timm")
+        original_timm_models_module = sys.modules.get("timm.models")
+        original_timm_layers_module = sys.modules.get("timm.models.layers")
+        original_cv2_module = sys.modules.get("cv2")
+
+        try:
+            sys.modules["timm"] = fake_timm_module
+            sys.modules["timm.models"] = fake_timm_models_module
+            sys.modules["timm.models.layers"] = fake_timm_layers_module
+            sys.modules["cv2"] = fake_cv2_module
+            from models.mfnet.UNetFormer_MMSAM_prealign_dga import UNetFormerPreAlignDGA
+        finally:
+            if original_timm_module is None:
+                del sys.modules["timm"]
+            else:
+                sys.modules["timm"] = original_timm_module
+            if original_timm_models_module is None:
+                del sys.modules["timm.models"]
+            else:
+                sys.modules["timm.models"] = original_timm_models_module
+            if original_timm_layers_module is None:
+                del sys.modules["timm.models.layers"]
+            else:
+                sys.modules["timm.models.layers"] = original_timm_layers_module
+            if original_cv2_module is None:
+                del sys.modules["cv2"]
+            else:
+                sys.modules["cv2"] = original_cv2_module
+
+        events: list[str] = []
+
+        class FakeAuxPreAlign(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.input_shape: tuple[int, ...] | None = None
+
+            def forward(self, y: torch.Tensor) -> torch.Tensor:
+                self.input_shape = tuple(y.shape)
+                return y.repeat(1, 3, 1, 1)
+
+        class FakePatchEmbed(torch.nn.Module):
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                x = torch.nn.functional.avg_pool2d(x, kernel_size=4)
+                x = x.mean(dim=1, keepdim=True).repeat(1, 4, 1, 1)
+                return x.permute(0, 2, 3, 1)
+
+        class FakeBlock(torch.nn.Module):
+            def __init__(self, name: str, window_size: int, rgb_offset: float, aux_offset: float) -> None:
+                super().__init__()
+                self.name = name
+                self.window_size = window_size
+                self.rgb_offset = rgb_offset
+                self.aux_offset = aux_offset
+                self.input_rgb: torch.Tensor | None = None
+                self.input_aux: torch.Tensor | None = None
+
+            def forward(self, x: torch.Tensor, y: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+                events.append(self.name)
+                self.input_rgb = x.detach().clone()
+                self.input_aux = y.detach().clone()
+                return x + self.rgb_offset, y + self.aux_offset
+
+        class FakeNeck(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.inputs: list[torch.Tensor] = []
+
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                events.append("neck")
+                self.inputs.append(x.detach().clone())
+                return x
+
+        class FakeImageEncoder(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.embed_dim = 4
+                self.patch_embed = FakePatchEmbed()
+                self.pos_embed = None
+                self.blocks = torch.nn.ModuleList(
+                    [
+                        FakeBlock("block0", window_size=0, rgb_offset=1.0, aux_offset=10.0),
+                        FakeBlock("block1", window_size=14, rgb_offset=2.0, aux_offset=20.0),
+                        FakeBlock("block2", window_size=0, rgb_offset=3.0, aux_offset=30.0),
+                        FakeBlock("block3", window_size=14, rgb_offset=4.0, aux_offset=40.0),
+                        FakeBlock("block4", window_size=0, rgb_offset=5.0, aux_offset=50.0),
+                        FakeBlock("block5", window_size=0, rgb_offset=6.0, aux_offset=60.0),
+                    ]
+                )
+                self.neck = FakeNeck()
+
+        class FakeFPN(torch.nn.Module):
+            def __init__(self, name: str, offset: float) -> None:
+                super().__init__()
+                self.name = name
+                self.offset = offset
+                self.last_output: torch.Tensor | None = None
+
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                events.append(self.name)
+                self.last_output = x + self.offset
+                return self.last_output
+
+        class SpyDGA(torch.nn.Module):
+            def __init__(self, name: str, rgb_offset: float, aux_offset: float) -> None:
+                super().__init__()
+                self.name = name
+                self.rgb_offset = rgb_offset
+                self.aux_offset = aux_offset
+                self.calls: list[tuple[torch.Tensor, torch.Tensor]] = []
+                self.output_rgb: torch.Tensor | None = None
+                self.output_aux: torch.Tensor | None = None
+
+            def forward(self, rgb: torch.Tensor, aux: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+                events.append(self.name)
+                self.calls.append((rgb.detach().clone(), aux.detach().clone()))
+                self.output_rgb = rgb.detach().clone() + self.rgb_offset
+                self.output_aux = aux.detach().clone() + self.aux_offset
+                return rgb + self.rgb_offset, aux + self.aux_offset
+
+        class SpyFusion(torch.nn.Module):
+            def __init__(self, name: str) -> None:
+                super().__init__()
+                self.name = name
+                self.calls: list[tuple[torch.Tensor, torch.Tensor]] = []
+
+            def forward(self, rgb: torch.Tensor, aux: torch.Tensor) -> torch.Tensor:
+                events.append(self.name)
+                self.calls.append((rgb.detach().clone(), aux.detach().clone()))
+                return rgb + aux
+
+        class SpyDecoder(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.inputs: tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor] | None = None
+                self.output_size: tuple[int, int] | None = None
+
+            def forward(
+                self,
+                res1: torch.Tensor,
+                res2: torch.Tensor,
+                res3: torch.Tensor,
+                res4: torch.Tensor,
+                h: int,
+                w: int,
+            ) -> torch.Tensor:
+                events.append("decoder")
+                self.inputs = (res1.detach().clone(), res2.detach().clone(), res3.detach().clone(), res4.detach().clone())
+                self.output_size = (h, w)
+                return torch.zeros(res1.shape[0], 6, h, w)
+
+        model = UNetFormerPreAlignDGA.__new__(UNetFormerPreAlignDGA)
+        torch.nn.Module.__init__(model)
+        model.aux_prealign = FakeAuxPreAlign()
+        model.image_encoder = FakeImageEncoder()
+        model.dga_indexes = [0, 2, 4, 5]
+        model.dga_blocks = torch.nn.ModuleList(
+            [
+                SpyDGA("dga0", rgb_offset=100.0, aux_offset=1000.0),
+                SpyDGA("dga1", rgb_offset=200.0, aux_offset=2000.0),
+                SpyDGA("dga2", rgb_offset=300.0, aux_offset=3000.0),
+                SpyDGA("dga3", rgb_offset=400.0, aux_offset=4000.0),
+            ]
+        )
+        model.fpn1x = FakeFPN("fpn1x", 1.0)
+        model.fpn2x = FakeFPN("fpn2x", 2.0)
+        model.fpn3x = FakeFPN("fpn3x", 3.0)
+        model.fpn4x = FakeFPN("fpn4x", 4.0)
+        model.fpn1y = FakeFPN("fpn1y", 10.0)
+        model.fpn2y = FakeFPN("fpn2y", 20.0)
+        model.fpn3y = FakeFPN("fpn3y", 30.0)
+        model.fpn4y = FakeFPN("fpn4y", 40.0)
+        model.fusion1 = SpyFusion("fusion1")
+        model.fusion2 = SpyFusion("fusion2")
+        model.fusion3 = SpyFusion("fusion3")
+        model.fusion4 = SpyFusion("fusion4")
+        model.decoder = SpyDecoder()
+
+        output = model(torch.zeros(2, 3, 8, 8), torch.ones(2, 8, 8))
+
+        self.assertEqual(model.aux_prealign.input_shape, (2, 1, 8, 8))
+        self.assertEqual([len(dga_block.calls) for dga_block in model.dga_blocks], [1, 1, 1, 1])
+        for dga_block in model.dga_blocks:
+            self.assertEqual(dga_block.calls[0][0].shape, (2, 4, 2, 2))
+            self.assertEqual(dga_block.calls[0][1].shape, (2, 4, 2, 2))
+
+        expected_order = ["block0", "dga0", "block1", "block2", "dga1", "block3", "block4", "dga2", "block5", "dga3"]
+        self.assertEqual(events[: len(expected_order)], expected_order)
+        self.assertLess(events.index("dga3"), events.index("neck"))
+
+        block1 = model.image_encoder.blocks[1]
+        block3 = model.image_encoder.blocks[3]
+        block5 = model.image_encoder.blocks[5]
+        self.assertTrue(torch.equal(block1.input_rgb, model.dga_blocks[0].output_rgb.permute(0, 2, 3, 1)))
+        self.assertTrue(torch.equal(block1.input_aux, model.dga_blocks[0].output_aux.permute(0, 2, 3, 1)))
+        self.assertTrue(torch.equal(block3.input_rgb, model.dga_blocks[1].output_rgb.permute(0, 2, 3, 1)))
+        self.assertTrue(torch.equal(block3.input_aux, model.dga_blocks[1].output_aux.permute(0, 2, 3, 1)))
+        self.assertTrue(torch.equal(block5.input_rgb, model.dga_blocks[2].output_rgb.permute(0, 2, 3, 1)))
+        self.assertTrue(torch.equal(block5.input_aux, model.dga_blocks[2].output_aux.permute(0, 2, 3, 1)))
+        self.assertTrue(torch.equal(model.image_encoder.neck.inputs[0], model.dga_blocks[3].output_rgb))
+        self.assertTrue(torch.equal(model.image_encoder.neck.inputs[1], model.dga_blocks[3].output_aux))
+
+        self.assertLess(events.index("fusion1"), events.index("decoder"))
+        self.assertLess(events.index("fusion2"), events.index("decoder"))
+        self.assertLess(events.index("fusion3"), events.index("decoder"))
+        self.assertLess(events.index("fusion4"), events.index("decoder"))
+        self.assertIsNotNone(model.fpn1x.last_output)
+        self.assertIsNotNone(model.fpn1y.last_output)
+        self.assertTrue(torch.equal(model.fusion1.calls[0][0], model.fpn1x.last_output))
+        self.assertTrue(torch.equal(model.fusion1.calls[0][1], model.fpn1y.last_output))
+        self.assertEqual(model.decoder.output_size, (8, 8))
+        self.assertEqual(tuple(output.shape), (2, 6, 8, 8))
+
+    def test_unetformer_prealign_dga_requires_four_global_blocks(self) -> None:
+        fake_timm_module = types.ModuleType("timm")
+        fake_timm_models_module = types.ModuleType("timm.models")
+        fake_timm_layers_module = types.ModuleType("timm.models.layers")
+        fake_timm_layers_module.DropPath = torch.nn.Identity
+        fake_timm_layers_module.to_2tuple = lambda value: (value, value)
+        fake_timm_layers_module.trunc_normal_ = lambda tensor, std=0.02: tensor
+        fake_cv2_module = types.ModuleType("cv2")
+        fake_cv2_module.COLORMAP_JET = 2
+        fake_cv2_module.applyColorMap = lambda image, color_map: image
+        fake_cv2_module.imwrite = lambda path, image: True
+        original_timm_module = sys.modules.get("timm")
+        original_timm_models_module = sys.modules.get("timm.models")
+        original_timm_layers_module = sys.modules.get("timm.models.layers")
+        original_cv2_module = sys.modules.get("cv2")
+
+        try:
+            sys.modules["timm"] = fake_timm_module
+            sys.modules["timm.models"] = fake_timm_models_module
+            sys.modules["timm.models.layers"] = fake_timm_layers_module
+            sys.modules["cv2"] = fake_cv2_module
+            from models.mfnet.UNetFormer_MMSAM_prealign_dga import UNetFormerPreAlignDGA
+        finally:
+            if original_timm_module is None:
+                del sys.modules["timm"]
+            else:
+                sys.modules["timm"] = original_timm_module
+            if original_timm_models_module is None:
+                del sys.modules["timm.models"]
+            else:
+                sys.modules["timm.models"] = original_timm_models_module
+            if original_timm_layers_module is None:
+                del sys.modules["timm.models.layers"]
+            else:
+                sys.modules["timm.models.layers"] = original_timm_layers_module
+            if original_cv2_module is None:
+                del sys.modules["cv2"]
+            else:
+                sys.modules["cv2"] = original_cv2_module
+
+        class FakeBlock(torch.nn.Module):
+            def __init__(self, window_size: int) -> None:
+                super().__init__()
+                self.window_size = window_size
+
+        class FakeImageEncoder(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.blocks = torch.nn.ModuleList(
+                    [
+                        FakeBlock(window_size=0),
+                        FakeBlock(window_size=14),
+                        FakeBlock(window_size=0),
+                    ]
+                )
+
+        model = UNetFormerPreAlignDGA.__new__(UNetFormerPreAlignDGA)
+        torch.nn.Module.__init__(model)
+        model.image_encoder = FakeImageEncoder()
+
+        with self.assertRaises(ValueError):
+            model._resolve_dga_indexes()
 
     def _load_train_entry_module(self):
         spec = importlib.util.spec_from_file_location(

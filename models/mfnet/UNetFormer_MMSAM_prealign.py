@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 
 from .UNetFormer_MMSAM import UNetFormer
-from .aux_prealign import AuxPreAlign
+from .modules import AuxPreAlign
 
 
 class UNetFormerPreAlign(UNetFormer):
