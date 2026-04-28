@@ -14,6 +14,15 @@ def build_model(cfg: dict[str, Any]) -> Any:
             sam_checkpoint=str(cfg["sam_checkpoint"]),
         )
         return model
+    if model_type == "mfnet_unetformer_dga":
+        from .mfnet import UNetFormerDGA
+
+        model = UNetFormerDGA(
+            num_classes=int(cfg["num_classes"]),
+            sam_backbone=str(cfg["sam_backbone"]),
+            sam_checkpoint=str(cfg["sam_checkpoint"]),
+        )
+        return model
     if model_type == "mfnet_unetformer_prealign":
         from .mfnet import UNetFormerPreAlign
 
@@ -44,6 +53,7 @@ def build_model(cfg: dict[str, Any]) -> Any:
     raise KeyError(
         "Unsupported model type: "
         f"{model_type!r}. Supported types: 'mfnet_unetformer', "
+        "'mfnet_unetformer_dga', "
         "'mfnet_unetformer_prealign', 'mfnet_unetformer_prealign_auxalign', "
         "'mfnet_unetformer_prealign_dga'."
     )

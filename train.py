@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import json
 from datetime import datetime
 from pathlib import Path
 import random
 import re
-import shutil
 import sys
 from typing import Any
 
@@ -18,18 +18,36 @@ import numpy as np
 from torch.utils.data import DataLoader
 
 from data import build_isprs_dataset
-from engine import Evaluator, MFNetTrainer, SlidingWindowInferencer
+from engine import (
+    Evaluator,
+    MFNetAuxAlignTrainer,
+    MFNetDGATrainer,
+    MFNetTrainer,
+    SlidingWindowInferencer,
+)
 from models import build_model
-from utils import MFNetLogger, load_config
+from utils import MFNetDGALogger, MFNetLogger, load_config
+
+
+DGA_MODEL_TYPES = {
+    "mfnet_unetformer_dga",
+    "mfnet_unetformer_prealign_dga",
+}
+
+AUX_ALIGN_MODEL_TYPES = {
+    "mfnet_unetformer_prealign_auxalign",
+}
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="configs/train_config.jsonc")
+    parser.add_argument("--config")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--resume-dir", default=None)
     parser.add_argument("--resume-ckpt", default=None)
     parser.add_argument("--load-from", default=None)
+    parser.add_argument("--model-type", default=None)
+    parser.add_argument("--seed", type=int, default=None)
     return parser.parse_args()
 
 
@@ -96,9 +114,19 @@ def log_run_summary(
     logger.log_message(f"Others: {other_params}")
 
 
+def save_effective_config(cfg: dict[str, Any], path: Path) -> None:
+    path.write_text(json.dumps(cfg, indent=4) + "\n", encoding="utf-8")
+
+
 def main() -> None:
     args = parse_args()
+    model_type_override = getattr(args, "model_type", None)
+    seed_override = getattr(args, "seed", None)
     if args.resume_dir is not None:
+        if model_type_override is not None:
+            raise ValueError("--model-type cannot be used with --resume-dir; resume uses saved config")
+        if seed_override is not None:
+            raise ValueError("--seed cannot be used with --resume-dir; resume uses saved config")
         work_dir = Path(args.resume_dir)
         config_path = sorted([*work_dir.glob("*.jsonc"), *work_dir.glob("*.json")])[0]
         cfg = load_config(str(config_path))
@@ -106,19 +134,23 @@ def main() -> None:
         load_from = None
     else:
         cfg = load_config(args.config)
+        if model_type_override is not None:
+            cfg["model"]["type"] = model_type_override
+        if seed_override is not None:
+            cfg["seed"] = seed_override
         dataset_cfg = cfg["dataset"]
         dataset_name = str(dataset_cfg.get("name", "vaihingen")).strip().lower()
         model_name = cfg["model"].get("type", "model")
         work_dir = build_default_work_dir(model_name=model_name, dataset_name=dataset_name)
         work_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(args.config, work_dir)
+        save_effective_config(cfg, work_dir / Path(args.config).name)
         resume_from = args.resume_ckpt
         load_from = args.load_from
 
     dataset_cfg = cfg["dataset"]
     dataset_name = str(dataset_cfg.get("name", "vaihingen")).strip().lower()
     experiment_name = work_dir.name or "mfnet"
-    seed = int(cfg.get("seed", 80))
+    seed = int(cfg["seed"])
     set_reproducibility(seed)
 
     model = build_model(cfg["model"])
@@ -179,9 +211,17 @@ def main() -> None:
             gamma=cfg["scheduler"].get("gamma", 0.1),
         )
 
-    logger = MFNetLogger(str(work_dir), use_tensorboard=cfg["train"]["use_tensorboard"])
+    model_type = str(cfg["model"]["type"])
+    if model_type in AUX_ALIGN_MODEL_TYPES:
+        trainer_cls = MFNetAuxAlignTrainer
+    elif model_type in DGA_MODEL_TYPES:
+        trainer_cls = MFNetDGATrainer
+    else:
+        trainer_cls = MFNetTrainer
+    logger_cls = MFNetDGALogger if model_type in DGA_MODEL_TYPES else MFNetLogger
+    logger = logger_cls(str(work_dir), use_tensorboard=cfg["train"]["use_tensorboard"])
 
-    trainer = MFNetTrainer(
+    trainer = trainer_cls(
         model=model,
         optimizer=optimizer,
         train_loader=train_loader,
@@ -215,6 +255,9 @@ def main() -> None:
             experiment_name=experiment_name,
             seed=seed,
         )
+        if model_type in AUX_ALIGN_MODEL_TYPES:
+            logger.log_message(f"Lambda align: {float(cfg['train'].get('lambda_align', 0.01)):.6f}")
+            logger.log_message(f"Align index: {model.align_index}")
     trainer.train()
 
 

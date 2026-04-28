@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import json
 import random
 import re
 import sys
@@ -22,7 +23,7 @@ from data.isprs_dataset import (
 )
 from data import build_isprs_dataset
 from engine import MFNetTrainer, SlidingWindowInferencer
-from utils import DataUtils, MFNetLogger
+from utils import DataUtils, MFNetDGALogger, MFNetLogger
 
 
 class _SingleBatchDataset(Dataset):
@@ -727,6 +728,41 @@ class MFNetTrainingTest(unittest.TestCase):
             else:
                 sys.modules["models.mfnet"] = original_mfnet_module
 
+    def test_build_model_dispatches_to_mfnet_dga(self) -> None:
+        build_module = importlib.import_module("models.build")
+        captured_kwargs: list[dict[str, object]] = []
+
+        class FakeUNetFormerDGA:
+            def __init__(self, **kwargs: object) -> None:
+                captured_kwargs.append(kwargs)
+
+        fake_mfnet_module = types.ModuleType("models.mfnet")
+        fake_mfnet_module.UNetFormerDGA = FakeUNetFormerDGA
+        original_mfnet_module = sys.modules.get("models.mfnet")
+
+        try:
+            sys.modules["models.mfnet"] = fake_mfnet_module
+
+            model = build_module.build_model(
+                {
+                    "type": "mfnet_unetformer_dga",
+                    "num_classes": 6,
+                    "sam_backbone": "vit_b",
+                    "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
+                }
+            )
+
+            self.assertIsInstance(model, FakeUNetFormerDGA)
+            self.assertEqual(
+                captured_kwargs,
+                [{"num_classes": 6, "sam_backbone": "vit_b", "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth"}],
+            )
+        finally:
+            if original_mfnet_module is None:
+                del sys.modules["models.mfnet"]
+            else:
+                sys.modules["models.mfnet"] = original_mfnet_module
+
     def test_build_model_dispatches_to_mfnet_prealign(self) -> None:
         build_module = importlib.import_module("models.build")
         captured_kwargs: list[dict[str, object]] = []
@@ -935,6 +971,203 @@ class MFNetTrainingTest(unittest.TestCase):
 
         self.assertEqual(model.aux_prealign.input_shape, (2, 1, 8, 8))
         self.assertEqual(model.image_encoder.aux_shape, (2, 3, 8, 8))
+        self.assertEqual(model.decoder.output_size, (8, 8))
+        self.assertEqual(tuple(output.shape), (2, 6, 8, 8))
+
+    def test_unetformer_dga_repeats_auxiliary_input_and_applies_dga(self) -> None:
+        fake_timm_module = types.ModuleType("timm")
+        fake_timm_models_module = types.ModuleType("timm.models")
+        fake_timm_layers_module = types.ModuleType("timm.models.layers")
+        fake_timm_layers_module.DropPath = torch.nn.Identity
+        fake_timm_layers_module.to_2tuple = lambda value: (value, value)
+        fake_timm_layers_module.trunc_normal_ = lambda tensor, std=0.02: tensor
+        fake_cv2_module = types.ModuleType("cv2")
+        fake_cv2_module.COLORMAP_JET = 2
+        fake_cv2_module.applyColorMap = lambda image, color_map: image
+        fake_cv2_module.imwrite = lambda path, image: True
+        original_timm_module = sys.modules.get("timm")
+        original_timm_models_module = sys.modules.get("timm.models")
+        original_timm_layers_module = sys.modules.get("timm.models.layers")
+        original_cv2_module = sys.modules.get("cv2")
+
+        try:
+            sys.modules["timm"] = fake_timm_module
+            sys.modules["timm.models"] = fake_timm_models_module
+            sys.modules["timm.models.layers"] = fake_timm_layers_module
+            sys.modules["cv2"] = fake_cv2_module
+            from models.mfnet.UNetFormer_MMSAM_dga import UNetFormerDGA
+        finally:
+            if original_timm_module is None:
+                del sys.modules["timm"]
+            else:
+                sys.modules["timm"] = original_timm_module
+            if original_timm_models_module is None:
+                del sys.modules["timm.models"]
+            else:
+                sys.modules["timm.models"] = original_timm_models_module
+            if original_timm_layers_module is None:
+                del sys.modules["timm.models.layers"]
+            else:
+                sys.modules["timm.models.layers"] = original_timm_layers_module
+            if original_cv2_module is None:
+                del sys.modules["cv2"]
+            else:
+                sys.modules["cv2"] = original_cv2_module
+
+        events: list[str] = []
+
+        class FakePatchEmbed(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.input_shapes: list[tuple[int, ...]] = []
+
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                self.input_shapes.append(tuple(x.shape))
+                x = torch.nn.functional.avg_pool2d(x, kernel_size=4)
+                x = x.mean(dim=1, keepdim=True).repeat(1, 4, 1, 1)
+                return x.permute(0, 2, 3, 1)
+
+        class FakeBlock(torch.nn.Module):
+            def __init__(self, name: str, window_size: int, rgb_offset: float, aux_offset: float) -> None:
+                super().__init__()
+                self.name = name
+                self.window_size = window_size
+                self.rgb_offset = rgb_offset
+                self.aux_offset = aux_offset
+                self.input_rgb: torch.Tensor | None = None
+                self.input_aux: torch.Tensor | None = None
+
+            def forward(self, x: torch.Tensor, y: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+                events.append(self.name)
+                self.input_rgb = x.detach().clone()
+                self.input_aux = y.detach().clone()
+                return x + self.rgb_offset, y + self.aux_offset
+
+        class FakeNeck(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.inputs: list[torch.Tensor] = []
+
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                events.append("neck")
+                self.inputs.append(x.detach().clone())
+                return x
+
+        class FakeImageEncoder(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.embed_dim = 4
+                self.patch_embed = FakePatchEmbed()
+                self.pos_embed = None
+                self.blocks = torch.nn.ModuleList(
+                    [
+                        FakeBlock("block0", window_size=0, rgb_offset=1.0, aux_offset=10.0),
+                        FakeBlock("block1", window_size=14, rgb_offset=2.0, aux_offset=20.0),
+                        FakeBlock("block2", window_size=0, rgb_offset=3.0, aux_offset=30.0),
+                        FakeBlock("block3", window_size=14, rgb_offset=4.0, aux_offset=40.0),
+                        FakeBlock("block4", window_size=0, rgb_offset=5.0, aux_offset=50.0),
+                        FakeBlock("block5", window_size=0, rgb_offset=6.0, aux_offset=60.0),
+                    ]
+                )
+                self.neck = FakeNeck()
+
+        class FakeFPN(torch.nn.Module):
+            def __init__(self, name: str, offset: float) -> None:
+                super().__init__()
+                self.name = name
+                self.offset = offset
+                self.last_output: torch.Tensor | None = None
+
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                events.append(self.name)
+                self.last_output = x + self.offset
+                return self.last_output
+
+        class SpyDGA(torch.nn.Module):
+            def __init__(self, name: str, rgb_offset: float, aux_offset: float) -> None:
+                super().__init__()
+                self.name = name
+                self.rgb_offset = rgb_offset
+                self.aux_offset = aux_offset
+                self.calls: list[tuple[torch.Tensor, torch.Tensor]] = []
+                self.output_rgb: torch.Tensor | None = None
+                self.output_aux: torch.Tensor | None = None
+
+            def forward(self, rgb: torch.Tensor, aux: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+                events.append(self.name)
+                self.calls.append((rgb.detach().clone(), aux.detach().clone()))
+                self.output_rgb = rgb.detach().clone() + self.rgb_offset
+                self.output_aux = aux.detach().clone() + self.aux_offset
+                return rgb + self.rgb_offset, aux + self.aux_offset
+
+        class SpyFusion(torch.nn.Module):
+            def __init__(self, name: str) -> None:
+                super().__init__()
+                self.name = name
+                self.calls: list[tuple[torch.Tensor, torch.Tensor]] = []
+
+            def forward(self, rgb: torch.Tensor, aux: torch.Tensor) -> torch.Tensor:
+                events.append(self.name)
+                self.calls.append((rgb.detach().clone(), aux.detach().clone()))
+                return rgb + aux
+
+        class SpyDecoder(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.output_size: tuple[int, int] | None = None
+
+            def forward(
+                self,
+                res1: torch.Tensor,
+                res2: torch.Tensor,
+                res3: torch.Tensor,
+                res4: torch.Tensor,
+                h: int,
+                w: int,
+            ) -> torch.Tensor:
+                del res2, res3, res4
+                events.append("decoder")
+                self.output_size = (h, w)
+                return torch.zeros(res1.shape[0], 6, h, w)
+
+        model = UNetFormerDGA.__new__(UNetFormerDGA)
+        torch.nn.Module.__init__(model)
+        model.image_encoder = FakeImageEncoder()
+        model.dga_indexes = [0, 2, 4, 5]
+        model.dga_blocks = torch.nn.ModuleList(
+            [
+                SpyDGA("dga0", rgb_offset=100.0, aux_offset=1000.0),
+                SpyDGA("dga1", rgb_offset=200.0, aux_offset=2000.0),
+                SpyDGA("dga2", rgb_offset=300.0, aux_offset=3000.0),
+                SpyDGA("dga3", rgb_offset=400.0, aux_offset=4000.0),
+            ]
+        )
+        model.fpn1x = FakeFPN("fpn1x", 1.0)
+        model.fpn2x = FakeFPN("fpn2x", 2.0)
+        model.fpn3x = FakeFPN("fpn3x", 3.0)
+        model.fpn4x = FakeFPN("fpn4x", 4.0)
+        model.fpn1y = FakeFPN("fpn1y", 10.0)
+        model.fpn2y = FakeFPN("fpn2y", 20.0)
+        model.fpn3y = FakeFPN("fpn3y", 30.0)
+        model.fpn4y = FakeFPN("fpn4y", 40.0)
+        model.fusion1 = SpyFusion("fusion1")
+        model.fusion2 = SpyFusion("fusion2")
+        model.fusion3 = SpyFusion("fusion3")
+        model.fusion4 = SpyFusion("fusion4")
+        model.decoder = SpyDecoder()
+
+        output = model(torch.zeros(2, 3, 8, 8), torch.ones(2, 8, 8))
+
+        self.assertFalse(hasattr(model, "aux_prealign"))
+        self.assertEqual(model.image_encoder.patch_embed.input_shapes[1], (2, 3, 8, 8))
+        self.assertEqual([len(dga_block.calls) for dga_block in model.dga_blocks], [1, 1, 1, 1])
+        for dga_block in model.dga_blocks:
+            self.assertEqual(dga_block.calls[0][0].shape, (2, 4, 2, 2))
+            self.assertEqual(dga_block.calls[0][1].shape, (2, 4, 2, 2))
+
+        expected_order = ["block0", "dga0", "block1", "block2", "dga1", "block3", "block4", "dga2", "block5", "dga3"]
+        self.assertEqual(events[: len(expected_order)], expected_order)
+        self.assertLess(events.index("dga3"), events.index("neck"))
         self.assertEqual(model.decoder.output_size, (8, 8))
         self.assertEqual(tuple(output.shape), (2, 6, 8, 8))
 
@@ -1224,6 +1457,69 @@ class MFNetTrainingTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             model._resolve_dga_indexes()
 
+    def test_unetformer_dga_requires_four_global_blocks(self) -> None:
+        fake_timm_module = types.ModuleType("timm")
+        fake_timm_models_module = types.ModuleType("timm.models")
+        fake_timm_layers_module = types.ModuleType("timm.models.layers")
+        fake_timm_layers_module.DropPath = torch.nn.Identity
+        fake_timm_layers_module.to_2tuple = lambda value: (value, value)
+        fake_timm_layers_module.trunc_normal_ = lambda tensor, std=0.02: tensor
+        fake_cv2_module = types.ModuleType("cv2")
+        fake_cv2_module.COLORMAP_JET = 2
+        fake_cv2_module.applyColorMap = lambda image, color_map: image
+        fake_cv2_module.imwrite = lambda path, image: True
+        original_timm_module = sys.modules.get("timm")
+        original_timm_models_module = sys.modules.get("timm.models")
+        original_timm_layers_module = sys.modules.get("timm.models.layers")
+        original_cv2_module = sys.modules.get("cv2")
+
+        try:
+            sys.modules["timm"] = fake_timm_module
+            sys.modules["timm.models"] = fake_timm_models_module
+            sys.modules["timm.models.layers"] = fake_timm_layers_module
+            sys.modules["cv2"] = fake_cv2_module
+            from models.mfnet.UNetFormer_MMSAM_dga import UNetFormerDGA
+        finally:
+            if original_timm_module is None:
+                del sys.modules["timm"]
+            else:
+                sys.modules["timm"] = original_timm_module
+            if original_timm_models_module is None:
+                del sys.modules["timm.models"]
+            else:
+                sys.modules["timm.models"] = original_timm_models_module
+            if original_timm_layers_module is None:
+                del sys.modules["timm.models.layers"]
+            else:
+                sys.modules["timm.models.layers"] = original_timm_layers_module
+            if original_cv2_module is None:
+                del sys.modules["cv2"]
+            else:
+                sys.modules["cv2"] = original_cv2_module
+
+        class FakeBlock(torch.nn.Module):
+            def __init__(self, window_size: int) -> None:
+                super().__init__()
+                self.window_size = window_size
+
+        class FakeImageEncoder(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.blocks = torch.nn.ModuleList(
+                    [
+                        FakeBlock(window_size=0),
+                        FakeBlock(window_size=14),
+                        FakeBlock(window_size=0),
+                    ]
+                )
+
+        model = UNetFormerDGA.__new__(UNetFormerDGA)
+        torch.nn.Module.__init__(model)
+        model.image_encoder = FakeImageEncoder()
+
+        with self.assertRaises(ValueError):
+            model._resolve_dga_indexes()
+
     def _load_train_entry_module(self):
         spec = importlib.util.spec_from_file_location(
             "test_train_module",
@@ -1237,9 +1533,11 @@ class MFNetTrainingTest(unittest.TestCase):
 
     def _make_train_entry_config(self, root_dir: str) -> dict[str, object]:
         return {
+            "seed": 80,
             "model": {
                 "type": "mfnet_unetformer",
                 "num_classes": 6,
+                "sam_backbone": "vit_b",
                 "sam_checkpoint": "/tmp/sam_vit_b.pth",
             },
             "dataset": {
@@ -1288,15 +1586,34 @@ class MFNetTrainingTest(unittest.TestCase):
                 super().__init__()
                 self.weight = torch.nn.Parameter(torch.ones(1))
                 self.image_encoder = torch.nn.Linear(1, 1, bias=False)
+                self.align_index = 2
 
         captured_dataset_calls: list[dict[str, object]] = []
         captured_trainer_kwargs: list[dict[str, object]] = []
+        captured_trainer_classes: list[str] = []
         captured_model_cfg: list[dict[str, object]] = []
         captured_load_config_paths: list[str] = []
         captured_default_work_dir_calls: list[dict[str, object]] = []
 
         class FakeTrainer:
             def __init__(self, **kwargs: object) -> None:
+                captured_trainer_classes.append("MFNetTrainer")
+                captured_trainer_kwargs.append(kwargs)
+
+            def train(self) -> None:
+                return None
+
+        class FakeDGATrainer:
+            def __init__(self, **kwargs: object) -> None:
+                captured_trainer_classes.append("MFNetDGATrainer")
+                captured_trainer_kwargs.append(kwargs)
+
+            def train(self) -> None:
+                return None
+
+        class FakeAuxAlignTrainer:
+            def __init__(self, **kwargs: object) -> None:
+                captured_trainer_classes.append("MFNetAuxAlignTrainer")
                 captured_trainer_kwargs.append(kwargs)
 
             def train(self) -> None:
@@ -1309,6 +1626,8 @@ class MFNetTrainingTest(unittest.TestCase):
         original_build_isprs_dataset = module.build_isprs_dataset
         original_dataloader = module.DataLoader
         original_trainer = module.MFNetTrainer
+        original_dga_trainer = module.MFNetDGATrainer
+        original_auxalign_trainer = module.MFNetAuxAlignTrainer
         try:
             module.parse_args = lambda: args
 
@@ -1353,6 +1672,8 @@ class MFNetTrainingTest(unittest.TestCase):
                 "loader_kwargs": kwargs,
             }
             module.MFNetTrainer = FakeTrainer
+            module.MFNetDGATrainer = FakeDGATrainer
+            module.MFNetAuxAlignTrainer = FakeAuxAlignTrainer
 
             module.main()
         finally:
@@ -1363,10 +1684,13 @@ class MFNetTrainingTest(unittest.TestCase):
             module.build_isprs_dataset = original_build_isprs_dataset
             module.DataLoader = original_dataloader
             module.MFNetTrainer = original_trainer
+            module.MFNetDGATrainer = original_dga_trainer
+            module.MFNetAuxAlignTrainer = original_auxalign_trainer
 
         return {
             "dataset_calls": captured_dataset_calls,
             "trainer_kwargs": captured_trainer_kwargs,
+            "trainer_classes": captured_trainer_classes,
             "model_cfg": captured_model_cfg,
             "load_config_paths": captured_load_config_paths,
             "default_work_dir_calls": captured_default_work_dir_calls,
@@ -1382,6 +1706,14 @@ class MFNetTrainingTest(unittest.TestCase):
         self.assertFalse(hasattr(args, "resume_from"))
         self.assertIsNone(args.resume_dir)
         self.assertIsNone(args.resume_ckpt)
+        self.assertIsNone(args.model_type)
+        self.assertIsNone(args.seed)
+
+        with patch.object(sys, "argv", ["train.py", "--model-type", "mfnet_unetformer_dga", "--seed", "123"]):
+            args = module.parse_args()
+
+        self.assertEqual(args.model_type, "mfnet_unetformer_dga")
+        self.assertEqual(args.seed, 123)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             work_dir = module.build_default_work_dir(
@@ -1435,6 +1767,7 @@ class MFNetTrainingTest(unittest.TestCase):
             self.assertEqual(result["load_config_paths"], [str(config_path)])
             self.assertEqual(len(result["default_work_dir_calls"]), 1)
             self.assertEqual(len(result["trainer_kwargs"]), 1)
+            self.assertEqual(result["trainer_classes"], ["MFNetTrainer"])
             trainer_kwargs = result["trainer_kwargs"][0]
             self.assertIsInstance(trainer_kwargs["optimizer"], torch.optim.SGD)
             self.assertIsInstance(
@@ -1458,8 +1791,147 @@ class MFNetTrainingTest(unittest.TestCase):
                 {"stride": 32},
             )
             self.assertNotIn("effective_batch_size", trainer_kwargs["cfg"])
-            self.assertEqual((work_dir / config_path.name).read_text(encoding="utf-8"), config_text)
+            saved_cfg = json.loads((work_dir / config_path.name).read_text(encoding="utf-8"))
+            self.assertEqual(saved_cfg["model"]["type"], "mfnet_unetformer")
+            self.assertEqual(saved_cfg["model"]["sam_checkpoint"], "/tmp/sam_vit_b.pth")
+            self.assertEqual(saved_cfg["dataset"]["name"], "vaihingen")
+            self.assertEqual(config_path.read_text(encoding="utf-8"), config_text)
             self.assertFalse((work_dir / "train_config.jsonc").exists())
+
+    def test_train_entry_model_type_overrides_config_for_new_experiment(self) -> None:
+        module = self._load_train_entry_module()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_dir = Path(tmpdir) / "config"
+            config_dir.mkdir()
+            config_path = config_dir / "external_config.jsonc"
+            config_text = '{"model": {"type": "mfnet_unetformer"}}\n'
+            config_path.write_text(config_text, encoding="utf-8")
+            work_dir = Path(tmpdir) / "auto_work"
+            args = type(
+                "Args",
+                (),
+                {
+                    "config": str(config_path),
+                    "device": "cpu",
+                    "resume_dir": None,
+                    "resume_ckpt": None,
+                    "load_from": None,
+                    "model_type": "mfnet_unetformer_dga",
+                },
+            )()
+
+            result = self._run_train_entry(
+                module=module,
+                args=args,
+                cfg=self._make_train_entry_config(root_dir=str(work_dir)),
+                default_work_dir=work_dir,
+            )
+
+            self.assertEqual(result["default_work_dir_calls"][0]["model_name"], "mfnet_unetformer_dga")
+            self.assertEqual(result["model_cfg"][0]["type"], "mfnet_unetformer_dga")
+            self.assertEqual(result["trainer_classes"], ["MFNetDGATrainer"])
+            saved_cfg = json.loads((work_dir / config_path.name).read_text(encoding="utf-8"))
+            self.assertEqual(saved_cfg["model"]["type"], "mfnet_unetformer_dga")
+            self.assertEqual(config_path.read_text(encoding="utf-8"), config_text)
+
+    def test_train_entry_seed_overrides_config_for_new_experiment(self) -> None:
+        module = self._load_train_entry_module()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_dir = Path(tmpdir) / "config"
+            config_dir.mkdir()
+            config_path = config_dir / "external_config.jsonc"
+            config_text = '{"seed": 80}\n'
+            config_path.write_text(config_text, encoding="utf-8")
+            work_dir = Path(tmpdir) / "auto_work"
+            args = type(
+                "Args",
+                (),
+                {
+                    "config": str(config_path),
+                    "device": "cpu",
+                    "resume_dir": None,
+                    "resume_ckpt": None,
+                    "load_from": None,
+                    "seed": 123,
+                },
+            )()
+
+            result = self._run_train_entry(
+                module=module,
+                args=args,
+                cfg=self._make_train_entry_config(root_dir=str(work_dir)),
+                default_work_dir=work_dir,
+            )
+
+            trainer_kwargs = result["trainer_kwargs"][0]
+            self.assertEqual(trainer_kwargs["cfg"]["seed"], 123)
+            saved_cfg = json.loads((work_dir / config_path.name).read_text(encoding="utf-8"))
+            self.assertEqual(saved_cfg["seed"], 123)
+            self.assertEqual(config_path.read_text(encoding="utf-8"), config_text)
+
+    def test_train_entry_uses_dga_trainer_and_logger_for_dga_model(self) -> None:
+        module = self._load_train_entry_module()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "external_config.jsonc"
+            config_path.write_text('{"train": {"max_epochs": 1}}\n', encoding="utf-8")
+            work_dir = Path(tmpdir) / "auto_work"
+            cfg = self._make_train_entry_config(root_dir=str(work_dir))
+            cfg["model"]["type"] = "mfnet_unetformer_dga"  # type: ignore[index]
+            args = type(
+                "Args",
+                (),
+                {
+                    "config": str(config_path),
+                    "device": "cpu",
+                    "resume_dir": None,
+                    "resume_ckpt": None,
+                    "load_from": None,
+                },
+            )()
+
+            result = self._run_train_entry(
+                module=module,
+                args=args,
+                cfg=cfg,
+                default_work_dir=work_dir,
+            )
+
+            self.assertEqual(result["trainer_classes"], ["MFNetDGATrainer"])
+            trainer_kwargs = result["trainer_kwargs"][0]
+            self.assertIsInstance(trainer_kwargs["logger"], MFNetDGALogger)
+
+    def test_train_entry_uses_auxalign_trainer_for_auxalign_model(self) -> None:
+        module = self._load_train_entry_module()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "external_config.jsonc"
+            config_path.write_text('{"train": {"max_epochs": 1}}\n', encoding="utf-8")
+            work_dir = Path(tmpdir) / "auto_work"
+            cfg = self._make_train_entry_config(root_dir=str(work_dir))
+            cfg["model"]["type"] = "mfnet_unetformer_prealign_auxalign"  # type: ignore[index]
+            cfg["train"]["lambda_align"] = 0.5  # type: ignore[index]
+            args = type(
+                "Args",
+                (),
+                {
+                    "config": str(config_path),
+                    "device": "cpu",
+                    "resume_dir": None,
+                    "resume_ckpt": None,
+                    "load_from": None,
+                },
+            )()
+
+            result = self._run_train_entry(
+                module=module,
+                args=args,
+                cfg=cfg,
+                default_work_dir=work_dir,
+            )
+
+            self.assertEqual(result["trainer_classes"], ["MFNetAuxAlignTrainer"])
+            trainer_kwargs = result["trainer_kwargs"][0]
+            self.assertIsInstance(trainer_kwargs["logger"], MFNetLogger)
+            self.assertEqual(trainer_kwargs["cfg"]["lambda_align"], 0.5)
 
     def test_train_entry_uses_resume_ckpt_for_new_experiment_only(self) -> None:
         module = self._load_train_entry_module()
@@ -1535,6 +2007,78 @@ class MFNetTrainingTest(unittest.TestCase):
             self.assertIsNone(trainer_kwargs["cfg"]["load_from"])
             self.assertEqual(resume_config_path.read_text(encoding="utf-8"), resume_config_text)
             self.assertEqual(existing_log_path.read_text(encoding="utf-8"), existing_log_text)
+            self.assertFalse((resume_dir / external_config_path.name).exists())
+
+    def test_train_entry_rejects_model_type_override_with_resume_dir(self) -> None:
+        module = self._load_train_entry_module()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            resume_dir = Path(tmpdir) / "resume_work"
+            resume_dir.mkdir()
+            resume_config_path = resume_dir / "resume_config.json"
+            resume_config_text = '{"train": {"max_epochs": 9}}\n'
+            resume_config_path.write_text(resume_config_text, encoding="utf-8")
+            external_config_path = Path(tmpdir) / "external_config.jsonc"
+            external_config_text = '{"train": {"max_epochs": 1}}\n'
+            external_config_path.write_text(external_config_text, encoding="utf-8")
+            args = type(
+                "Args",
+                (),
+                {
+                    "config": str(external_config_path),
+                    "device": "cpu",
+                    "resume_dir": str(resume_dir),
+                    "resume_ckpt": None,
+                    "load_from": None,
+                    "model_type": "mfnet_unetformer_dga",
+                },
+            )()
+
+            with self.assertRaisesRegex(ValueError, "--model-type cannot be used with --resume-dir"):
+                self._run_train_entry(
+                    module=module,
+                    args=args,
+                    cfg=self._make_train_entry_config(root_dir=str(resume_dir)),
+                    default_work_dir=None,
+                )
+
+            self.assertEqual(resume_config_path.read_text(encoding="utf-8"), resume_config_text)
+            self.assertEqual(external_config_path.read_text(encoding="utf-8"), external_config_text)
+            self.assertFalse((resume_dir / external_config_path.name).exists())
+
+    def test_train_entry_rejects_seed_override_with_resume_dir(self) -> None:
+        module = self._load_train_entry_module()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            resume_dir = Path(tmpdir) / "resume_work"
+            resume_dir.mkdir()
+            resume_config_path = resume_dir / "resume_config.json"
+            resume_config_text = '{"train": {"max_epochs": 9}}\n'
+            resume_config_path.write_text(resume_config_text, encoding="utf-8")
+            external_config_path = Path(tmpdir) / "external_config.jsonc"
+            external_config_text = '{"train": {"max_epochs": 1}}\n'
+            external_config_path.write_text(external_config_text, encoding="utf-8")
+            args = type(
+                "Args",
+                (),
+                {
+                    "config": str(external_config_path),
+                    "device": "cpu",
+                    "resume_dir": str(resume_dir),
+                    "resume_ckpt": None,
+                    "load_from": None,
+                    "seed": 123,
+                },
+            )()
+
+            with self.assertRaisesRegex(ValueError, "--seed cannot be used with --resume-dir"):
+                self._run_train_entry(
+                    module=module,
+                    args=args,
+                    cfg=self._make_train_entry_config(root_dir=str(resume_dir)),
+                    default_work_dir=None,
+                )
+
+            self.assertEqual(resume_config_path.read_text(encoding="utf-8"), resume_config_text)
+            self.assertEqual(external_config_path.read_text(encoding="utf-8"), external_config_text)
             self.assertFalse((resume_dir / external_config_path.name).exists())
 
 if __name__ == "__main__":

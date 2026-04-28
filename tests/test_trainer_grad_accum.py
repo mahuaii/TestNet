@@ -7,8 +7,8 @@ from pathlib import Path
 import torch
 from torch.utils.data import DataLoader, Dataset
 
-from engine import GradAccumTrainer, Trainer
-from utils import CheckpointManager, MFNetLogger
+from engine import GradAccumTrainer, MFNetDGATrainer, Trainer
+from utils import CheckpointManager, MFNetLogger, StatTracker
 
 
 class ScalarDataset(Dataset):
@@ -78,6 +78,25 @@ class GradAccumFixedLossTrainer(GradAccumTrainer):
         self.loss_index += 1
         loss = self.model.weight.sum() * 0.0 + fixed_loss
         return loss, {"loss": fixed_loss}
+
+
+class FakeDGABlock(torch.nn.Module):
+    def __init__(self, alpha: float, beta: float) -> None:
+        super().__init__()
+        self.alpha = torch.nn.Parameter(torch.tensor(alpha))
+        self.beta = torch.nn.Parameter(torch.tensor(beta))
+
+
+class FakeDGAModel(torch.nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.weight = torch.nn.Parameter(torch.ones(1))
+        self.dga_blocks = torch.nn.ModuleList(
+            [
+                FakeDGABlock(alpha=0.1, beta=0.2),
+                FakeDGABlock(alpha=0.3, beta=0.4),
+            ]
+        )
 
 
 class BeforeEpochTrainer(RegressionTrainer):
@@ -353,6 +372,47 @@ class TrainerGradAccumTest(unittest.TestCase):
             self.assertEqual(len(trainer.logger.step_stats_history), 2)
             self.assertAlmostEqual(trainer.logger.step_stats_history[0]["loss"], 2.0)
             self.assertAlmostEqual(trainer.logger.step_stats_history[1]["loss"], 9.0)
+
+    def test_mfnet_dga_trainer_logs_each_block_alpha_beta_point_stats(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model = FakeDGAModel()
+            optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+            train_loader = DataLoader(ScalarDataset([1.0]), batch_size=1, shuffle=False)
+            trainer = MFNetDGATrainer(
+                model=model,
+                optimizer=optimizer,
+                train_loader=train_loader,
+                val_loader=[],
+                logger=CaptureStepStatsLogger(tmpdir),
+                evaluator=CaptureEvaluator(),
+                device=torch.device("cpu"),
+                inferencer=IdentityInferencer(),
+                cfg={
+                    "work_dir": tmpdir,
+                    "max_epochs": 1,
+                    "batch_size": 1,
+                    "log_step_interval": 1,
+                    "val_epoch_interval": 100,
+                    "save_epoch_interval": 0,
+                    "save_step_interval": 0,
+                },
+            )
+            tracker = StatTracker()
+            tracker.update_mean_stats({"loss": 2.0})
+            trainer.timer.mark("epoch")
+            trainer.timer.mark("log_interval")
+
+            trainer.after_step(step=1, step_stats_tracker=tracker)
+
+            assert isinstance(trainer.logger, CaptureStepStatsLogger)
+            self.assertEqual(len(trainer.logger.step_stats_history), 1)
+            step_stats = trainer.logger.step_stats_history[0]
+            self.assertAlmostEqual(step_stats["dga/alpha_block_0"], 0.1, places=6)
+            self.assertAlmostEqual(step_stats["dga/beta_block_0"], 0.2, places=6)
+            self.assertAlmostEqual(step_stats["dga/alpha_block_1"], 0.3, places=6)
+            self.assertAlmostEqual(step_stats["dga/beta_block_1"], 0.4, places=6)
+            self.assertNotIn("dga/alpha_mean", step_stats)
+            self.assertNotIn("dga/beta_mean", step_stats)
 
     def test_grad_accum_trainer_logs_step_interval_window_average(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

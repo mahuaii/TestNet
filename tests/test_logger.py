@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from utils import Logger, MFNetLogger
+from utils import Logger, MFNetDGALogger, MFNetLogger
 
 
 class _FakeSummaryWriter:
@@ -276,6 +276,71 @@ class LoggerTest(unittest.TestCase):
             self.assertIn(("Metrics/F1Score", 0.8, 1), writer.scalars)
             logger.close()
             self.assertTrue(writer.closed)
+
+    def test_mfnet_dga_logger_writes_dga_tensorboard_scalars(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            logger = MFNetDGALogger(tmpdir, use_tensorboard=False)
+            logger._summary_writer = _FakeSummaryWriter(tmpdir)
+
+            logger.log_train_step(
+                epoch=1,
+                max_epochs=2,
+                step=1,
+                total_steps=4,
+                step_stats={
+                    "loss": 2.0,
+                    "accuracy": 50.0,
+                    "dga/alpha_block_0": 0.1,
+                    "dga/beta_block_0": 0.2,
+                    "dga/alpha_block_1": 0.3,
+                    "dga/beta_block_1": 0.4,
+                },
+                interval_time_seconds=1,
+                epoch_elapsed_seconds=2,
+                global_step=7,
+                lr=0.01,
+            )
+
+            writer = logger._summary_writer
+            assert isinstance(writer, _FakeSummaryWriter)
+            self.assertIn(("Loss/train", 2.0, 7), writer.scalars)
+            self.assertIn(("Learning_rate", 0.01, 7), writer.scalars)
+            self.assertIn(("DGA/alpha_block_0", 0.1, 7), writer.scalars)
+            self.assertIn(("DGA/beta_block_0", 0.2, 7), writer.scalars)
+            self.assertIn(("DGA/alpha_block_1", 0.3, 7), writer.scalars)
+            self.assertIn(("DGA/beta_block_1", 0.4, 7), writer.scalars)
+            log_text = Path(tmpdir, "train.log").read_text(encoding="utf-8")
+            self.assertNotIn("alpha_block", log_text)
+            self.assertNotIn("beta_block", log_text)
+            logger.close()
+
+    def test_mfnet_logger_does_not_write_dga_tensorboard_scalars(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            logger = MFNetLogger(tmpdir, use_tensorboard=False)
+            logger._summary_writer = _FakeSummaryWriter(tmpdir)
+
+            logger.log_train_step(
+                epoch=1,
+                max_epochs=2,
+                step=1,
+                total_steps=4,
+                step_stats={
+                    "loss": 2.0,
+                    "dga/alpha_block_0": 0.1,
+                    "dga/beta_block_0": 0.2,
+                },
+                interval_time_seconds=1,
+                epoch_elapsed_seconds=2,
+                global_step=7,
+                lr=0.01,
+            )
+
+            writer = logger._summary_writer
+            assert isinstance(writer, _FakeSummaryWriter)
+            self.assertIn(("Loss/train", 2.0, 7), writer.scalars)
+            self.assertNotIn(("DGA/alpha_block_0", 0.1, 7), writer.scalars)
+            self.assertNotIn(("DGA/beta_block_0", 0.2, 7), writer.scalars)
+            logger.close()
 
     def test_base_logger_does_not_write_metric_scalars(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
