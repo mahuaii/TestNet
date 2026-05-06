@@ -32,6 +32,7 @@ from utils import MFNetDGALogger, MFNetLogger, load_config
 DGA_MODEL_TYPES = {
     "mfnet_unetformer_dga",
     "mfnet_unetformer_dga2",
+    "mfnet_unetformer_dga3",
     "mfnet_unetformer_prealign_dga",
 }
 

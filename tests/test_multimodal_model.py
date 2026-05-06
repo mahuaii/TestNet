@@ -798,6 +798,41 @@ class MFNetTrainingTest(unittest.TestCase):
             else:
                 sys.modules["models.mfnet"] = original_mfnet_module
 
+    def test_build_model_dispatches_to_mfnet_dga3(self) -> None:
+        build_module = importlib.import_module("models.build")
+        captured_kwargs: list[dict[str, object]] = []
+
+        class FakeUNetFormerDGA3:
+            def __init__(self, **kwargs: object) -> None:
+                captured_kwargs.append(kwargs)
+
+        fake_mfnet_module = types.ModuleType("models.mfnet")
+        fake_mfnet_module.UNetFormerDGA3 = FakeUNetFormerDGA3
+        original_mfnet_module = sys.modules.get("models.mfnet")
+
+        try:
+            sys.modules["models.mfnet"] = fake_mfnet_module
+
+            model = build_module.build_model(
+                {
+                    "type": "mfnet_unetformer_dga3",
+                    "num_classes": 6,
+                    "sam_backbone": "vit_b",
+                    "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
+                }
+            )
+
+            self.assertIsInstance(model, FakeUNetFormerDGA3)
+            self.assertEqual(
+                captured_kwargs,
+                [{"num_classes": 6, "sam_backbone": "vit_b", "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth"}],
+            )
+        finally:
+            if original_mfnet_module is None:
+                del sys.modules["models.mfnet"]
+            else:
+                sys.modules["models.mfnet"] = original_mfnet_module
+
     def test_build_model_dispatches_to_mfnet_prealign(self) -> None:
         build_module = importlib.import_module("models.build")
         captured_kwargs: list[dict[str, object]] = []
@@ -2149,6 +2184,37 @@ class MFNetTrainingTest(unittest.TestCase):
             work_dir = Path(tmpdir) / "auto_work"
             cfg = self._make_train_entry_config(root_dir=str(work_dir))
             cfg["model"]["type"] = "mfnet_unetformer_dga2"  # type: ignore[index]
+            args = type(
+                "Args",
+                (),
+                {
+                    "config": str(config_path),
+                    "device": "cpu",
+                    "resume_dir": None,
+                    "resume_ckpt": None,
+                    "load_from": None,
+                },
+            )()
+
+            result = self._run_train_entry(
+                module=module,
+                args=args,
+                cfg=cfg,
+                default_work_dir=work_dir,
+            )
+
+            self.assertEqual(result["trainer_classes"], ["MFNetDGATrainer"])
+            trainer_kwargs = result["trainer_kwargs"][0]
+            self.assertIsInstance(trainer_kwargs["logger"], MFNetDGALogger)
+
+    def test_train_entry_uses_dga_trainer_and_logger_for_dga3_model(self) -> None:
+        module = self._load_train_entry_module()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "external_config.jsonc"
+            config_path.write_text('{"train": {"max_epochs": 1}}\n', encoding="utf-8")
+            work_dir = Path(tmpdir) / "auto_work"
+            cfg = self._make_train_entry_config(root_dir=str(work_dir))
+            cfg["model"]["type"] = "mfnet_unetformer_dga3"  # type: ignore[index]
             args = type(
                 "Args",
                 (),
