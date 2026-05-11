@@ -25,6 +25,7 @@ _Datasets
 
 # Tooling temp files
 .codex
+.agents
 .pytest_cache/
 .DS_Store
 

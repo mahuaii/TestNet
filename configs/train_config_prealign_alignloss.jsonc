@@ -65,7 +65,7 @@
         "auto_resume": true,
         "log_step_interval": 100,
         "val_epoch_interval": 4,
-        "save_epoch_interval": 4,
+        "save_epoch_interval": 0,
         "save_step_interval": 0,
         "use_tensorboard": true,
         "lambda_align": 0.5
