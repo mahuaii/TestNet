@@ -6,7 +6,7 @@ import unittest
 import numpy as np
 import torch
 
-from train import set_reproducibility
+from utils import set_reproducibility
 
 
 class ReproducibilityTest(unittest.TestCase):

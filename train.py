@@ -1,11 +1,7 @@
 from __future__ import annotations
 
 import argparse
-import json
-from datetime import datetime
 from pathlib import Path
-import random
-import re
 import sys
 from typing import Any
 
@@ -14,26 +10,41 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import torch
-import numpy as np
 from torch.utils.data import DataLoader
 
 from data import build_isprs_dataset
 from engine import (
     Evaluator,
     MFNetAuxAlignTrainer,
+    MFNetDGAContributionStatsTrainer,
     MFNetDGATrainer,
     MFNetTrainer,
     SlidingWindowInferencer,
 )
 from models import build_model
-from utils import MFNetDGALogger, MFNetLogger, load_config
-
+from utils import (
+    MFNetDGALogger,
+    MFNetLogger,
+    build_default_work_dir,
+    build_optimizer_param_groups,
+    load_config,
+    log_run_summary,
+    save_effective_config,
+    set_reproducibility,
+)
 
 DGA_MODEL_TYPES = {
-    "mfnet_unetformer_dga",
-    "mfnet_unetformer_dga2",
-    "mfnet_unetformer_dga3",
-    "mfnet_unetformer_prealign_dga",
+    "mfnet_unetformer_dga10",
+    "mfnet_unetformer_dga20",
+    "mfnet_unetformer_dga10_contrib_stats",
+    "mfnet_unetformer_dga20_contrib_stats",
+    "mfnet_unetformer_dga30",
+    "mfnet_unetformer_prealign_dga10",
+}
+
+DGA_CONTRIB_STATS_MODEL_TYPES = {
+    "mfnet_unetformer_dga10_contrib_stats",
+    "mfnet_unetformer_dga20_contrib_stats",
 }
 
 AUX_ALIGN_MODEL_TYPES = {
@@ -51,73 +62,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-type", default=None)
     parser.add_argument("--seed", type=int, default=None)
     return parser.parse_args()
-
-
-def safe_path_component(value: object, fallback: str) -> str:
-    text = str(value).strip().lower()
-    text = re.sub(r"[^a-z0-9._-]+", "_", text)
-    text = text.strip("._-")
-    return text or fallback
-
-
-def build_default_work_dir(
-    model_name: object,
-    dataset_name: object,
-    root_dir: str | Path = "work_dirs",
-) -> Path:
-    timestamp = datetime.now().strftime("%y%m%d_%H%M%S")
-    experiment_name = "_".join(
-        [
-            safe_path_component(model_name, "model"),
-            safe_path_component(dataset_name, "dataset"),
-            timestamp,
-        ]
-    )
-    return Path(root_dir) / experiment_name
-
-
-def set_reproducibility(seed: int) -> None:
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = False
-    torch.backends.cudnn.benchmark = True
-
-
-def count_model_params(model: torch.nn.Module) -> tuple[int, int, int, int]:
-    all_params = sum(param.nelement() for param in model.parameters())
-    image_encoder_params = 0
-    adapter_params = 0
-    for name, param in model.image_encoder.named_parameters():
-        if "Adapter" in name:
-            adapter_params += param.nelement()
-        else:
-            image_encoder_params += param.nelement()
-    other_params = all_params - image_encoder_params - adapter_params
-    return all_params, image_encoder_params, adapter_params, other_params
-
-
-def log_run_summary(
-    logger: MFNetLogger,
-    model: torch.nn.Module,
-    work_dir: Path,
-    experiment_name: str,
-    seed: int,
-) -> None:
-    all_params, image_encoder_params, adapter_params, other_params = count_model_params(model)
-    logger.log_message(f"Experiment: {experiment_name}")
-    logger.log_message(f"Workdir: {work_dir}")
-    logger.log_message(f"Seed: {seed}")
-    logger.log_message(f"All Params:   {all_params}")
-    logger.log_message(f"ImgEncoder:   {image_encoder_params}")
-    logger.log_message(f"Adapter: {adapter_params}")
-    logger.log_message(f"Others: {other_params}")
-
-
-def save_effective_config(cfg: dict[str, Any], path: Path) -> None:
-    path.write_text(json.dumps(cfg, indent=4) + "\n", encoding="utf-8")
 
 
 def main() -> None:
@@ -143,7 +87,12 @@ def main() -> None:
         dataset_cfg = cfg["dataset"]
         dataset_name = str(dataset_cfg.get("name", "vaihingen")).strip().lower()
         model_name = cfg["model"].get("type", "model")
-        work_dir = build_default_work_dir(model_name=model_name, dataset_name=dataset_name)
+        work_dir = build_default_work_dir(
+            model_name=model_name,
+            dataset_name=dataset_name,
+            seed=cfg["seed"],
+            lambda_align=cfg["train"].get("lambda_align"),
+        )
         work_dir.mkdir(parents=True, exist_ok=True)
         save_effective_config(cfg, work_dir / Path(args.config).name)
         resume_from = args.resume_ckpt
@@ -198,11 +147,11 @@ def main() -> None:
             pin_memory=True,
         )
 
+    weight_decay = cfg["optimizer"].get("weight_decay", 5e-4)
     optimizer = torch.optim.SGD(
-        model.parameters(),
+        build_optimizer_param_groups(model, weight_decay=weight_decay),
         lr=cfg["optimizer"]["lr"],
         momentum=cfg["optimizer"].get("momentum", 0.9),
-        weight_decay=cfg["optimizer"].get("weight_decay", 5e-4),
     )
 
     scheduler = None
@@ -216,6 +165,8 @@ def main() -> None:
     model_type = str(cfg["model"]["type"])
     if model_type in AUX_ALIGN_MODEL_TYPES:
         trainer_cls = MFNetAuxAlignTrainer
+    elif model_type in DGA_CONTRIB_STATS_MODEL_TYPES:
+        trainer_cls = MFNetDGAContributionStatsTrainer
     elif model_type in DGA_MODEL_TYPES:
         trainer_cls = MFNetDGATrainer
     else:
