@@ -8,42 +8,42 @@ from pathlib import Path
 import torch
 
 
-def _load_dga_module() -> object:
-    dga_path = Path(__file__).resolve().parents[1] / "models" / "mfnet" / "modules" / "dga.py"
-    spec = importlib.util.spec_from_file_location("_dga_under_test", dga_path)
+def _load_dga10_module() -> object:
+    dga_path = Path(__file__).resolve().parents[1] / "models" / "mfnet" / "modules" / "dga10.py"
+    spec = importlib.util.spec_from_file_location("_dga10_under_test", dga_path)
     if spec is None or spec.loader is None:
-        raise ImportError(f"Could not load DGA module from {dga_path}")
+        raise ImportError(f"Could not load DGA10 module from {dga_path}")
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
 
-def _load_dga2_module() -> object:
-    dga2_path = Path(__file__).resolve().parents[1] / "models" / "mfnet" / "modules" / "dga2.py"
-    spec = importlib.util.spec_from_file_location("_dga2_under_test", dga2_path)
+def _load_dga20_module() -> object:
+    dga2_path = Path(__file__).resolve().parents[1] / "models" / "mfnet" / "modules" / "dga20.py"
+    spec = importlib.util.spec_from_file_location("_dga20_under_test", dga2_path)
     if spec is None or spec.loader is None:
-        raise ImportError(f"Could not load DGA2 module from {dga2_path}")
+        raise ImportError(f"Could not load DGA20 module from {dga2_path}")
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
 
-def _load_dga3_module() -> object:
-    from models.mfnet.modules import dga3
+def _load_dga30_module() -> object:
+    from models.mfnet.modules import dga30
 
-    return dga3
-
-
-dga = _load_dga_module()
-dga2 = _load_dga2_module()
-dga3 = _load_dga3_module()
+    return dga30
 
 
-class DGABlockTest(unittest.TestCase):
+dga10 = _load_dga10_module()
+dga20 = _load_dga20_module()
+dga30 = _load_dga30_module()
+
+
+class DGABlock10Test(unittest.TestCase):
     def test_forward_returns_pair_with_unchanged_shapes(self) -> None:
-        block = dga.DGABlock(channels=16)
+        block = dga10.DGABlock10(channels=16)
         rgb = torch.randn(2, 16, 7, 11)
         aux = torch.randn(2, 16, 7, 11)
 
@@ -56,7 +56,7 @@ class DGABlockTest(unittest.TestCase):
         self.assertEqual(aux_out.shape, aux.shape)
 
     def test_rejects_invalid_inputs(self) -> None:
-        block = dga.DGABlock(channels=8)
+        block = dga10.DGABlock10(channels=8)
         rgb = torch.randn(2, 8, 6, 6)
         aux = torch.randn(2, 8, 6, 6)
 
@@ -68,7 +68,7 @@ class DGABlockTest(unittest.TestCase):
             block(torch.randn(2, 4, 6, 6), aux)
 
     def test_backward_produces_finite_input_and_parameter_gradients(self) -> None:
-        block = dga.DGABlock(channels=8, reduction=4)
+        block = dga10.DGABlock10(channels=8, reduction=4)
         rgb = torch.randn(2, 8, 6, 6, requires_grad=True)
         aux = torch.randn(2, 8, 6, 6, requires_grad=True)
 
@@ -88,9 +88,9 @@ class DGABlockTest(unittest.TestCase):
             self.assertTrue(torch.isfinite(param.grad).all())
 
 
-class DGABlockV2Test(unittest.TestCase):
+class DGABlock20Test(unittest.TestCase):
     def test_forward_returns_pair_with_unchanged_shapes(self) -> None:
-        block = dga2.DGABlockV2(channels=16)
+        block = dga20.DGABlock20(channels=16)
         x = torch.randn(2, 16, 7, 11)
         y = torch.randn(2, 16, 7, 11)
 
@@ -103,7 +103,7 @@ class DGABlockV2Test(unittest.TestCase):
         self.assertEqual(y_out.shape, y.shape)
 
     def test_rejects_invalid_inputs(self) -> None:
-        block = dga2.DGABlockV2(channels=8)
+        block = dga20.DGABlock20(channels=8)
         x = torch.randn(2, 8, 6, 6)
         y = torch.randn(2, 8, 6, 6)
 
@@ -115,7 +115,7 @@ class DGABlockV2Test(unittest.TestCase):
             block(torch.randn(2, 4, 6, 6), y)
 
     def test_backward_produces_finite_input_and_parameter_gradients(self) -> None:
-        block = dga2.DGABlockV2(channels=8)
+        block = dga20.DGABlock20(channels=8)
         x = torch.randn(2, 8, 6, 6, requires_grad=True)
         y = torch.randn(2, 8, 6, 6, requires_grad=True)
 
@@ -135,7 +135,7 @@ class DGABlockV2Test(unittest.TestCase):
             self.assertTrue(torch.isfinite(param.grad).all())
 
     def test_layer_norm2d_normalizes_channel_dimension_per_spatial_position(self) -> None:
-        norm = dga2.LayerNorm2d(3)
+        norm = dga20.LayerNorm2d(3)
         x = torch.tensor(
             [
                 [
@@ -152,7 +152,7 @@ class DGABlockV2Test(unittest.TestCase):
         self.assertTrue(torch.allclose(output.var(dim=1, unbiased=False), torch.ones(1, 2, 2), atol=1e-4))
 
     def test_default_scale_parameters_are_shape_one_and_initialized_to_point_one(self) -> None:
-        block = dga2.DGABlockV2(channels=64)
+        block = dga20.DGABlock20(channels=64)
 
         self.assertEqual(tuple(block.alpha.shape), (1,))
         self.assertEqual(tuple(block.beta.shape), (1,))
@@ -167,7 +167,7 @@ class DGABlockV2Test(unittest.TestCase):
         }
         for channels, hidden_channels in expected.items():
             with self.subTest(channels=channels):
-                block = dga2.DGABlockV2(channels=channels)
+                block = dga20.DGABlock20(channels=channels)
                 self.assertEqual(block.hidden_channels, hidden_channels)
                 self.assertEqual(block.message_y_to_x.depthwise.groups, hidden_channels)
                 self.assertEqual(block.message_x_to_y.depthwise.groups, hidden_channels)
@@ -177,13 +177,13 @@ class DGABlockV2Test(unittest.TestCase):
                 self.assertEqual(block.message_x_to_y.se.fc1.out_channels, max(8, hidden_channels // 4))
 
     def test_gate_final_bias_is_zero(self) -> None:
-        block = dga2.DGABlockV2(channels=64)
+        block = dga20.DGABlock20(channels=64)
 
         self.assertTrue(torch.equal(block.gate_x.proj_out.bias.detach(), torch.zeros_like(block.gate_x.proj_out.bias)))
         self.assertTrue(torch.equal(block.gate_y.proj_out.bias.detach(), torch.zeros_like(block.gate_y.proj_out.bias)))
 
     def test_message_branch_ends_with_linear_projection(self) -> None:
-        block = dga2.DGABlockV2(channels=64)
+        block = dga20.DGABlock20(channels=64)
 
         for message_branch in [block.message_y_to_x, block.message_x_to_y]:
             children = list(message_branch.children())
@@ -192,16 +192,16 @@ class DGABlockV2Test(unittest.TestCase):
             self.assertNotIsInstance(children[-1], (torch.nn.Sigmoid, torch.nn.Tanh, torch.nn.ReLU, torch.nn.GELU))
 
     def test_directional_branches_do_not_share_modules(self) -> None:
-        block = dga2.DGABlockV2(channels=64)
+        block = dga20.DGABlock20(channels=64)
 
         self.assertIsNot(block.norm_x, block.norm_y)
         self.assertIsNot(block.message_y_to_x, block.message_x_to_y)
         self.assertIsNot(block.gate_x, block.gate_y)
 
 
-class DGABlockV3Test(unittest.TestCase):
+class DGABlock30Test(unittest.TestCase):
     def test_forward_returns_pair_with_unchanged_shapes(self) -> None:
-        block = dga3.DGABlockV3(channels=16)
+        block = dga30.DGABlock30(channels=16)
         x = torch.randn(2, 16, 7, 11)
         y = torch.randn(2, 16, 7, 11)
 
@@ -214,7 +214,7 @@ class DGABlockV3Test(unittest.TestCase):
         self.assertEqual(y_out.shape, y.shape)
 
     def test_rejects_invalid_inputs(self) -> None:
-        block = dga3.DGABlockV3(channels=8)
+        block = dga30.DGABlock30(channels=8)
         x = torch.randn(2, 8, 6, 6)
         y = torch.randn(2, 8, 6, 6)
 
@@ -226,7 +226,7 @@ class DGABlockV3Test(unittest.TestCase):
             block(torch.randn(2, 4, 6, 6), y)
 
     def test_backward_produces_finite_input_and_parameter_gradients(self) -> None:
-        block = dga3.DGABlockV3(channels=8)
+        block = dga30.DGABlock30(channels=8)
         x = torch.randn(2, 8, 6, 6, requires_grad=True)
         y = torch.randn(2, 8, 6, 6, requires_grad=True)
 
@@ -245,8 +245,8 @@ class DGABlockV3Test(unittest.TestCase):
             self.assertIsNotNone(param.grad)
             self.assertTrue(torch.isfinite(param.grad).all())
 
-    def test_gate_branches_follow_dga3_structure(self) -> None:
-        block = dga3.DGABlockV3(channels=64)
+    def test_gate_branches_follow_dga30_structure(self) -> None:
+        block = dga30.DGABlock30(channels=64)
 
         for gate_branch in [block.gate_x, block.gate_y]:
             self.assertEqual(gate_branch.proj_in.in_channels, 128)
@@ -258,7 +258,7 @@ class DGABlockV3Test(unittest.TestCase):
             self.assertIsInstance(gate_branch.gate, torch.nn.Sigmoid)
 
     def test_uses_normalized_opposite_feature_as_message(self) -> None:
-        block = dga3.DGABlockV3(channels=4)
+        block = dga30.DGABlock30(channels=4)
         x = torch.randn(2, 4, 5, 5)
         y = torch.randn(2, 4, 5, 5)
 

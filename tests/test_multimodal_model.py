@@ -732,12 +732,12 @@ class MFNetTrainingTest(unittest.TestCase):
         build_module = importlib.import_module("models.build")
         captured_kwargs: list[dict[str, object]] = []
 
-        class FakeUNetFormerDGA:
+        class FakeUNetFormerDGA10:
             def __init__(self, **kwargs: object) -> None:
                 captured_kwargs.append(kwargs)
 
         fake_mfnet_module = types.ModuleType("models.mfnet")
-        fake_mfnet_module.UNetFormerDGA = FakeUNetFormerDGA
+        fake_mfnet_module.UNetFormerDGA10 = FakeUNetFormerDGA10
         original_mfnet_module = sys.modules.get("models.mfnet")
 
         try:
@@ -745,14 +745,14 @@ class MFNetTrainingTest(unittest.TestCase):
 
             model = build_module.build_model(
                 {
-                    "type": "mfnet_unetformer_dga",
+                    "type": "mfnet_unetformer_dga10",
                     "num_classes": 6,
                     "sam_backbone": "vit_b",
                     "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
                 }
             )
 
-            self.assertIsInstance(model, FakeUNetFormerDGA)
+            self.assertIsInstance(model, FakeUNetFormerDGA10)
             self.assertEqual(
                 captured_kwargs,
                 [{"num_classes": 6, "sam_backbone": "vit_b", "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth"}],
@@ -767,12 +767,12 @@ class MFNetTrainingTest(unittest.TestCase):
         build_module = importlib.import_module("models.build")
         captured_kwargs: list[dict[str, object]] = []
 
-        class FakeUNetFormerDGA2:
+        class FakeUNetFormerDGA20:
             def __init__(self, **kwargs: object) -> None:
                 captured_kwargs.append(kwargs)
 
         fake_mfnet_module = types.ModuleType("models.mfnet")
-        fake_mfnet_module.UNetFormerDGA2 = FakeUNetFormerDGA2
+        fake_mfnet_module.UNetFormerDGA20 = FakeUNetFormerDGA20
         original_mfnet_module = sys.modules.get("models.mfnet")
 
         try:
@@ -780,14 +780,14 @@ class MFNetTrainingTest(unittest.TestCase):
 
             model = build_module.build_model(
                 {
-                    "type": "mfnet_unetformer_dga2",
+                    "type": "mfnet_unetformer_dga20",
                     "num_classes": 6,
                     "sam_backbone": "vit_b",
                     "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
                 }
             )
 
-            self.assertIsInstance(model, FakeUNetFormerDGA2)
+            self.assertIsInstance(model, FakeUNetFormerDGA20)
             self.assertEqual(
                 captured_kwargs,
                 [{"num_classes": 6, "sam_backbone": "vit_b", "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth"}],
@@ -798,16 +798,34 @@ class MFNetTrainingTest(unittest.TestCase):
             else:
                 sys.modules["models.mfnet"] = original_mfnet_module
 
-    def test_build_model_dispatches_to_mfnet_dga3(self) -> None:
+    def test_build_model_rejects_retired_dga_type_names(self) -> None:
+        build_module = importlib.import_module("models.build")
+        base_cfg = {
+            "num_classes": 6,
+            "sam_backbone": "vit_b",
+            "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
+        }
+
+        for model_type in [
+            "mfnet_unetformer_dga",
+            "mfnet_unetformer_dga2",
+            "mfnet_unetformer_dga3",
+            "mfnet_unetformer_prealign_dga",
+        ]:
+            with self.subTest(model_type=model_type):
+                with self.assertRaises(KeyError):
+                    build_module.build_model({"type": model_type, **base_cfg})
+
+    def test_build_model_dispatches_to_mfnet_dga30(self) -> None:
         build_module = importlib.import_module("models.build")
         captured_kwargs: list[dict[str, object]] = []
 
-        class FakeUNetFormerDGA3:
+        class FakeUNetFormerDGA30:
             def __init__(self, **kwargs: object) -> None:
                 captured_kwargs.append(kwargs)
 
         fake_mfnet_module = types.ModuleType("models.mfnet")
-        fake_mfnet_module.UNetFormerDGA3 = FakeUNetFormerDGA3
+        fake_mfnet_module.UNetFormerDGA30 = FakeUNetFormerDGA30
         original_mfnet_module = sys.modules.get("models.mfnet")
 
         try:
@@ -815,14 +833,14 @@ class MFNetTrainingTest(unittest.TestCase):
 
             model = build_module.build_model(
                 {
-                    "type": "mfnet_unetformer_dga3",
+                    "type": "mfnet_unetformer_dga30",
                     "num_classes": 6,
                     "sam_backbone": "vit_b",
                     "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
                 }
             )
 
-            self.assertIsInstance(model, FakeUNetFormerDGA3)
+            self.assertIsInstance(model, FakeUNetFormerDGA30)
             self.assertEqual(
                 captured_kwargs,
                 [{"num_classes": 6, "sam_backbone": "vit_b", "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth"}],
@@ -907,12 +925,12 @@ class MFNetTrainingTest(unittest.TestCase):
         build_module = importlib.import_module("models.build")
         captured_kwargs: list[dict[str, object]] = []
 
-        class FakeUNetFormerPreAlignDGA:
+        class FakeUNetFormerPreAlignDGA10:
             def __init__(self, **kwargs: object) -> None:
                 captured_kwargs.append(kwargs)
 
         fake_mfnet_module = types.ModuleType("models.mfnet")
-        fake_mfnet_module.UNetFormerPreAlignDGA = FakeUNetFormerPreAlignDGA
+        fake_mfnet_module.UNetFormerPreAlignDGA10 = FakeUNetFormerPreAlignDGA10
         original_mfnet_module = sys.modules.get("models.mfnet")
 
         try:
@@ -920,14 +938,14 @@ class MFNetTrainingTest(unittest.TestCase):
 
             model = build_module.build_model(
                 {
-                    "type": "mfnet_unetformer_prealign_dga",
+                    "type": "mfnet_unetformer_prealign_dga10",
                     "num_classes": 6,
                     "sam_backbone": "vit_b",
                     "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
                 }
             )
 
-            self.assertIsInstance(model, FakeUNetFormerPreAlignDGA)
+            self.assertIsInstance(model, FakeUNetFormerPreAlignDGA10)
             self.assertEqual(
                 captured_kwargs,
                 [{"num_classes": 6, "sam_backbone": "vit_b", "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth"}],
@@ -1065,7 +1083,7 @@ class MFNetTrainingTest(unittest.TestCase):
             sys.modules["timm.models"] = fake_timm_models_module
             sys.modules["timm.models.layers"] = fake_timm_layers_module
             sys.modules["cv2"] = fake_cv2_module
-            from models.mfnet.UNetFormer_MMSAM_dga import UNetFormerDGA
+            from models.mfnet.UNetFormer_MMSAM_dga10 import UNetFormerDGA10
         finally:
             if original_timm_module is None:
                 del sys.modules["timm"]
@@ -1200,16 +1218,16 @@ class MFNetTrainingTest(unittest.TestCase):
                 self.output_size = (h, w)
                 return torch.zeros(res1.shape[0], 6, h, w)
 
-        model = UNetFormerDGA.__new__(UNetFormerDGA)
+        model = UNetFormerDGA10.__new__(UNetFormerDGA10)
         torch.nn.Module.__init__(model)
         model.image_encoder = FakeImageEncoder()
         model.dga_indexes = [0, 2, 4, 5]
         model.dga_blocks = torch.nn.ModuleList(
             [
-                SpyDGA("dga0", rgb_offset=100.0, aux_offset=1000.0),
-                SpyDGA("dga1", rgb_offset=200.0, aux_offset=2000.0),
-                SpyDGA("dga2", rgb_offset=300.0, aux_offset=3000.0),
-                SpyDGA("dga3", rgb_offset=400.0, aux_offset=4000.0),
+                SpyDGA("dga10_0", rgb_offset=100.0, aux_offset=1000.0),
+                SpyDGA("dga10_1", rgb_offset=200.0, aux_offset=2000.0),
+                SpyDGA("dga10_2", rgb_offset=300.0, aux_offset=3000.0),
+                SpyDGA("dga10_3", rgb_offset=400.0, aux_offset=4000.0),
             ]
         )
         model.fpn1x = FakeFPN("fpn1x", 1.0)
@@ -1235,9 +1253,20 @@ class MFNetTrainingTest(unittest.TestCase):
             self.assertEqual(dga_block.calls[0][0].shape, (2, 4, 2, 2))
             self.assertEqual(dga_block.calls[0][1].shape, (2, 4, 2, 2))
 
-        expected_order = ["block0", "dga0", "block1", "block2", "dga1", "block3", "block4", "dga2", "block5", "dga3"]
+        expected_order = [
+            "block0",
+            "dga10_0",
+            "block1",
+            "block2",
+            "dga10_1",
+            "block3",
+            "block4",
+            "dga10_2",
+            "block5",
+            "dga10_3",
+        ]
         self.assertEqual(events[: len(expected_order)], expected_order)
-        self.assertLess(events.index("dga3"), events.index("neck"))
+        self.assertLess(events.index("dga10_3"), events.index("neck"))
         self.assertEqual(model.decoder.output_size, (8, 8))
         self.assertEqual(tuple(output.shape), (2, 6, 8, 8))
 
@@ -1262,7 +1291,7 @@ class MFNetTrainingTest(unittest.TestCase):
             sys.modules["timm.models"] = fake_timm_models_module
             sys.modules["timm.models.layers"] = fake_timm_layers_module
             sys.modules["cv2"] = fake_cv2_module
-            from models.mfnet.UNetFormer_MMSAM_dga2 import UNetFormerDGA2
+            from models.mfnet.UNetFormer_MMSAM_dga20 import UNetFormerDGA20
         finally:
             if original_timm_module is None:
                 del sys.modules["timm"]
@@ -1384,14 +1413,14 @@ class MFNetTrainingTest(unittest.TestCase):
                 self.output_size = (h, w)
                 return torch.zeros(res1.shape[0], 6, h, w)
 
-        model = UNetFormerDGA2.__new__(UNetFormerDGA2)
+        model = UNetFormerDGA20.__new__(UNetFormerDGA20)
         torch.nn.Module.__init__(model)
         model.image_encoder = FakeImageEncoder()
         model.dga_indexes = [0, 2, 4, 5]
         model.dga_blocks = torch.nn.ModuleList(
             [
                 SpyDGA2("dga2_0", rgb_offset=100.0, aux_offset=1000.0),
-                SpyDGA2("dga2_1", rgb_offset=200.0, aux_offset=2000.0),
+                SpyDGA2("dga20", rgb_offset=200.0, aux_offset=2000.0),
                 SpyDGA2("dga2_2", rgb_offset=300.0, aux_offset=3000.0),
                 SpyDGA2("dga2_3", rgb_offset=400.0, aux_offset=4000.0),
             ]
@@ -1423,7 +1452,7 @@ class MFNetTrainingTest(unittest.TestCase):
             "dga2_0",
             "block1",
             "block2",
-            "dga2_1",
+            "dga20",
             "block3",
             "block4",
             "dga2_2",
@@ -1468,7 +1497,7 @@ class MFNetTrainingTest(unittest.TestCase):
             sys.modules["timm.models"] = fake_timm_models_module
             sys.modules["timm.models.layers"] = fake_timm_layers_module
             sys.modules["cv2"] = fake_cv2_module
-            from models.mfnet.UNetFormer_MMSAM_prealign_dga import UNetFormerPreAlignDGA
+            from models.mfnet.UNetFormer_MMSAM_prealign_dga10 import UNetFormerPreAlignDGA10
         finally:
             if original_timm_module is None:
                 del sys.modules["timm"]
@@ -1604,21 +1633,26 @@ class MFNetTrainingTest(unittest.TestCase):
                 w: int,
             ) -> torch.Tensor:
                 events.append("decoder")
-                self.inputs = (res1.detach().clone(), res2.detach().clone(), res3.detach().clone(), res4.detach().clone())
+                self.inputs = (
+                    res1.detach().clone(),
+                    res2.detach().clone(),
+                    res3.detach().clone(),
+                    res4.detach().clone(),
+                )
                 self.output_size = (h, w)
                 return torch.zeros(res1.shape[0], 6, h, w)
 
-        model = UNetFormerPreAlignDGA.__new__(UNetFormerPreAlignDGA)
+        model = UNetFormerPreAlignDGA10.__new__(UNetFormerPreAlignDGA10)
         torch.nn.Module.__init__(model)
         model.aux_prealign = FakeAuxPreAlign()
         model.image_encoder = FakeImageEncoder()
         model.dga_indexes = [0, 2, 4, 5]
         model.dga_blocks = torch.nn.ModuleList(
             [
-                SpyDGA("dga0", rgb_offset=100.0, aux_offset=1000.0),
-                SpyDGA("dga1", rgb_offset=200.0, aux_offset=2000.0),
-                SpyDGA("dga2", rgb_offset=300.0, aux_offset=3000.0),
-                SpyDGA("dga3", rgb_offset=400.0, aux_offset=4000.0),
+                SpyDGA("dga10_0", rgb_offset=100.0, aux_offset=1000.0),
+                SpyDGA("dga10_1", rgb_offset=200.0, aux_offset=2000.0),
+                SpyDGA("dga10_2", rgb_offset=300.0, aux_offset=3000.0),
+                SpyDGA("dga10_3", rgb_offset=400.0, aux_offset=4000.0),
             ]
         )
         model.fpn1x = FakeFPN("fpn1x", 1.0)
@@ -1643,9 +1677,20 @@ class MFNetTrainingTest(unittest.TestCase):
             self.assertEqual(dga_block.calls[0][0].shape, (2, 4, 2, 2))
             self.assertEqual(dga_block.calls[0][1].shape, (2, 4, 2, 2))
 
-        expected_order = ["block0", "dga0", "block1", "block2", "dga1", "block3", "block4", "dga2", "block5", "dga3"]
+        expected_order = [
+            "block0",
+            "dga10_0",
+            "block1",
+            "block2",
+            "dga10_1",
+            "block3",
+            "block4",
+            "dga10_2",
+            "block5",
+            "dga10_3",
+        ]
         self.assertEqual(events[: len(expected_order)], expected_order)
-        self.assertLess(events.index("dga3"), events.index("neck"))
+        self.assertLess(events.index("dga10_3"), events.index("neck"))
 
         block1 = model.image_encoder.blocks[1]
         block3 = model.image_encoder.blocks[3]
@@ -1691,7 +1736,7 @@ class MFNetTrainingTest(unittest.TestCase):
             sys.modules["timm.models"] = fake_timm_models_module
             sys.modules["timm.models.layers"] = fake_timm_layers_module
             sys.modules["cv2"] = fake_cv2_module
-            from models.mfnet.UNetFormer_MMSAM_prealign_dga import UNetFormerPreAlignDGA
+            from models.mfnet.UNetFormer_MMSAM_prealign_dga10 import UNetFormerPreAlignDGA10
         finally:
             if original_timm_module is None:
                 del sys.modules["timm"]
@@ -1726,7 +1771,7 @@ class MFNetTrainingTest(unittest.TestCase):
                     ]
                 )
 
-        model = UNetFormerPreAlignDGA.__new__(UNetFormerPreAlignDGA)
+        model = UNetFormerPreAlignDGA10.__new__(UNetFormerPreAlignDGA10)
         torch.nn.Module.__init__(model)
         model.image_encoder = FakeImageEncoder()
 
@@ -1754,7 +1799,7 @@ class MFNetTrainingTest(unittest.TestCase):
             sys.modules["timm.models"] = fake_timm_models_module
             sys.modules["timm.models.layers"] = fake_timm_layers_module
             sys.modules["cv2"] = fake_cv2_module
-            from models.mfnet.UNetFormer_MMSAM_dga import UNetFormerDGA
+            from models.mfnet.UNetFormer_MMSAM_dga10 import UNetFormerDGA10
         finally:
             if original_timm_module is None:
                 del sys.modules["timm"]
@@ -1789,7 +1834,7 @@ class MFNetTrainingTest(unittest.TestCase):
                     ]
                 )
 
-        model = UNetFormerDGA.__new__(UNetFormerDGA)
+        model = UNetFormerDGA10.__new__(UNetFormerDGA10)
         torch.nn.Module.__init__(model)
         model.image_encoder = FakeImageEncoder()
 
@@ -1916,12 +1961,16 @@ class MFNetTrainingTest(unittest.TestCase):
             def fake_build_default_work_dir(
                 model_name: object,
                 dataset_name: object,
+                seed: object,
+                lambda_align: object | None = None,
                 root_dir: str | Path = "work_dirs",
             ) -> Path:
                 captured_default_work_dir_calls.append(
                     {
                         "model_name": model_name,
                         "dataset_name": dataset_name,
+                        "seed": seed,
+                        "lambda_align": lambda_align,
                         "root_dir": root_dir,
                     }
                 )
@@ -1985,24 +2034,78 @@ class MFNetTrainingTest(unittest.TestCase):
         self.assertIsNone(args.model_type)
         self.assertIsNone(args.seed)
 
-        with patch.object(sys, "argv", ["train.py", "--model-type", "mfnet_unetformer_dga", "--seed", "123"]):
+        with patch.object(sys, "argv", ["train.py", "--model-type", "mfnet_unetformer_dga10", "--seed", "123"]):
             args = module.parse_args()
 
-        self.assertEqual(args.model_type, "mfnet_unetformer_dga")
+        self.assertEqual(args.model_type, "mfnet_unetformer_dga10")
         self.assertEqual(args.seed, 123)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             work_dir = module.build_default_work_dir(
                 model_name="MFNet UNetFormer",
                 dataset_name="Potsdam/RGB",
+                seed=123,
                 root_dir=tmpdir,
             )
 
             self.assertEqual(work_dir.parent, Path(tmpdir))
             self.assertRegex(
                 work_dir.name,
-                re.compile(r"^mfnet_unetformer_potsdam_rgb_\d{6}_\d{6}$"),
+                re.compile(r"^potsdam_rgb_base_123_\d{6}_\d{6}$"),
             )
+
+            dga_work_dir = module.build_default_work_dir(
+                model_name="mfnet_unetformer_dga20",
+                dataset_name="vaihingen",
+                seed=80,
+                root_dir=tmpdir,
+            )
+            self.assertRegex(
+                dga_work_dir.name,
+                re.compile(r"^vaihingen_dga20_80_\d{6}_\d{6}$"),
+            )
+
+            lambda_work_dir = module.build_default_work_dir(
+                model_name="mfnet_unetformer_prealign_auxalign",
+                dataset_name="vaihingen",
+                seed=80,
+                lambda_align=0.01,
+                root_dir=tmpdir,
+            )
+            self.assertRegex(
+                lambda_work_dir.name,
+                re.compile(r"^vaihingen_prealign_auxalign_80_\d{6}_\d{6}_lambda-0.01$"),
+            )
+
+    def test_optimizer_param_groups_exclude_gate_scalars_from_weight_decay(self) -> None:
+        module = self._load_train_entry_module()
+
+        class FakeGateModel(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.weight = torch.nn.Parameter(torch.ones(1))
+                self.alpha = torch.nn.Parameter(torch.ones(1))
+                self.beta = torch.nn.Parameter(torch.ones(1))
+                self.gamma = torch.nn.Parameter(torch.ones(1))
+                self.lora_alpha = torch.nn.Parameter(torch.ones(1))
+                self.register_parameter("lambda", torch.nn.Parameter(torch.ones(1)))
+
+        model = FakeGateModel()
+        param_groups = module.build_optimizer_param_groups(model, weight_decay=0.0005)
+
+        self.assertEqual(len(param_groups), 2)
+        decay_group = next(group for group in param_groups if group["weight_decay"] == 0.0005)
+        no_decay_group = next(group for group in param_groups if group["weight_decay"] == 0.0)
+        decay_param_ids = {id(param) for param in decay_group["params"]}
+        no_decay_param_ids = {id(param) for param in no_decay_group["params"]}
+
+        self.assertIn(id(model.weight), decay_param_ids)
+        self.assertIn(id(model.lora_alpha), decay_param_ids)
+        self.assertIn(id(model.alpha), no_decay_param_ids)
+        self.assertIn(id(model.beta), no_decay_param_ids)
+        self.assertIn(id(model.gamma), no_decay_param_ids)
+        self.assertIn(id(model._parameters["lambda"]), no_decay_param_ids)
+        self.assertFalse(decay_param_ids & no_decay_param_ids)
 
     def test_train_entry_builds_mfnet_trainer_with_sgd_and_scheduler(self) -> None:
         module = self._load_train_entry_module()
@@ -2042,6 +2145,16 @@ class MFNetTrainingTest(unittest.TestCase):
             self.assertEqual(dataset_calls[1]["ids"], ["5"])
             self.assertEqual(result["load_config_paths"], [str(config_path)])
             self.assertEqual(len(result["default_work_dir_calls"]), 1)
+            self.assertEqual(
+                result["default_work_dir_calls"][0],
+                {
+                    "model_name": "mfnet_unetformer",
+                    "dataset_name": "vaihingen",
+                    "seed": 80,
+                    "lambda_align": None,
+                    "root_dir": "work_dirs",
+                },
+            )
             self.assertEqual(len(result["trainer_kwargs"]), 1)
             self.assertEqual(result["trainer_classes"], ["MFNetTrainer"])
             trainer_kwargs = result["trainer_kwargs"][0]
@@ -2092,7 +2205,7 @@ class MFNetTrainingTest(unittest.TestCase):
                     "resume_dir": None,
                     "resume_ckpt": None,
                     "load_from": None,
-                    "model_type": "mfnet_unetformer_dga",
+                    "model_type": "mfnet_unetformer_dga10",
                 },
             )()
 
@@ -2103,11 +2216,12 @@ class MFNetTrainingTest(unittest.TestCase):
                 default_work_dir=work_dir,
             )
 
-            self.assertEqual(result["default_work_dir_calls"][0]["model_name"], "mfnet_unetformer_dga")
-            self.assertEqual(result["model_cfg"][0]["type"], "mfnet_unetformer_dga")
+            self.assertEqual(result["default_work_dir_calls"][0]["model_name"], "mfnet_unetformer_dga10")
+            self.assertEqual(result["default_work_dir_calls"][0]["seed"], 80)
+            self.assertEqual(result["model_cfg"][0]["type"], "mfnet_unetformer_dga10")
             self.assertEqual(result["trainer_classes"], ["MFNetDGATrainer"])
             saved_cfg = json.loads((work_dir / config_path.name).read_text(encoding="utf-8"))
-            self.assertEqual(saved_cfg["model"]["type"], "mfnet_unetformer_dga")
+            self.assertEqual(saved_cfg["model"]["type"], "mfnet_unetformer_dga10")
             self.assertEqual(config_path.read_text(encoding="utf-8"), config_text)
 
     def test_train_entry_seed_overrides_config_for_new_experiment(self) -> None:
@@ -2140,6 +2254,7 @@ class MFNetTrainingTest(unittest.TestCase):
             )
 
             trainer_kwargs = result["trainer_kwargs"][0]
+            self.assertEqual(result["default_work_dir_calls"][0]["seed"], 123)
             self.assertEqual(trainer_kwargs["cfg"]["seed"], 123)
             saved_cfg = json.loads((work_dir / config_path.name).read_text(encoding="utf-8"))
             self.assertEqual(saved_cfg["seed"], 123)
@@ -2152,7 +2267,7 @@ class MFNetTrainingTest(unittest.TestCase):
             config_path.write_text('{"train": {"max_epochs": 1}}\n', encoding="utf-8")
             work_dir = Path(tmpdir) / "auto_work"
             cfg = self._make_train_entry_config(root_dir=str(work_dir))
-            cfg["model"]["type"] = "mfnet_unetformer_dga"  # type: ignore[index]
+            cfg["model"]["type"] = "mfnet_unetformer_dga10"  # type: ignore[index]
             args = type(
                 "Args",
                 (),
@@ -2183,7 +2298,7 @@ class MFNetTrainingTest(unittest.TestCase):
             config_path.write_text('{"train": {"max_epochs": 1}}\n', encoding="utf-8")
             work_dir = Path(tmpdir) / "auto_work"
             cfg = self._make_train_entry_config(root_dir=str(work_dir))
-            cfg["model"]["type"] = "mfnet_unetformer_dga2"  # type: ignore[index]
+            cfg["model"]["type"] = "mfnet_unetformer_dga20"  # type: ignore[index]
             args = type(
                 "Args",
                 (),
@@ -2214,7 +2329,7 @@ class MFNetTrainingTest(unittest.TestCase):
             config_path.write_text('{"train": {"max_epochs": 1}}\n', encoding="utf-8")
             work_dir = Path(tmpdir) / "auto_work"
             cfg = self._make_train_entry_config(root_dir=str(work_dir))
-            cfg["model"]["type"] = "mfnet_unetformer_dga3"  # type: ignore[index]
+            cfg["model"]["type"] = "mfnet_unetformer_dga30"  # type: ignore[index]
             args = type(
                 "Args",
                 (),
@@ -2267,6 +2382,7 @@ class MFNetTrainingTest(unittest.TestCase):
             )
 
             self.assertEqual(result["trainer_classes"], ["MFNetAuxAlignTrainer"])
+            self.assertEqual(result["default_work_dir_calls"][0]["lambda_align"], 0.5)
             trainer_kwargs = result["trainer_kwargs"][0]
             self.assertIsInstance(trainer_kwargs["logger"], MFNetLogger)
             self.assertEqual(trainer_kwargs["cfg"]["lambda_align"], 0.5)
@@ -2367,7 +2483,7 @@ class MFNetTrainingTest(unittest.TestCase):
                     "resume_dir": str(resume_dir),
                     "resume_ckpt": None,
                     "load_from": None,
-                    "model_type": "mfnet_unetformer_dga",
+                    "model_type": "mfnet_unetformer_dga10",
                 },
             )()
 
@@ -2418,6 +2534,7 @@ class MFNetTrainingTest(unittest.TestCase):
             self.assertEqual(resume_config_path.read_text(encoding="utf-8"), resume_config_text)
             self.assertEqual(external_config_path.read_text(encoding="utf-8"), external_config_text)
             self.assertFalse((resume_dir / external_config_path.name).exists())
+
 
 if __name__ == "__main__":
     unittest.main()

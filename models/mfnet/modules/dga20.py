@@ -100,7 +100,7 @@ class _GateBranch(nn.Module):
         return self.gate(x)
 
 
-class DGABlockV2(nn.Module):
+class DGABlock20(nn.Module):
     def __init__(self, channels: int, init_scale: float = 0.1) -> None:
         super().__init__()
         hidden_channels = _hidden_channels(channels)
@@ -133,4 +133,4 @@ class DGABlockV2(nn.Module):
         return x_out, y_out
 
 
-__all__ = ["DGABlockV2", "LayerNorm2d"]
+__all__ = ["DGABlock20", "LayerNorm2d"]

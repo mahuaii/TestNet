@@ -1,11 +1,14 @@
 from .aux_prealign import AuxPreAlign
-from .dga import DGABlock
-from .dga2 import DGABlockV2
-from .dga3 import DGABlockV3
+from .dga10 import DGABlock10
+from .dga20 import DGABlock20
+from .dga30 import DGABlock30
+from .dga_contrib_stats import DGABlock10ContributionStats, DGABlock20ContributionStats
 
 __all__ = [
     "AuxPreAlign",
-    "DGABlock",
-    "DGABlockV2",
-    "DGABlockV3",
+    "DGABlock10",
+    "DGABlock20",
+    "DGABlock30",
+    "DGABlock10ContributionStats",
+    "DGABlock20ContributionStats",
 ]

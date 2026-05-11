@@ -5,15 +5,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .UNetFormer_MMSAM import UNetFormer
-from .modules import DGABlockV2
+from .modules import DGABlock30
 
 
-class UNetFormerDGA2(UNetFormer):
+class UNetFormerDGA30(UNetFormer):
     def __init__(self, *args: object, **kwargs: object) -> None:
         super().__init__(*args, **kwargs)
         self.dga_indexes = self._resolve_dga_indexes()
         self.dga_blocks = nn.ModuleList(
-            [DGABlockV2(channels=int(self.image_encoder.embed_dim)) for _ in self.dga_indexes]
+            [DGABlock30(channels=int(self.image_encoder.embed_dim)) for _ in self.dga_indexes]
         )
 
     def forward(self, x: torch.Tensor, y: torch.Tensor, mode: str = "Train") -> torch.Tensor:
@@ -78,4 +78,4 @@ class UNetFormerDGA2(UNetFormer):
         return deepx, deepy
 
 
-__all__ = ["UNetFormerDGA2"]
+__all__ = ["UNetFormerDGA30"]

@@ -51,7 +51,7 @@ class _GateBranch(nn.Sequential):
         )
 
 
-class DGABlock(nn.Module):
+class DGABlock10(nn.Module):
     def __init__(self, channels: int, reduction: int = 16, init_scale: float = 1e-3) -> None:
         super().__init__()
         hidden_channels = _hidden_channels(channels, reduction)
@@ -84,4 +84,4 @@ class DGABlock(nn.Module):
         return rgb_out, aux_out
 
 
-__all__ = ["DGABlock"]
+__all__ = ["DGABlock10"]

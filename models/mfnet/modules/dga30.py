@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from .dga2 import LayerNorm2d
+from .dga20 import LayerNorm2d
 
 
 def _validate_pair(x: torch.Tensor, y: torch.Tensor, channels: int) -> None:
@@ -50,7 +50,7 @@ class _GateBranch(nn.Module):
         return self.gate(x)
 
 
-class DGABlockV3(nn.Module):
+class DGABlock30(nn.Module):
     def __init__(self, channels: int) -> None:
         super().__init__()
         if channels <= 0:
@@ -76,4 +76,4 @@ class DGABlockV3(nn.Module):
         return x_out, y_out
 
 
-__all__ = ["DGABlockV3"]
+__all__ = ["DGABlock30"]

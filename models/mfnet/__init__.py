@@ -4,12 +4,20 @@ from typing import Any
 
 _MODEL_EXPORTS = {
     "UNetFormer": (".UNetFormer_MMSAM", "UNetFormer"),
-    "UNetFormerDGA": (".UNetFormer_MMSAM_dga", "UNetFormerDGA"),
-    "UNetFormerDGA2": (".UNetFormer_MMSAM_dga2", "UNetFormerDGA2"),
-    "UNetFormerDGA3": (".UNetFormer_MMSAM_dga3", "UNetFormerDGA3"),
+    "UNetFormerDGA10": (".UNetFormer_MMSAM_dga10", "UNetFormerDGA10"),
+    "UNetFormerDGA20": (".UNetFormer_MMSAM_dga20", "UNetFormerDGA20"),
+    "UNetFormerDGA30": (".UNetFormer_MMSAM_dga30", "UNetFormerDGA30"),
+    "UNetFormerDGA10ContributionStats": (
+        ".UNetFormer_MMSAM_dga_contrib_stats",
+        "UNetFormerDGA10ContributionStats",
+    ),
+    "UNetFormerDGA20ContributionStats": (
+        ".UNetFormer_MMSAM_dga_contrib_stats",
+        "UNetFormerDGA20ContributionStats",
+    ),
     "UNetFormerPreAlign": (".UNetFormer_MMSAM_prealign", "UNetFormerPreAlign"),
     "UNetFormerPreAlignAuxAlign": (".UNetFormer_MMSAM_prealign_auxalign", "UNetFormerPreAlignAuxAlign"),
-    "UNetFormerPreAlignDGA": (".UNetFormer_MMSAM_prealign_dga", "UNetFormerPreAlignDGA"),
+    "UNetFormerPreAlignDGA10": (".UNetFormer_MMSAM_prealign_dga10", "UNetFormerPreAlignDGA10"),
 }
 
 
@@ -24,12 +32,15 @@ def __getattr__(name: str) -> Any:
     globals()[name] = value
     return value
 
+
 __all__ = [
     "UNetFormer",
-    "UNetFormerDGA",
-    "UNetFormerDGA2",
-    "UNetFormerDGA3",
+    "UNetFormerDGA10",
+    "UNetFormerDGA20",
+    "UNetFormerDGA30",
+    "UNetFormerDGA10ContributionStats",
+    "UNetFormerDGA20ContributionStats",
     "UNetFormerPreAlign",
     "UNetFormerPreAlignAuxAlign",
-    "UNetFormerPreAlignDGA",
+    "UNetFormerPreAlignDGA10",
 ]

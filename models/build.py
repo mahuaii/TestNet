@@ -14,28 +14,46 @@ def build_model(cfg: dict[str, Any]) -> Any:
             sam_checkpoint=str(cfg["sam_checkpoint"]),
         )
         return model
-    if model_type == "mfnet_unetformer_dga":
-        from .mfnet import UNetFormerDGA
+    if model_type == "mfnet_unetformer_dga10":
+        from .mfnet import UNetFormerDGA10
 
-        model = UNetFormerDGA(
+        model = UNetFormerDGA10(
             num_classes=int(cfg["num_classes"]),
             sam_backbone=str(cfg["sam_backbone"]),
             sam_checkpoint=str(cfg["sam_checkpoint"]),
         )
         return model
-    if model_type == "mfnet_unetformer_dga2":
-        from .mfnet import UNetFormerDGA2
+    if model_type == "mfnet_unetformer_dga20":
+        from .mfnet import UNetFormerDGA20
 
-        model = UNetFormerDGA2(
+        model = UNetFormerDGA20(
             num_classes=int(cfg["num_classes"]),
             sam_backbone=str(cfg["sam_backbone"]),
             sam_checkpoint=str(cfg["sam_checkpoint"]),
         )
         return model
-    if model_type == "mfnet_unetformer_dga3":
-        from .mfnet import UNetFormerDGA3
+    if model_type == "mfnet_unetformer_dga10_contrib_stats":
+        from .mfnet import UNetFormerDGA10ContributionStats
 
-        model = UNetFormerDGA3(
+        model = UNetFormerDGA10ContributionStats(
+            num_classes=int(cfg["num_classes"]),
+            sam_backbone=str(cfg["sam_backbone"]),
+            sam_checkpoint=str(cfg["sam_checkpoint"]),
+        )
+        return model
+    if model_type == "mfnet_unetformer_dga20_contrib_stats":
+        from .mfnet import UNetFormerDGA20ContributionStats
+
+        model = UNetFormerDGA20ContributionStats(
+            num_classes=int(cfg["num_classes"]),
+            sam_backbone=str(cfg["sam_backbone"]),
+            sam_checkpoint=str(cfg["sam_checkpoint"]),
+        )
+        return model
+    if model_type == "mfnet_unetformer_dga30":
+        from .mfnet import UNetFormerDGA30
+
+        model = UNetFormerDGA30(
             num_classes=int(cfg["num_classes"]),
             sam_backbone=str(cfg["sam_backbone"]),
             sam_checkpoint=str(cfg["sam_checkpoint"]),
@@ -59,10 +77,10 @@ def build_model(cfg: dict[str, Any]) -> Any:
             sam_checkpoint=str(cfg["sam_checkpoint"]),
         )
         return model
-    if model_type == "mfnet_unetformer_prealign_dga":
-        from .mfnet import UNetFormerPreAlignDGA
+    if model_type == "mfnet_unetformer_prealign_dga10":
+        from .mfnet import UNetFormerPreAlignDGA10
 
-        model = UNetFormerPreAlignDGA(
+        model = UNetFormerPreAlignDGA10(
             num_classes=int(cfg["num_classes"]),
             sam_backbone=str(cfg["sam_backbone"]),
             sam_checkpoint=str(cfg["sam_checkpoint"]),
@@ -71,7 +89,9 @@ def build_model(cfg: dict[str, Any]) -> Any:
     raise KeyError(
         "Unsupported model type: "
         f"{model_type!r}. Supported types: 'mfnet_unetformer', "
-        "'mfnet_unetformer_dga', 'mfnet_unetformer_dga2', 'mfnet_unetformer_dga3', "
+        "'mfnet_unetformer_dga10', 'mfnet_unetformer_dga20', "
+        "'mfnet_unetformer_dga10_contrib_stats', 'mfnet_unetformer_dga20_contrib_stats', "
+        "'mfnet_unetformer_dga30', "
         "'mfnet_unetformer_prealign', 'mfnet_unetformer_prealign_auxalign', "
-        "'mfnet_unetformer_prealign_dga'."
+        "'mfnet_unetformer_prealign_dga10'."
     )

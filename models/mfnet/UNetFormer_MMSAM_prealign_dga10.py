@@ -4,22 +4,24 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .UNetFormer_MMSAM import UNetFormer
-from .modules import DGABlock
+from .UNetFormer_MMSAM_prealign import UNetFormerPreAlign
+from .modules import DGABlock10
 
 
-class UNetFormerDGA(UNetFormer):
+class UNetFormerPreAlignDGA10(UNetFormerPreAlign):
     def __init__(self, *args: object, **kwargs: object) -> None:
         super().__init__(*args, **kwargs)
         self.dga_indexes = self._resolve_dga_indexes()
         self.dga_blocks = nn.ModuleList(
-            [DGABlock(channels=int(self.image_encoder.embed_dim)) for _ in self.dga_indexes]
+            [DGABlock10(channels=int(self.image_encoder.embed_dim)) for _ in self.dga_indexes]
         )
 
     def forward(self, x: torch.Tensor, y: torch.Tensor, mode: str = "Train") -> torch.Tensor:
         del mode
         h, w = x.size()[-2:]
-        y = torch.unsqueeze(y, dim=1).repeat(1, 3, 1, 1)
+        if y.ndim == 3:
+            y = y.unsqueeze(1)
+        y = self.aux_prealign(y)
         deepx, deepy = self._encode_with_dga(x, y)
 
         res1x = self.fpn1x(deepx)
@@ -39,9 +41,7 @@ class UNetFormerDGA(UNetFormer):
 
     def _resolve_dga_indexes(self) -> list[int]:
         global_indexes = [
-            index
-            for index, block in enumerate(self.image_encoder.blocks)
-            if getattr(block, "window_size", None) == 0
+            index for index, block in enumerate(self.image_encoder.blocks) if getattr(block, "window_size", None) == 0
         ]
         if len(global_indexes) != 4:
             raise ValueError(
