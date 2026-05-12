@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import random
 import re
-from datetime import datetime
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -35,12 +35,12 @@ def build_default_work_dir(
     lambda_align: object | None = None,
     root_dir: str | Path = "work_dirs",
 ) -> Path:
-    timestamp = datetime.now().strftime("%y%m%d_%H%M%S")
+    run_id = uuid.uuid4().hex[:5]
     name_parts = [
         safe_path_component(dataset_name, "dataset"),
         work_dir_model_suffix(model_name),
         safe_path_component(seed, "seed"),
-        timestamp,
+        run_id,
     ]
     if lambda_align is not None:
         name_parts.append(safe_path_component(f"lambda-{lambda_align}", "lambda"))
