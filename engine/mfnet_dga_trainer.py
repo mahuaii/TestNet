@@ -45,13 +45,20 @@ class MFNetDGATrainer(MFNetTrainer):
 
         scalars: dict[str, float] = {}
         for index, block in enumerate(dga_blocks):
-            alpha = getattr(block, "alpha", None)
-            beta = getattr(block, "beta", None)
+            alpha = self._gate_scalar(block, parameter_name="alpha", effective_method_name="effective_alpha")
+            beta = self._gate_scalar(block, parameter_name="beta", effective_method_name="effective_beta")
             if alpha is not None:
                 scalars[f"dga/alpha_block_{index}"] = self._to_float(alpha)
             if beta is not None:
                 scalars[f"dga/beta_block_{index}"] = self._to_float(beta)
         return scalars
+
+    @staticmethod
+    def _gate_scalar(block: Any, *, parameter_name: str, effective_method_name: str) -> Any:
+        effective_method = getattr(block, effective_method_name, None)
+        if callable(effective_method):
+            return effective_method()
+        return getattr(block, parameter_name, None)
 
     @staticmethod
     def _to_float(value: Any) -> float:

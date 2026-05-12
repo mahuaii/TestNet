@@ -11,9 +11,17 @@ _MODEL_EXPORTS = {
         ".UNetFormer_MMSAM_dga_contrib_stats",
         "UNetFormerDGA10ContributionStats",
     ),
+    "UNetFormerDGA10ContributionStatsSoftplus": (
+        ".UNetFormer_MMSAM_dga_contrib_stats",
+        "UNetFormerDGA10ContributionStatsSoftplus",
+    ),
     "UNetFormerDGA20ContributionStats": (
         ".UNetFormer_MMSAM_dga_contrib_stats",
         "UNetFormerDGA20ContributionStats",
+    ),
+    "UNetFormerDGA20ContributionStatsSoftplus": (
+        ".UNetFormer_MMSAM_dga_contrib_stats",
+        "UNetFormerDGA20ContributionStatsSoftplus",
     ),
     "UNetFormerPreAlign": (".UNetFormer_MMSAM_prealign", "UNetFormerPreAlign"),
     "UNetFormerPreAlignAuxAlign": (".UNetFormer_MMSAM_prealign_auxalign", "UNetFormerPreAlignAuxAlign"),
@@ -39,7 +47,9 @@ __all__ = [
     "UNetFormerDGA20",
     "UNetFormerDGA30",
     "UNetFormerDGA10ContributionStats",
+    "UNetFormerDGA10ContributionStatsSoftplus",
     "UNetFormerDGA20ContributionStats",
+    "UNetFormerDGA20ContributionStatsSoftplus",
     "UNetFormerPreAlign",
     "UNetFormerPreAlignAuxAlign",
     "UNetFormerPreAlignDGA10",

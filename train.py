@@ -38,6 +38,8 @@ DGA_MODEL_TYPES = {
     "mfnet_unetformer_dga20",
     "mfnet_unetformer_dga10_contrib_stats",
     "mfnet_unetformer_dga20_contrib_stats",
+    "mfnet_unetformer_dga10_softplus",
+    "mfnet_unetformer_dga20_softplus",
     "mfnet_unetformer_dga30",
     "mfnet_unetformer_prealign_dga10",
 }
@@ -45,6 +47,8 @@ DGA_MODEL_TYPES = {
 DGA_CONTRIB_STATS_MODEL_TYPES = {
     "mfnet_unetformer_dga10_contrib_stats",
     "mfnet_unetformer_dga20_contrib_stats",
+    "mfnet_unetformer_dga10_softplus",
+    "mfnet_unetformer_dga20_softplus",
 }
 
 AUX_ALIGN_MODEL_TYPES = {
