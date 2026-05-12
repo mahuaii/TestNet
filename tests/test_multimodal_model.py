@@ -2021,7 +2021,7 @@ class MFNetTrainingTest(unittest.TestCase):
             "default_work_dir_calls": captured_default_work_dir_calls,
         }
 
-    def test_train_default_work_dir_uses_model_dataset_and_timestamp(self) -> None:
+    def test_train_default_work_dir_uses_model_dataset_and_short_run_id(self) -> None:
         module = self._load_train_entry_module()
 
         with patch.object(sys, "argv", ["train.py"]):
@@ -2051,7 +2051,7 @@ class MFNetTrainingTest(unittest.TestCase):
             self.assertEqual(work_dir.parent, Path(tmpdir))
             self.assertRegex(
                 work_dir.name,
-                re.compile(r"^potsdam_rgb_base_123_\d{6}_\d{6}$"),
+                re.compile(r"^potsdam_rgb_base_123_[0-9a-f]{5}$"),
             )
 
             dga_work_dir = module.build_default_work_dir(
@@ -2062,7 +2062,7 @@ class MFNetTrainingTest(unittest.TestCase):
             )
             self.assertRegex(
                 dga_work_dir.name,
-                re.compile(r"^vaihingen_dga20_80_\d{6}_\d{6}$"),
+                re.compile(r"^vaihingen_dga20_80_[0-9a-f]{5}$"),
             )
 
             lambda_work_dir = module.build_default_work_dir(
@@ -2074,7 +2074,7 @@ class MFNetTrainingTest(unittest.TestCase):
             )
             self.assertRegex(
                 lambda_work_dir.name,
-                re.compile(r"^vaihingen_prealign_auxalign_80_\d{6}_\d{6}_lambda-0.01$"),
+                re.compile(r"^vaihingen_prealign_auxalign_80_[0-9a-f]{5}_lambda-0.01$"),
             )
 
     def test_optimizer_param_groups_exclude_gate_scalars_from_weight_decay(self) -> None:

@@ -34,7 +34,7 @@ class TrainUtilsTest(unittest.TestCase):
         self.assertEqual(work_dir_model_suffix("mfnet_unetformer_prealign_dga10"), "prealign_dga10")
         self.assertEqual(work_dir_model_suffix("mfnet_unetformer"), "base")
 
-    def test_build_default_work_dir_keeps_existing_name_format(self) -> None:
+    def test_build_default_work_dir_uses_short_run_id_instead_of_timestamp(self) -> None:
         path = build_default_work_dir(
             model_name="mfnet_unetformer_prealign_auxalign",
             dataset_name="Vaihingen Dataset",
@@ -46,7 +46,7 @@ class TrainUtilsTest(unittest.TestCase):
         self.assertEqual(path.parent.name, "runs")
         parts = path.name.split("_")
         self.assertEqual(parts[0:5], ["vaihingen", "dataset", "prealign", "auxalign", "80"])
-        self.assertRegex(path.name, r"_\d{6}_\d{6}_lambda-0.5$")
+        self.assertRegex(path.name, r"_[0-9a-f]{5}_lambda-0.5$")
 
     def test_build_optimizer_param_groups_exempts_gate_parameter_names(self) -> None:
         model = GateModel()
