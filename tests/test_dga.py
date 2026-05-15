@@ -1,44 +1,10 @@
 from __future__ import annotations
 
-import importlib.util
-import sys
 import unittest
-from pathlib import Path
 
 import torch
 
-
-def _load_dga10_module() -> object:
-    dga_path = Path(__file__).resolve().parents[1] / "models" / "mfnet" / "modules" / "dga10.py"
-    spec = importlib.util.spec_from_file_location("_dga10_under_test", dga_path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Could not load DGA10 module from {dga_path}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-def _load_dga20_module() -> object:
-    dga2_path = Path(__file__).resolve().parents[1] / "models" / "mfnet" / "modules" / "dga20.py"
-    spec = importlib.util.spec_from_file_location("_dga20_under_test", dga2_path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Could not load DGA20 module from {dga2_path}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-def _load_dga30_module() -> object:
-    from models.mfnet.modules import dga30
-
-    return dga30
-
-
-dga10 = _load_dga10_module()
-dga20 = _load_dga20_module()
-dga30 = _load_dga30_module()
+from models.mfnet.modules import dga10, dga20, dga30, dga_softplus
 
 
 class DGABlock10Test(unittest.TestCase):
@@ -197,6 +163,65 @@ class DGABlock20Test(unittest.TestCase):
         self.assertIsNot(block.norm_x, block.norm_y)
         self.assertIsNot(block.message_y_to_x, block.message_x_to_y)
         self.assertIsNot(block.gate_x, block.gate_y)
+
+
+class DGAIntermediateStatsTest(unittest.TestCase):
+    def test_dga10_block_records_layered_intermediate_stats_when_recorder_is_attached(self) -> None:
+        from utils import IntermediateStatsRecorder
+
+        block = dga10.DGABlock10(channels=8, reduction=4)
+        block.intermediate_stats = IntermediateStatsRecorder()
+        block.intermediate_stats_prefix = "dga/block_0"
+        rgb = torch.randn(2, 8, 5, 5, requires_grad=True)
+        aux = torch.randn(2, 8, 5, 5, requires_grad=True)
+
+        block(rgb, aux)
+
+        stats = block.intermediate_stats.snapshot(reset=True)
+        self.assertIn("dga/block_0/rgb_gate_mean", stats)
+        self.assertIn("dga/block_0/rgb_gate_std", stats)
+        self.assertIn("dga/block_0/aux_gate_mean", stats)
+        self.assertIn("dga/block_0/alpha_injection_ratio", stats)
+        self.assertIn("dga/block_0/beta_injection_norm", stats)
+        for value in stats.values():
+            self.assertIsInstance(value, float)
+        self.assertEqual(block.intermediate_stats.snapshot(), {})
+        self.assertFalse(hasattr(block, "last_dga_stats"))
+
+    def test_dga20_block_records_layered_intermediate_stats_when_recorder_is_attached(self) -> None:
+        from utils import IntermediateStatsRecorder
+
+        block = dga20.DGABlock20(channels=8)
+        block.intermediate_stats = IntermediateStatsRecorder()
+        block.intermediate_stats_prefix = "dga/block_1"
+        x = torch.randn(2, 8, 5, 5, requires_grad=True)
+        y = torch.randn(2, 8, 5, 5, requires_grad=True)
+
+        block(x, y)
+
+        stats = block.intermediate_stats.snapshot()
+        self.assertIn("dga/block_1/x_gate_mean", stats)
+        self.assertIn("dga/block_1/x_gate_std", stats)
+        self.assertIn("dga/block_1/y_gate_mean", stats)
+        self.assertIn("dga/block_1/alpha_injection_ratio", stats)
+        self.assertIn("dga/block_1/beta_main_norm", stats)
+        for value in stats.values():
+            self.assertIsInstance(value, float)
+        self.assertFalse(hasattr(block, "last_dga_stats"))
+
+    def test_dga10_softplus_keeps_independent_effective_scale_parameterization(self) -> None:
+        block = dga_softplus.DGABlock10Softplus(channels=8, reduction=4, init_scale=0.1)
+
+        self.assertFalse(torch.allclose(block.alpha.detach(), torch.tensor(0.1)))
+        self.assertTrue(torch.allclose(block.effective_alpha().detach(), torch.tensor(0.1), atol=1e-6))
+        self.assertTrue(torch.allclose(block.effective_beta().detach(), torch.tensor(0.1), atol=1e-6))
+
+    def test_dga20_softplus_keeps_independent_effective_scale_parameterization(self) -> None:
+        block = dga_softplus.DGABlock20Softplus(channels=8, init_scale=0.1)
+
+        self.assertFalse(torch.allclose(block.alpha.detach(), torch.tensor([0.1])))
+        self.assertTrue(torch.allclose(block.effective_alpha().detach(), torch.tensor([0.1]), atol=1e-6))
+        self.assertTrue(torch.allclose(block.effective_beta().detach(), torch.tensor([0.1]), atol=1e-6))
 
 
 class DGABlock30Test(unittest.TestCase):
