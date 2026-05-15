@@ -1,30 +1,40 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from utils import IntermediateStatsRecorder
-
 from .UNetFormer_MMSAM import UNetFormer
+from .intermediate_stats_config import attach_requested_intermediate_stats
 from .modules import DGABlock20
 
 
 class UNetFormerDGA20(UNetFormer):
-    def __init__(self, *args: object, record_intermediate_stats: bool = False, **kwargs: object) -> None:
+    def __init__(
+        self,
+        *args: object,
+        record_intermediate_stats: bool = False,
+        record_intermediate_modules: Iterable[str] = (),
+        **kwargs: object,
+    ) -> None:
         super().__init__(*args, **kwargs)
         self.dga_indexes = self._resolve_dga_indexes()
         self.dga_blocks = nn.ModuleList(
             [DGABlock20(channels=int(self.image_encoder.embed_dim)) for _ in self.dga_indexes]
         )
         if record_intermediate_stats:
-            self.intermediate_stats = IntermediateStatsRecorder()
-            self._attach_intermediate_stats_to_dga_blocks()
-
-    def _attach_intermediate_stats_to_dga_blocks(self) -> None:
-        for index, block in enumerate(self.dga_blocks):
-            block.intermediate_stats = self.intermediate_stats
-            block.intermediate_stats_prefix = f"dga/block_{index}"
+            attach_requested_intermediate_stats(
+                self,
+                record_intermediate_modules,
+                {
+                    "dga": [
+                        (block, f"dga/block_{index}")
+                        for index, block in enumerate(self.dga_blocks)
+                    ],
+                },
+            )
 
     def forward(self, x: torch.Tensor, y: torch.Tensor, mode: str = "Train") -> torch.Tensor:
         del mode

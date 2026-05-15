@@ -32,7 +32,7 @@ def build_model(cfg: dict[str, Any]) -> Any:
             num_classes=int(cfg["num_classes"]),
             sam_backbone=str(cfg["sam_backbone"]),
             sam_checkpoint=str(cfg["sam_checkpoint"]),
-            record_intermediate_stats=_record_intermediate_stats(cfg),
+            **_intermediate_stats_kwargs(cfg),
         )
         return model
     if model_type == "mfnet_unetformer_dga20":
@@ -42,7 +42,17 @@ def build_model(cfg: dict[str, Any]) -> Any:
             num_classes=int(cfg["num_classes"]),
             sam_backbone=str(cfg["sam_backbone"]),
             sam_checkpoint=str(cfg["sam_checkpoint"]),
-            record_intermediate_stats=_record_intermediate_stats(cfg),
+            **_intermediate_stats_kwargs(cfg),
+        )
+        return model
+    if model_type == "mfnet_unetformer_dga20_dgsf10":
+        from .mfnet import UNetFormerDGA20DGSF10
+
+        model = UNetFormerDGA20DGSF10(
+            num_classes=int(cfg["num_classes"]),
+            sam_backbone=str(cfg["sam_backbone"]),
+            sam_checkpoint=str(cfg["sam_checkpoint"]),
+            **_intermediate_stats_kwargs(cfg),
         )
         return model
     if model_type == "mfnet_unetformer_dgsf10":
@@ -62,7 +72,7 @@ def build_model(cfg: dict[str, Any]) -> Any:
             num_classes=int(cfg["num_classes"]),
             sam_backbone=str(cfg["sam_backbone"]),
             sam_checkpoint=str(cfg["sam_checkpoint"]),
-            record_intermediate_stats=_record_intermediate_stats(cfg),
+            **_intermediate_stats_kwargs(cfg),
         )
         return model
     if model_type == "mfnet_unetformer_dga20_softplus":
@@ -72,7 +82,7 @@ def build_model(cfg: dict[str, Any]) -> Any:
             num_classes=int(cfg["num_classes"]),
             sam_backbone=str(cfg["sam_backbone"]),
             sam_checkpoint=str(cfg["sam_checkpoint"]),
-            record_intermediate_stats=_record_intermediate_stats(cfg),
+            **_intermediate_stats_kwargs(cfg),
         )
         return model
     if model_type == "mfnet_unetformer_dga30":
@@ -115,6 +125,7 @@ def build_model(cfg: dict[str, Any]) -> Any:
         "Unsupported model type: "
         f"{model_type!r}. Supported types: 'mfnet_unetformer', "
         "'mfnet_unetformer_dga10', 'mfnet_unetformer_dga20', "
+        "'mfnet_unetformer_dga20_dgsf10', 'mfnet_unetformer_dgsf10', "
         "'mfnet_unetformer_dga10_softplus', 'mfnet_unetformer_dga20_softplus', "
         "'mfnet_unetformer_dga30', "
         "'mfnet_unetformer_prealign', 'mfnet_unetformer_prealign_auxalign', "

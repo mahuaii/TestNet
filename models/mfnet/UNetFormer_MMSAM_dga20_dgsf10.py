@@ -1,17 +1,16 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 
-from .UNetFormer_MMSAM import UNetFormer
+from .UNetFormer_MMSAM_dga20 import UNetFormerDGA20
 from .intermediate_stats_config import attach_requested_intermediate_stats
-from .modules import DGABlock10
+from .modules import DGSF10
 
 
-class UNetFormerDGA10(UNetFormer):
+class UNetFormerDGA20DGSF10(UNetFormerDGA20):
     def __init__(
         self,
         *args: object,
@@ -19,11 +18,13 @@ class UNetFormerDGA10(UNetFormer):
         record_intermediate_modules: Iterable[str] = (),
         **kwargs: object,
     ) -> None:
-        super().__init__(*args, **kwargs)
-        self.dga_indexes = self._resolve_dga_indexes()
-        self.dga_blocks = nn.ModuleList(
-            [DGABlock10(channels=int(self.image_encoder.embed_dim)) for _ in self.dga_indexes]
+        super().__init__(
+            *args,
+            record_intermediate_stats=False,
+            record_intermediate_modules=(),
+            **kwargs,
         )
+        self.dgsf10 = DGSF10(input_channels=int(self.image_encoder.embed_dim), hidden_channels=256)
         if record_intermediate_stats:
             attach_requested_intermediate_stats(
                 self,
@@ -33,6 +34,7 @@ class UNetFormerDGA10(UNetFormer):
                         (block, f"dga/block_{index}")
                         for index, block in enumerate(self.dga_blocks)
                     ],
+                    "dgsf10": [(self.dgsf10, "dgsf10")],
                 },
             )
 
@@ -40,35 +42,15 @@ class UNetFormerDGA10(UNetFormer):
         del mode
         h, w = x.size()[-2:]
         y = torch.unsqueeze(y, dim=1).repeat(1, 3, 1, 1)
-        deepx, deepy = self._encode_with_dga(x, y)
-
-        res1x = self.fpn1x(deepx)
-        res2x = self.fpn2x(deepx)
-        res3x = self.fpn3x(deepx)
-        res4x = self.fpn4x(deepx)
-        res1y = self.fpn1y(deepy)
-        res2y = self.fpn2y(deepy)
-        res3y = self.fpn3y(deepy)
-        res4y = self.fpn4y(deepy)
-
-        res1 = self.fusion1(res1x, res1y)
-        res2 = self.fusion2(res2x, res2y)
-        res3 = self.fusion3(res3x, res3y)
-        res4 = self.fusion4(res4x, res4y)
+        rgb_feats, aux_feats = self._encode_dgsf10_features(x, y)
+        res1, res2, res3, res4 = self.dgsf10(rgb_feats, aux_feats)
         return self.decoder(res1, res2, res3, res4, h, w)
 
-    def _resolve_dga_indexes(self) -> list[int]:
-        global_indexes = [
-            index for index, block in enumerate(self.image_encoder.blocks) if getattr(block, "window_size", None) == 0
-        ]
-        if len(global_indexes) != 4:
-            raise ValueError(
-                "Expected exactly 4 DGA insertion blocks from global attention blocks, "
-                f"got {len(global_indexes)}: {global_indexes}."
-            )
-        return [int(index) for index in global_indexes]
-
-    def _encode_with_dga(self, x: torch.Tensor, y: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def _encode_dgsf10_features(
+        self,
+        x: torch.Tensor,
+        y: torch.Tensor,
+    ) -> tuple[tuple[torch.Tensor, ...], tuple[torch.Tensor, ...]]:
         encoder = self.image_encoder
         x = encoder.patch_embed(x)
         y = encoder.patch_embed(y)
@@ -82,15 +64,34 @@ class UNetFormerDGA10(UNetFormer):
             x = x + new_abs_pos
             y = y + new_abs_pos
 
+        rgb_dga_features: list[torch.Tensor] = []
+        aux_dga_features: list[torch.Tensor] = []
         dga_by_index = dict(zip(self.dga_indexes, self.dga_blocks))
         for index, block in enumerate(encoder.blocks):
             x, y = block(x, y)
             dga = dga_by_index.get(index)
             if dga is not None:
                 x_bchw, y_bchw = dga(x.permute(0, 3, 1, 2), y.permute(0, 3, 1, 2))
+                rgb_dga_features.append(x_bchw)
+                aux_dga_features.append(y_bchw)
                 x = x_bchw.permute(0, 2, 3, 1)
                 y = y_bchw.permute(0, 2, 3, 1)
 
-        deepx = encoder.neck(x.permute(0, 3, 1, 2))
-        deepy = encoder.neck(y.permute(0, 3, 1, 2))
-        return deepx, deepy
+        self._validate_dgsf10_dga_features(rgb_dga_features, aux_dga_features)
+        rgb_top = x.permute(0, 3, 1, 2)
+        aux_top = y.permute(0, 3, 1, 2)
+        return (*rgb_dga_features, rgb_top), (*aux_dga_features, aux_top)
+
+    @staticmethod
+    def _validate_dgsf10_dga_features(
+        rgb_feats: Sequence[torch.Tensor],
+        aux_feats: Sequence[torch.Tensor],
+    ) -> None:
+        if len(rgb_feats) != 4 or len(aux_feats) != 4:
+            raise ValueError(
+                "Expected exactly 4 DGA feature pairs for DGSF10, "
+                f"got {len(rgb_feats)} RGB and {len(aux_feats)} aux features."
+            )
+
+
+__all__ = ["UNetFormerDGA20DGSF10"]

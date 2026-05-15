@@ -35,6 +35,7 @@ from utils import (
 DGA_MODEL_TYPES = {
     "mfnet_unetformer_dga10",
     "mfnet_unetformer_dga20",
+    "mfnet_unetformer_dga20_dgsf10",
     "mfnet_unetformer_dga10_softplus",
     "mfnet_unetformer_dga20_softplus",
     "mfnet_unetformer_dga30",
