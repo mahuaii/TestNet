@@ -12,7 +12,7 @@ import torch
 
 from .testnet_logger import TestNetLogger
 
-GATE_WEIGHT_DECAY_EXEMPT_PARAM_NAMES = {}
+GATE_WEIGHT_DECAY_EXEMPT_PARAM_NAMES = {"alpha", "beta", "gamma", "delta", "lambda"}
 
 
 def safe_path_component(value: object, fallback: str) -> str:

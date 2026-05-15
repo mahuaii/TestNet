@@ -9,6 +9,7 @@ import sys
 import tempfile
 import types
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import call, patch
 
@@ -24,6 +25,38 @@ from data.isprs_dataset import (
 from data import build_isprs_dataset
 from engine import MFNetTrainer, SlidingWindowInferencer
 from utils import DataUtils, IntermediateStatsRecorder, TestNetRecorderLogger, TestNetLogger
+
+
+@contextmanager
+def _fake_mfnet_optional_imports() -> object:
+    fake_timm_module = types.ModuleType("timm")
+    fake_timm_models_module = types.ModuleType("timm.models")
+    fake_timm_layers_module = types.ModuleType("timm.models.layers")
+    fake_timm_layers_module.DropPath = torch.nn.Identity
+    fake_timm_layers_module.to_2tuple = lambda value: (value, value)
+    fake_timm_layers_module.trunc_normal_ = lambda tensor, std=0.02: tensor
+    fake_cv2_module = types.ModuleType("cv2")
+    fake_cv2_module.COLORMAP_JET = 2
+    fake_cv2_module.applyColorMap = lambda image, color_map: image
+    fake_cv2_module.imwrite = lambda path, image: True
+    originals = {
+        "timm": sys.modules.get("timm"),
+        "timm.models": sys.modules.get("timm.models"),
+        "timm.models.layers": sys.modules.get("timm.models.layers"),
+        "cv2": sys.modules.get("cv2"),
+    }
+    try:
+        sys.modules["timm"] = fake_timm_module
+        sys.modules["timm.models"] = fake_timm_models_module
+        sys.modules["timm.models.layers"] = fake_timm_layers_module
+        sys.modules["cv2"] = fake_cv2_module
+        yield
+    finally:
+        for module_name, original in originals.items():
+            if original is None:
+                del sys.modules[module_name]
+            else:
+                sys.modules[module_name] = original
 
 
 class _SingleBatchDataset(Dataset):
@@ -842,6 +875,52 @@ class MFNetTrainingTest(unittest.TestCase):
             else:
                 sys.modules["models.mfnet"] = original_mfnet_module
 
+
+    def test_build_model_dispatches_to_mfnet_dgsf10(self) -> None:
+        build_module = importlib.import_module("models.build")
+        captured_kwargs: list[dict[str, object]] = []
+
+        class FakeUNetFormerDGSF10:
+            def __init__(self, **kwargs: object) -> None:
+                captured_kwargs.append(kwargs)
+
+        fake_mfnet_module = types.ModuleType("models.mfnet")
+        fake_mfnet_module.UNetFormerDGSF10 = FakeUNetFormerDGSF10
+        original_mfnet_module = sys.modules.get("models.mfnet")
+
+        try:
+            sys.modules["models.mfnet"] = fake_mfnet_module
+
+            model = build_module.build_model(
+                {
+                    "type": "mfnet_unetformer_dgsf10",
+                    "num_classes": 6,
+                    "sam_backbone": "vit_b",
+                    "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
+                    "record_intermediate_stats": True,
+                    "record_intermediate_modules": ["dgsf10"],
+                }
+            )
+
+            self.assertIsInstance(model, FakeUNetFormerDGSF10)
+            self.assertEqual(
+                captured_kwargs,
+                [
+                    {
+                        "num_classes": 6,
+                        "sam_backbone": "vit_b",
+                        "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
+                        "record_intermediate_stats": True,
+                        "record_intermediate_modules": ["dgsf10"],
+                    }
+                ],
+            )
+        finally:
+            if original_mfnet_module is None:
+                del sys.modules["models.mfnet"]
+            else:
+                sys.modules["models.mfnet"] = original_mfnet_module
+
     def test_build_model_passes_dga_intermediate_stats_flag(self) -> None:
         build_module = importlib.import_module("models.build")
         captured_kwargs: list[dict[str, object]] = []
@@ -874,6 +953,7 @@ class MFNetTrainingTest(unittest.TestCase):
                 del sys.modules["models.mfnet"]
             else:
                 sys.modules["models.mfnet"] = original_mfnet_module
+
 
     def test_build_model_dispatches_to_independent_dga_softplus(self) -> None:
         build_module = importlib.import_module("models.build")
@@ -1587,6 +1667,247 @@ class MFNetTrainingTest(unittest.TestCase):
         self.assertTrue(torch.equal(model.image_encoder.neck.inputs[1], model.dga_blocks[3].output_aux))
         self.assertEqual(model.decoder.output_size, (8, 8))
         self.assertEqual(tuple(output.shape), (2, 6, 8, 8))
+
+
+    def test_unetformer_dgsf10_uses_encoder_features_and_encoder_final_top(self) -> None:
+        with _fake_mfnet_optional_imports():
+            from models.mfnet.UNetFormer_MMSAM_dgsf10 import UNetFormerDGSF10
+
+        events: list[str] = []
+
+        class FakePatchEmbed(torch.nn.Module):
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                x = torch.nn.functional.avg_pool2d(x, kernel_size=4)
+                x = x.mean(dim=1, keepdim=True).repeat(1, 4, 1, 1)
+                return x.permute(0, 2, 3, 1)
+
+        class FakeBlock(torch.nn.Module):
+            def __init__(self, name: str, window_size: int, rgb_offset: float, aux_offset: float) -> None:
+                super().__init__()
+                self.name = name
+                self.window_size = window_size
+                self.rgb_offset = rgb_offset
+                self.aux_offset = aux_offset
+                self.output_rgb: torch.Tensor | None = None
+                self.output_aux: torch.Tensor | None = None
+
+            def forward(self, x: torch.Tensor, y: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+                events.append(self.name)
+                self.output_rgb = x.detach().clone() + self.rgb_offset
+                self.output_aux = y.detach().clone() + self.aux_offset
+                return x + self.rgb_offset, y + self.aux_offset
+
+        class ForbiddenNeck(torch.nn.Module):
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                del x
+                raise AssertionError("DGSF10 top features must be captured before encoder.neck")
+
+        class FakeImageEncoder(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.embed_dim = 4
+                self.patch_embed = FakePatchEmbed()
+                self.pos_embed = None
+                self.blocks = torch.nn.ModuleList(
+                    [
+                        FakeBlock("block0", window_size=0, rgb_offset=1.0, aux_offset=10.0),
+                        FakeBlock("block1", window_size=14, rgb_offset=2.0, aux_offset=20.0),
+                        FakeBlock("block2", window_size=0, rgb_offset=3.0, aux_offset=30.0),
+                        FakeBlock("block3", window_size=0, rgb_offset=4.0, aux_offset=40.0),
+                        FakeBlock("block4", window_size=0, rgb_offset=5.0, aux_offset=50.0),
+                        FakeBlock("block5", window_size=14, rgb_offset=6.0, aux_offset=60.0),
+                    ]
+                )
+                self.neck = ForbiddenNeck()
+
+        class SpyDGSF10(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.rgb_feats: tuple[torch.Tensor, ...] | None = None
+                self.aux_feats: tuple[torch.Tensor, ...] | None = None
+                self.outputs = tuple(torch.full((2, 4, 2, 2), float(index)) for index in range(1, 5))
+
+            def forward(
+                self,
+                rgb_feats: tuple[torch.Tensor, ...],
+                aux_feats: tuple[torch.Tensor, ...],
+            ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+                events.append("dgsf10")
+                self.rgb_feats = tuple(feature.detach().clone() for feature in rgb_feats)
+                self.aux_feats = tuple(feature.detach().clone() for feature in aux_feats)
+                return self.outputs
+
+        class SpyDecoder(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.inputs: tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor] | None = None
+                self.output_size: tuple[int, int] | None = None
+
+            def forward(
+                self,
+                res1: torch.Tensor,
+                res2: torch.Tensor,
+                res3: torch.Tensor,
+                res4: torch.Tensor,
+                h: int,
+                w: int,
+            ) -> torch.Tensor:
+                events.append("decoder")
+                self.inputs = (res1, res2, res3, res4)
+                self.output_size = (h, w)
+                return torch.zeros(res1.shape[0], 6, h, w)
+
+        model = UNetFormerDGSF10.__new__(UNetFormerDGSF10)
+        torch.nn.Module.__init__(model)
+        model.image_encoder = FakeImageEncoder()
+        model.dgsf10_indexes = [0, 2, 3, 4]
+        model.dgsf10 = SpyDGSF10()
+        model.decoder = SpyDecoder()
+
+        output = model(torch.zeros(2, 3, 8, 8), torch.ones(2, 8, 8))
+
+        dgsf10 = model.dgsf10
+        decoder = model.decoder
+        assert isinstance(dgsf10, SpyDGSF10)
+        assert isinstance(decoder, SpyDecoder)
+        self.assertEqual(events, ["block0", "block1", "block2", "block3", "block4", "block5", "dgsf10", "decoder"])
+        self.assertIsNotNone(dgsf10.rgb_feats)
+        self.assertIsNotNone(dgsf10.aux_feats)
+        self.assertEqual(len(dgsf10.rgb_feats), 5)
+        self.assertEqual(len(dgsf10.aux_feats), 5)
+        for feature_index, block_index in enumerate(model.dgsf10_indexes):
+            block = model.image_encoder.blocks[block_index]
+            assert isinstance(block, FakeBlock)
+            self.assertIsNotNone(block.output_rgb)
+            self.assertIsNotNone(block.output_aux)
+            self.assertTrue(torch.equal(dgsf10.rgb_feats[feature_index], block.output_rgb.permute(0, 3, 1, 2)))
+            self.assertTrue(torch.equal(dgsf10.aux_feats[feature_index], block.output_aux.permute(0, 3, 1, 2)))
+        final_block = model.image_encoder.blocks[-1]
+        assert isinstance(final_block, FakeBlock)
+        self.assertIsNotNone(final_block.output_rgb)
+        self.assertIsNotNone(final_block.output_aux)
+        self.assertTrue(torch.equal(dgsf10.rgb_feats[4], final_block.output_rgb.permute(0, 3, 1, 2)))
+        self.assertTrue(torch.equal(dgsf10.aux_feats[4], final_block.output_aux.permute(0, 3, 1, 2)))
+        self.assertIsNotNone(decoder.inputs)
+        for actual, expected in zip(decoder.inputs, dgsf10.outputs):
+            self.assertIs(actual, expected)
+        self.assertEqual(decoder.output_size, (8, 8))
+        self.assertEqual(tuple(output.shape), (2, 6, 8, 8))
+
+    def test_attach_intermediate_stats_sets_recorder_and_prefix(self) -> None:
+        from models.mfnet.intermediate_stats_config import attach_intermediate_stats
+
+        owner = torch.nn.Module()
+        owner.intermediate_stats = IntermediateStatsRecorder()
+        module = torch.nn.Module()
+
+        attach_intermediate_stats(owner, module, "dgsf10")
+
+        self.assertIs(module.intermediate_stats, owner.intermediate_stats)
+        self.assertEqual(module.intermediate_stats_prefix, "dgsf10")
+
+    def test_attach_requested_intermediate_stats_mounts_requested_modules_only(self) -> None:
+        from models.mfnet.intermediate_stats_config import attach_requested_intermediate_stats
+
+        owner = torch.nn.Module()
+        dga_block_0 = torch.nn.Module()
+        dga_block_1 = torch.nn.Module()
+        dgsf10 = torch.nn.Module()
+
+        attach_requested_intermediate_stats(
+            owner,
+            ["unknown", "dga"],
+            {
+                "dga": [
+                    (dga_block_0, "dga/block_0"),
+                    (dga_block_1, "dga/block_1"),
+                ],
+                "dgsf10": [(dgsf10, "dgsf10")],
+            },
+        )
+
+        self.assertIs(dga_block_0.intermediate_stats, owner.intermediate_stats)
+        self.assertEqual(dga_block_0.intermediate_stats_prefix, "dga/block_0")
+        self.assertIs(dga_block_1.intermediate_stats, owner.intermediate_stats)
+        self.assertEqual(dga_block_1.intermediate_stats_prefix, "dga/block_1")
+        self.assertFalse(hasattr(dgsf10, "intermediate_stats"))
+
+        empty_owner = torch.nn.Module()
+        unavailable_module = torch.nn.Module()
+        attach_requested_intermediate_stats(
+            empty_owner,
+            ["unknown"],
+            {"dga": [(unavailable_module, "dga/block_0")]},
+        )
+
+        self.assertFalse(hasattr(empty_owner, "intermediate_stats"))
+        self.assertFalse(hasattr(unavailable_module, "intermediate_stats"))
+
+    def test_unetformer_dgsf10_records_dgsf10_intermediate_stats_when_requested(self) -> None:
+        with _fake_mfnet_optional_imports():
+            from models.mfnet.UNetFormer_MMSAM_dgsf10 import UNetFormerDGSF10
+
+            def fake_unetformer_init(self: torch.nn.Module, *args: object, **kwargs: object) -> None:
+                del args, kwargs
+                torch.nn.Module.__init__(self)
+                self.image_encoder = types.SimpleNamespace(
+                    embed_dim=8,
+                    blocks=[types.SimpleNamespace(window_size=0) for _ in range(4)],
+                )
+
+            with patch("models.mfnet.UNetFormer_MMSAM_dgsf10.UNetFormer.__init__", new=fake_unetformer_init):
+                model = UNetFormerDGSF10(
+                    record_intermediate_stats=True,
+                    record_intermediate_modules=["dgsf10"],
+                )
+
+        self.assertIsNotNone(model.intermediate_stats)
+        self.assertIs(model.dgsf10.intermediate_stats, model.intermediate_stats)
+
+    def test_unetformer_dgsf10_records_no_intermediate_modules_by_default(self) -> None:
+        with _fake_mfnet_optional_imports():
+            from models.mfnet.UNetFormer_MMSAM_dgsf10 import UNetFormerDGSF10
+
+            def fake_unetformer_init(self: torch.nn.Module, *args: object, **kwargs: object) -> None:
+                del args, kwargs
+                torch.nn.Module.__init__(self)
+                self.image_encoder = types.SimpleNamespace(
+                    embed_dim=8,
+                    blocks=[types.SimpleNamespace(window_size=0) for _ in range(4)],
+                )
+
+            with patch("models.mfnet.UNetFormer_MMSAM_dgsf10.UNetFormer.__init__", new=fake_unetformer_init):
+                model = UNetFormerDGSF10(record_intermediate_stats=True)
+
+        self.assertFalse(hasattr(model, "intermediate_stats"))
+        self.assertFalse(hasattr(model.dgsf10, "intermediate_stats"))
+
+    def test_unetformer_dgsf10_ignores_unavailable_intermediate_stats_modules(self) -> None:
+        with _fake_mfnet_optional_imports():
+            from models.mfnet.UNetFormer_MMSAM_dgsf10 import UNetFormerDGSF10
+
+            def fake_unetformer_init(self: torch.nn.Module, *args: object, **kwargs: object) -> None:
+                del args, kwargs
+                torch.nn.Module.__init__(self)
+                self.image_encoder = types.SimpleNamespace(
+                    embed_dim=8,
+                    blocks=[types.SimpleNamespace(window_size=0) for _ in range(4)],
+                )
+
+            with patch("models.mfnet.UNetFormer_MMSAM_dgsf10.UNetFormer.__init__", new=fake_unetformer_init):
+                model = UNetFormerDGSF10(
+                    record_intermediate_stats=True,
+                    record_intermediate_modules=["dga"],
+                )
+
+        self.assertFalse(hasattr(model, "intermediate_stats"))
+        self.assertFalse(hasattr(model.dgsf10, "intermediate_stats"))
+
+
+
+
+
+
 
     def test_unetformer_prealign_dga_applies_dga_after_all_global_blocks(self) -> None:
         fake_timm_module = types.ModuleType("timm")
@@ -2494,6 +2815,38 @@ class MFNetTrainingTest(unittest.TestCase):
             )
 
             self.assertEqual(result["trainer_classes"], ["MFNetDGATrainer"])
+            trainer_kwargs = result["trainer_kwargs"][0]
+            self.assertIsInstance(trainer_kwargs["logger"], TestNetRecorderLogger)
+
+
+    def test_train_entry_uses_base_trainer_and_recorder_logger_for_dgsf10_model(self) -> None:
+        module = self._load_train_entry_module()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "external_config.jsonc"
+            config_path.write_text('{"train": {"max_epochs": 1}}\n', encoding="utf-8")
+            work_dir = Path(tmpdir) / "auto_work"
+            cfg = self._make_train_entry_config(root_dir=str(work_dir))
+            cfg["model"]["type"] = "mfnet_unetformer_dgsf10"  # type: ignore[index]
+            args = type(
+                "Args",
+                (),
+                {
+                    "config": str(config_path),
+                    "device": "cpu",
+                    "resume_dir": None,
+                    "resume_ckpt": None,
+                    "load_from": None,
+                },
+            )()
+
+            result = self._run_train_entry(
+                module=module,
+                args=args,
+                cfg=cfg,
+                default_work_dir=work_dir,
+            )
+
+            self.assertEqual(result["trainer_classes"], ["MFNetTrainer"])
             trainer_kwargs = result["trainer_kwargs"][0]
             self.assertIsInstance(trainer_kwargs["logger"], TestNetRecorderLogger)
 

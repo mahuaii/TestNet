@@ -7,6 +7,13 @@ def _record_intermediate_stats(cfg: dict[str, Any]) -> bool:
     return bool(cfg.get("record_intermediate_stats", False))
 
 
+def _intermediate_stats_kwargs(cfg: dict[str, Any]) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {"record_intermediate_stats": _record_intermediate_stats(cfg)}
+    if "record_intermediate_modules" in cfg:
+        kwargs["record_intermediate_modules"] = cfg["record_intermediate_modules"]
+    return kwargs
+
+
 def build_model(cfg: dict[str, Any]) -> Any:
     model_type = cfg["type"]
     if model_type == "mfnet_unetformer":
@@ -36,6 +43,16 @@ def build_model(cfg: dict[str, Any]) -> Any:
             sam_backbone=str(cfg["sam_backbone"]),
             sam_checkpoint=str(cfg["sam_checkpoint"]),
             record_intermediate_stats=_record_intermediate_stats(cfg),
+        )
+        return model
+    if model_type == "mfnet_unetformer_dgsf10":
+        from .mfnet import UNetFormerDGSF10
+
+        model = UNetFormerDGSF10(
+            num_classes=int(cfg["num_classes"]),
+            sam_backbone=str(cfg["sam_backbone"]),
+            sam_checkpoint=str(cfg["sam_checkpoint"]),
+            **_intermediate_stats_kwargs(cfg),
         )
         return model
     if model_type == "mfnet_unetformer_dga10_softplus":

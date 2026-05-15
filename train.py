@@ -41,6 +41,10 @@ DGA_MODEL_TYPES = {
     "mfnet_unetformer_prealign_dga10",
 }
 
+RECORDER_LOGGER_MODEL_TYPES = DGA_MODEL_TYPES | {
+    "mfnet_unetformer_dgsf10",
+}
+
 AUX_ALIGN_MODEL_TYPES = {
     "mfnet_unetformer_prealign_auxalign",
 }
@@ -163,7 +167,7 @@ def main() -> None:
         trainer_cls = MFNetDGATrainer
     else:
         trainer_cls = MFNetTrainer
-    logger_cls = TestNetRecorderLogger if model_type in DGA_MODEL_TYPES else TestNetLogger
+    logger_cls = TestNetRecorderLogger if model_type in RECORDER_LOGGER_MODEL_TYPES else TestNetLogger
     logger = logger_cls(str(work_dir), use_tensorboard=cfg["train"]["use_tensorboard"])
 
     trainer = trainer_cls(
