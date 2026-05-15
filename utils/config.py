@@ -113,10 +113,43 @@ def _loads_jsonc(text: str) -> Any:
     return json.loads(_remove_trailing_commas(_strip_jsonc_comments(text)))
 
 
-def load_config(path: str) -> dict[str, Any]:
-    config_path = Path(path)
-    cfg = _loads_jsonc(config_path.read_text(encoding="utf-8"))
+def _deep_merge(parent: dict[str, Any], child: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(parent)
+    for key, child_value in child.items():
+        if key == "extends":
+            continue
 
+        parent_value = merged.get(key)
+        if isinstance(parent_value, dict) and isinstance(child_value, dict):
+            merged[key] = _deep_merge(parent_value, child_value)
+        else:
+            merged[key] = child_value
+    return merged
+
+
+def _load_config(path: Path, stack: tuple[Path, ...]) -> dict[str, Any]:
+    config_path = path.expanduser().resolve()
+    if config_path in stack:
+        cycle = " -> ".join(str(item) for item in (*stack, config_path))
+        raise ValueError(f"Config inheritance cycle detected: {cycle}")
+
+    cfg = _loads_jsonc(config_path.read_text(encoding="utf-8"))
     if not isinstance(cfg, dict):
         raise ValueError(f"Config file must contain a JSON object: {config_path}")
-    return cfg
+
+    parent_path = cfg.get("extends")
+    if parent_path is None:
+        return _deep_merge({}, cfg)
+    if not isinstance(parent_path, str):
+        raise ValueError(f"Config extends must be a string path: {config_path}")
+
+    parent_config_path = Path(parent_path).expanduser()
+    if not parent_config_path.is_absolute():
+        parent_config_path = config_path.parent / parent_config_path
+
+    parent_cfg = _load_config(parent_config_path, (*stack, config_path))
+    return _deep_merge(parent_cfg, cfg)
+
+
+def load_config(path: str) -> dict[str, Any]:
+    return _load_config(Path(path), ())
