@@ -3,6 +3,8 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
+from .dga_stats import record_dga_intermediate_stats
+
 
 def _hidden_channels(channels: int, reduction: int) -> int:
     if channels <= 0:
@@ -68,6 +70,12 @@ class DGABlock10(nn.Module):
         self.alpha = nn.Parameter(torch.tensor(float(init_scale)))
         self.beta = nn.Parameter(torch.tensor(float(init_scale)))
 
+    def effective_alpha(self) -> torch.Tensor:
+        return self.alpha
+
+    def effective_beta(self) -> torch.Tensor:
+        return self.beta
+
     def forward(self, rgb: torch.Tensor, aux: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         _validate_pair(rgb, aux, self.channels)
         rgb_norm = self.norm_rgb(rgb)
@@ -79,9 +87,20 @@ class DGABlock10(nn.Module):
         rgb_gate = self.gate_rgb(torch.cat([rgb_norm, difference], dim=1))
         aux_gate = self.gate_aux(torch.cat([aux_norm, -difference], dim=1))
 
-        rgb_out = rgb + self.alpha * rgb_gate * aux_to_rgb_message
-        aux_out = aux + self.beta * aux_gate * rgb_to_aux_message
-        return rgb_out, aux_out
+        rgb_injection = self.effective_alpha() * rgb_gate * aux_to_rgb_message
+        aux_injection = self.effective_beta() * aux_gate * rgb_to_aux_message
+        record_dga_intermediate_stats(
+            self,
+            alpha_gate_name="rgb_gate",
+            alpha_gate=rgb_gate,
+            beta_gate_name="aux_gate",
+            beta_gate=aux_gate,
+            alpha_injection=rgb_injection,
+            beta_injection=aux_injection,
+            alpha_main=rgb,
+            beta_main=aux,
+        )
+        return rgb + rgb_injection, aux + aux_injection
 
 
 __all__ = ["DGABlock10"]

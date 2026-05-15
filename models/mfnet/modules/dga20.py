@@ -3,6 +3,8 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
+from .dga_stats import record_dga_intermediate_stats
+
 
 def _hidden_channels(channels: int) -> int:
     if channels <= 0:
@@ -117,6 +119,12 @@ class DGABlock20(nn.Module):
         self.alpha = nn.Parameter(torch.full((1,), float(init_scale)))
         self.beta = nn.Parameter(torch.full((1,), float(init_scale)))
 
+    def effective_alpha(self) -> torch.Tensor:
+        return self.alpha
+
+    def effective_beta(self) -> torch.Tensor:
+        return self.beta
+
     def forward(self, x: torch.Tensor, y: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         _validate_pair(x, y, self.channels)
         x_norm = self.norm_x(x)
@@ -128,9 +136,20 @@ class DGABlock20(nn.Module):
         x_gate = self.gate_x(torch.cat([x_norm, difference], dim=1))
         y_gate = self.gate_y(torch.cat([y_norm, -difference], dim=1))
 
-        x_out = x + self.alpha * x_gate * y_to_x_message
-        y_out = y + self.beta * y_gate * x_to_y_message
-        return x_out, y_out
+        x_injection = self.effective_alpha() * x_gate * y_to_x_message
+        y_injection = self.effective_beta() * y_gate * x_to_y_message
+        record_dga_intermediate_stats(
+            self,
+            alpha_gate_name="x_gate",
+            alpha_gate=x_gate,
+            beta_gate_name="y_gate",
+            beta_gate=y_gate,
+            alpha_injection=x_injection,
+            beta_injection=y_injection,
+            alpha_main=x,
+            beta_main=y,
+        )
+        return x + x_injection, y + y_injection
 
 
 __all__ = ["DGABlock20", "LayerNorm2d"]
