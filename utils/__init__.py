@@ -1,9 +1,10 @@
 from .checkpoint_manager import CheckpointManager
 from .config import load_config
 from .data_utils import DataUtils
+from .intermediate_stats import IntermediateStatsRecorder
 from .logger import Logger
-from .mfnet_dga_logger import MFNetDGALogger
-from .mfnet_logger import MFNetLogger
+from .testnet_recorder_logger import TestNetRecorderLogger
+from .testnet_logger import TestNetLogger
 from .stat_tracker import StatTracker
 from .timer import AnchorTimer
 from .train_utils import (
@@ -24,9 +25,10 @@ __all__ = [
     "CheckpointManager",
     "DataUtils",
     "GATE_WEIGHT_DECAY_EXEMPT_PARAM_NAMES",
+    "IntermediateStatsRecorder",
     "Logger",
-    "MFNetDGALogger",
-    "MFNetLogger",
+    "TestNetRecorderLogger",
+    "TestNetLogger",
     "StatTracker",
     "build_default_work_dir",
     "build_optimizer_param_groups",

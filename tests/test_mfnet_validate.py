@@ -8,7 +8,7 @@ from typing import Any
 import torch
 
 from engine import MFNetTrainer
-from utils import CheckpointManager, MFNetLogger
+from utils import CheckpointManager, TestNetLogger
 
 
 class _Model(torch.nn.Module):
@@ -86,7 +86,7 @@ class MFNetValidateTest(unittest.TestCase):
                 scheduler=None,
                 train_loader=[{"unused": torch.tensor(1)}],
                 val_loader=_ValLoader(),
-                logger=MFNetLogger(tmpdir),
+                logger=TestNetLogger(tmpdir),
                 evaluator=evaluator,
                 inferencer=inferencer,
                 device=torch.device("cpu"),

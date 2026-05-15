@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from utils import Logger, MFNetDGALogger, MFNetLogger
+from utils import Logger, TestNetRecorderLogger, TestNetLogger
 
 
 class _FakeSummaryWriter:
@@ -123,9 +123,9 @@ class LoggerTest(unittest.TestCase):
             self.assertEqual(log_lines[11], "-" * 80)
             self.assertEqual(log_lines[12], "Validation time: 0:01:01")
 
-    def test_mfnet_logger_formats_mfnet_style_messages(self) -> None:
+    def test_testnet_logger_formats_mfnet_style_messages(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            logger = MFNetLogger(tmpdir, use_tensorboard=False)
+            logger = TestNetLogger(tmpdir, use_tensorboard=False)
 
             logger.log_epoch_start(epoch=1, max_epochs=3)
             logger.log_train_step(
@@ -183,7 +183,7 @@ class LoggerTest(unittest.TestCase):
 
     def test_truncate_after_completed_epoch_removes_incomplete_epoch_tail(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            logger = MFNetLogger(tmpdir, use_tensorboard=False)
+            logger = TestNetLogger(tmpdir, use_tensorboard=False)
             logger.log_message("Experiment: resume-test")
             logger.log_epoch_start(epoch=1, max_epochs=3)
             logger.log_epoch_end(
@@ -217,7 +217,7 @@ class LoggerTest(unittest.TestCase):
 
     def test_truncate_after_completed_epoch_is_noop_when_log_is_already_clean(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            logger = MFNetLogger(tmpdir, use_tensorboard=False)
+            logger = TestNetLogger(tmpdir, use_tensorboard=False)
             logger.log_epoch_start(epoch=1, max_epochs=1)
             logger.log_epoch_end(
                 train_time_seconds=10,
@@ -245,9 +245,9 @@ class LoggerTest(unittest.TestCase):
             )
             logger.close()
 
-    def test_mfnet_logger_tensorboard_scalars_are_written_with_fake_writer(self) -> None:
+    def test_testnet_logger_tensorboard_scalars_are_written_with_fake_writer(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            logger = MFNetLogger(tmpdir, use_tensorboard=False)
+            logger = TestNetLogger(tmpdir, use_tensorboard=False)
             logger._summary_writer = _FakeSummaryWriter(tmpdir)
 
             logger.log_train_step(
@@ -277,9 +277,9 @@ class LoggerTest(unittest.TestCase):
             logger.close()
             self.assertTrue(writer.closed)
 
-    def test_mfnet_dga_logger_writes_dga_tensorboard_scalars(self) -> None:
+    def test_testnet_recorder_logger_writes_dga_tensorboard_scalars(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            logger = MFNetDGALogger(tmpdir, use_tensorboard=False)
+            logger = TestNetRecorderLogger(tmpdir, use_tensorboard=False)
             logger._summary_writer = _FakeSummaryWriter(tmpdir)
 
             logger.log_train_step(
@@ -294,6 +294,8 @@ class LoggerTest(unittest.TestCase):
                     "dga/beta_block_0": 0.2,
                     "dga/alpha_block_1": 0.3,
                     "dga/beta_block_1": 0.4,
+                    "dgsf10/gate/g1_mean": 0.5,
+                    "dgsf10/feature_ratio/fuse1_over_h1": 0.6,
                 },
                 interval_time_seconds=1,
                 epoch_elapsed_seconds=2,
@@ -309,14 +311,17 @@ class LoggerTest(unittest.TestCase):
             self.assertIn(("DGA/beta_block_0", 0.2, 7), writer.scalars)
             self.assertIn(("DGA/alpha_block_1", 0.3, 7), writer.scalars)
             self.assertIn(("DGA/beta_block_1", 0.4, 7), writer.scalars)
+            self.assertIn(("DGSF10/gate/g1_mean", 0.5, 7), writer.scalars)
+            self.assertIn(("DGSF10/feature_ratio/fuse1_over_h1", 0.6, 7), writer.scalars)
             log_text = Path(tmpdir, "train.log").read_text(encoding="utf-8")
             self.assertNotIn("alpha_block", log_text)
             self.assertNotIn("beta_block", log_text)
+            self.assertNotIn("dgsf10", log_text)
             logger.close()
 
-    def test_mfnet_logger_does_not_write_dga_tensorboard_scalars(self) -> None:
+    def test_testnet_logger_does_not_write_dga_tensorboard_scalars(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            logger = MFNetLogger(tmpdir, use_tensorboard=False)
+            logger = TestNetLogger(tmpdir, use_tensorboard=False)
             logger._summary_writer = _FakeSummaryWriter(tmpdir)
 
             logger.log_train_step(
@@ -328,6 +333,7 @@ class LoggerTest(unittest.TestCase):
                     "loss": 2.0,
                     "dga/alpha_block_0": 0.1,
                     "dga/beta_block_0": 0.2,
+                    "dgsf10/gate/g1_mean": 0.3,
                 },
                 interval_time_seconds=1,
                 epoch_elapsed_seconds=2,
@@ -340,6 +346,7 @@ class LoggerTest(unittest.TestCase):
             self.assertIn(("Loss/train", 2.0, 7), writer.scalars)
             self.assertNotIn(("DGA/alpha_block_0", 0.1, 7), writer.scalars)
             self.assertNotIn(("DGA/beta_block_0", 0.2, 7), writer.scalars)
+            self.assertNotIn(("DGSF10/gate/g1_mean", 0.3, 7), writer.scalars)
             logger.close()
 
     def test_base_logger_does_not_write_metric_scalars(self) -> None:
@@ -369,7 +376,7 @@ class LoggerTest(unittest.TestCase):
     def test_missing_tensorboard_dependency_falls_back_to_noop(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("builtins.__import__", side_effect=ImportError):
-                logger = MFNetLogger(tmpdir, use_tensorboard=True)
+                logger = TestNetLogger(tmpdir, use_tensorboard=True)
                 logger.log_train_step(
                     epoch=1,
                     max_epochs=1,

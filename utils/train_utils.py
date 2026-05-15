@@ -10,9 +10,9 @@ from typing import Any
 import numpy as np
 import torch
 
-from .mfnet_logger import MFNetLogger
+from .testnet_logger import TestNetLogger
 
-GATE_WEIGHT_DECAY_EXEMPT_PARAM_NAMES = {"alpha", "beta", "gamma", "lambda"}
+GATE_WEIGHT_DECAY_EXEMPT_PARAM_NAMES = {}
 
 
 def safe_path_component(value: object, fallback: str) -> str:
@@ -93,7 +93,7 @@ def build_optimizer_param_groups(model: torch.nn.Module, weight_decay: float) ->
 
 
 def log_run_summary(
-    logger: MFNetLogger,
+    logger: TestNetLogger,
     model: torch.nn.Module,
     work_dir: Path,
     experiment_name: str,

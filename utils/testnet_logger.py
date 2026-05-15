@@ -8,7 +8,7 @@ from typing_extensions import override
 from .logger import Logger
 
 
-class MFNetLogger(Logger):
+class TestNetLogger(Logger):
     def __init__(
         self,
         work_dir: str,

@@ -9,7 +9,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 
 from engine.mfnet_auxalign_trainer import MFNetAuxAlignTrainer
-from utils import MFNetLogger
+from utils import TestNetLogger
 
 if importlib.util.find_spec("timm") is not None:
     from models.mfnet.UNetFormer_MMSAM_prealign_auxalign import UNetFormerPreAlignAuxAlign
@@ -200,7 +200,7 @@ class MFNetAuxAlignTrainerTest(unittest.TestCase):
             scheduler=None,
             train_loader=train_loader,
             val_loader=[],
-            logger=MFNetLogger(tmpdir, use_tensorboard=False),
+            logger=TestNetLogger(tmpdir, use_tensorboard=False),
             evaluator=None,
             inferencer=None,
             device=torch.device("cpu"),

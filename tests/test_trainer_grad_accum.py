@@ -8,7 +8,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 
 from engine import GradAccumTrainer, MFNetDGATrainer, Trainer
-from utils import CheckpointManager, MFNetLogger, StatTracker
+from utils import CheckpointManager, TestNetLogger, StatTracker
 
 
 class ScalarDataset(Dataset):
@@ -160,7 +160,7 @@ class DummyScheduler:
         self.step_calls = int(state_dict["step_calls"])
 
 
-class CaptureStepTimeLogger(MFNetLogger):
+class CaptureStepTimeLogger(TestNetLogger):
     def __init__(self, *args: object, **kwargs: object) -> None:
         super().__init__(*args, **kwargs)
         self.interval_times: list[float] = []
@@ -191,7 +191,7 @@ class CaptureStepTimeLogger(MFNetLogger):
         )
 
 
-class CaptureStepStatsLogger(MFNetLogger):
+class CaptureStepStatsLogger(TestNetLogger):
     def __init__(self, *args: object, **kwargs: object) -> None:
         super().__init__(*args, **kwargs)
         self.step_stats_history: list[dict[str, float]] = []
@@ -234,7 +234,7 @@ def build_trainer(
     evaluator: object | None = None,
     inferencer: object | None = None,
     trainer_cls: type[Trainer] = RegressionTrainer,
-    logger_cls: type[MFNetLogger] = MFNetLogger,
+    logger_cls: type[TestNetLogger] = TestNetLogger,
 ) -> Trainer:
     model = torch.nn.Linear(1, 1, bias=False)
     optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
@@ -681,7 +681,7 @@ class TrainerGradAccumTest(unittest.TestCase):
                 optimizer=optimizer,
                 train_loader=train_loader,
                 val_loader=[],
-                logger=MFNetLogger(tmpdir),
+                logger=TestNetLogger(tmpdir),
                 evaluator=CaptureEvaluator(),
                 device=torch.device("cpu"),
                 inferencer=IdentityInferencer(),
