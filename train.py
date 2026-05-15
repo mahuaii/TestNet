@@ -16,15 +16,14 @@ from data import build_isprs_dataset
 from engine import (
     Evaluator,
     MFNetAuxAlignTrainer,
-    MFNetDGAContributionStatsTrainer,
     MFNetDGATrainer,
     MFNetTrainer,
     SlidingWindowInferencer,
 )
 from models import build_model
 from utils import (
-    MFNetDGALogger,
-    MFNetLogger,
+    TestNetRecorderLogger,
+    TestNetLogger,
     build_default_work_dir,
     build_optimizer_param_groups,
     load_config,
@@ -36,19 +35,10 @@ from utils import (
 DGA_MODEL_TYPES = {
     "mfnet_unetformer_dga10",
     "mfnet_unetformer_dga20",
-    "mfnet_unetformer_dga10_contrib_stats",
-    "mfnet_unetformer_dga20_contrib_stats",
     "mfnet_unetformer_dga10_softplus",
     "mfnet_unetformer_dga20_softplus",
     "mfnet_unetformer_dga30",
     "mfnet_unetformer_prealign_dga10",
-}
-
-DGA_CONTRIB_STATS_MODEL_TYPES = {
-    "mfnet_unetformer_dga10_contrib_stats",
-    "mfnet_unetformer_dga20_contrib_stats",
-    "mfnet_unetformer_dga10_softplus",
-    "mfnet_unetformer_dga20_softplus",
 }
 
 AUX_ALIGN_MODEL_TYPES = {
@@ -169,13 +159,11 @@ def main() -> None:
     model_type = str(cfg["model"]["type"])
     if model_type in AUX_ALIGN_MODEL_TYPES:
         trainer_cls = MFNetAuxAlignTrainer
-    elif model_type in DGA_CONTRIB_STATS_MODEL_TYPES:
-        trainer_cls = MFNetDGAContributionStatsTrainer
     elif model_type in DGA_MODEL_TYPES:
         trainer_cls = MFNetDGATrainer
     else:
         trainer_cls = MFNetTrainer
-    logger_cls = MFNetDGALogger if model_type in DGA_MODEL_TYPES else MFNetLogger
+    logger_cls = TestNetRecorderLogger if model_type in DGA_MODEL_TYPES else TestNetLogger
     logger = logger_cls(str(work_dir), use_tensorboard=cfg["train"]["use_tensorboard"])
 
     trainer = trainer_cls(

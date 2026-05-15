@@ -23,7 +23,7 @@ from data.isprs_dataset import (
 )
 from data import build_isprs_dataset
 from engine import MFNetTrainer, SlidingWindowInferencer
-from utils import DataUtils, MFNetDGALogger, MFNetLogger
+from utils import DataUtils, IntermediateStatsRecorder, TestNetRecorderLogger, TestNetLogger
 
 
 class _SingleBatchDataset(Dataset):
@@ -161,7 +161,7 @@ class MFNetTrainingTest(unittest.TestCase):
             scheduler=scheduler,
             train_loader=train_loader,
             val_loader=[],
-            logger=MFNetLogger(tmpdir),
+            logger=TestNetLogger(tmpdir),
             evaluator=None,
             inferencer=None,
             device=torch.device("cpu"),
@@ -254,7 +254,7 @@ class MFNetTrainingTest(unittest.TestCase):
                 scheduler=None,
                 train_loader=train_loader,
                 val_loader=[],
-                logger=MFNetLogger(tmpdir),
+                logger=TestNetLogger(tmpdir),
                 evaluator=None,
                 inferencer=None,
                 device=torch.device("cpu"),
@@ -276,6 +276,36 @@ class MFNetTrainingTest(unittest.TestCase):
             self.assertTrue(trainer.compute_loss_and_metrics_called)
             self.assertEqual(float(loss.detach()), 3.0)
             self.assertEqual(metrics, {"loss": 3.0, "accuracy": 25.0})
+
+    def test_train_forward_merges_intermediate_stats_and_resets_recorder(self) -> None:
+        sample = {
+            "inputs": {
+                "rgb": torch.rand(3, 12, 12),
+                "dsm": torch.rand(12, 12),
+            },
+            "target": torch.randint(0, 2, (12, 12), dtype=torch.long),
+            "meta": {"tile_id": "1"},
+        }
+        model = self._make_train_spy_model()
+        model.intermediate_stats = IntermediateStatsRecorder()
+        model.intermediate_stats.record_scalar("stale/value", 1.0)
+
+        def forward(self: torch.nn.Module, rgb: torch.Tensor, dsm: torch.Tensor, mode: str = "Train") -> torch.Tensor:
+            del dsm, mode
+            self.intermediate_stats.record_scalar("fresh/value", 7.0)
+            return torch.stack([rgb[:, 0] - self.weight, rgb[:, 0] + self.weight], dim=1)
+
+        model.forward = types.MethodType(forward, model)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trainer = self._build_trainer(tmpdir, model, sample)
+            batch = next(iter(trainer.train_loader))
+
+            loss, metrics = trainer.train_forward(batch)
+
+            self.assertEqual(loss.ndim, 0)
+            self.assertEqual(metrics["fresh/value"], 7.0)
+            self.assertNotIn("stale/value", metrics)
+            self.assertEqual(model.intermediate_stats.snapshot(), {})
 
     def test_train_forward_uses_mfnet_ignore_loss_and_accuracy(self) -> None:
         sample = {
@@ -384,7 +414,7 @@ class MFNetTrainingTest(unittest.TestCase):
                 scheduler=None,
                 train_loader=train_loader,
                 val_loader=[],
-                logger=MFNetLogger(tmpdir),
+                logger=TestNetLogger(tmpdir),
                 evaluator=None,
                 inferencer=None,
                 device=torch.device("cpu"),
@@ -755,7 +785,14 @@ class MFNetTrainingTest(unittest.TestCase):
             self.assertIsInstance(model, FakeUNetFormerDGA10)
             self.assertEqual(
                 captured_kwargs,
-                [{"num_classes": 6, "sam_backbone": "vit_b", "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth"}],
+                [
+                    {
+                        "num_classes": 6,
+                        "sam_backbone": "vit_b",
+                        "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
+                        "record_intermediate_stats": False,
+                    }
+                ],
             )
         finally:
             if original_mfnet_module is None:
@@ -790,8 +827,81 @@ class MFNetTrainingTest(unittest.TestCase):
             self.assertIsInstance(model, FakeUNetFormerDGA20)
             self.assertEqual(
                 captured_kwargs,
-                [{"num_classes": 6, "sam_backbone": "vit_b", "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth"}],
+                [
+                    {
+                        "num_classes": 6,
+                        "sam_backbone": "vit_b",
+                        "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
+                        "record_intermediate_stats": False,
+                    }
+                ],
             )
+        finally:
+            if original_mfnet_module is None:
+                del sys.modules["models.mfnet"]
+            else:
+                sys.modules["models.mfnet"] = original_mfnet_module
+
+    def test_build_model_passes_dga_intermediate_stats_flag(self) -> None:
+        build_module = importlib.import_module("models.build")
+        captured_kwargs: list[dict[str, object]] = []
+
+        class FakeUNetFormerDGA10:
+            def __init__(self, **kwargs: object) -> None:
+                captured_kwargs.append(kwargs)
+
+        fake_mfnet_module = types.ModuleType("models.mfnet")
+        fake_mfnet_module.UNetFormerDGA10 = FakeUNetFormerDGA10
+        original_mfnet_module = sys.modules.get("models.mfnet")
+
+        try:
+            sys.modules["models.mfnet"] = fake_mfnet_module
+
+            model = build_module.build_model(
+                {
+                    "type": "mfnet_unetformer_dga10",
+                    "num_classes": 6,
+                    "sam_backbone": "vit_b",
+                    "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
+                    "record_intermediate_stats": True,
+                }
+            )
+
+            self.assertIsInstance(model, FakeUNetFormerDGA10)
+            self.assertTrue(captured_kwargs[0]["record_intermediate_stats"])
+        finally:
+            if original_mfnet_module is None:
+                del sys.modules["models.mfnet"]
+            else:
+                sys.modules["models.mfnet"] = original_mfnet_module
+
+    def test_build_model_dispatches_to_independent_dga_softplus(self) -> None:
+        build_module = importlib.import_module("models.build")
+        captured_kwargs: list[dict[str, object]] = []
+
+        class FakeUNetFormerDGA10Softplus:
+            def __init__(self, **kwargs: object) -> None:
+                captured_kwargs.append(kwargs)
+
+        fake_mfnet_module = types.ModuleType("models.mfnet")
+        fake_mfnet_module.UNetFormerDGA10Softplus = FakeUNetFormerDGA10Softplus
+        original_mfnet_module = sys.modules.get("models.mfnet")
+
+        try:
+            sys.modules["models.mfnet"] = fake_mfnet_module
+
+            model = build_module.build_model(
+                {
+                    "type": "mfnet_unetformer_dga10_softplus",
+                    "num_classes": 6,
+                    "sam_backbone": "vit_b",
+                    "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
+                    "record_intermediate_stats": True,
+                }
+            )
+
+            self.assertIsInstance(model, FakeUNetFormerDGA10Softplus)
+            self.assertTrue(captured_kwargs[0]["record_intermediate_stats"])
         finally:
             if original_mfnet_module is None:
                 del sys.modules["models.mfnet"]
@@ -810,6 +920,8 @@ class MFNetTrainingTest(unittest.TestCase):
             "mfnet_unetformer_dga",
             "mfnet_unetformer_dga2",
             "mfnet_unetformer_dga3",
+            "mfnet_unetformer_dga10_contrib_stats",
+            "mfnet_unetformer_dga20_contrib_stats",
             "mfnet_unetformer_prealign_dga",
         ]:
             with self.subTest(model_type=model_type):
@@ -1899,7 +2011,7 @@ class MFNetTrainingTest(unittest.TestCase):
         self,
         module,
         args: object,
-        cfg: dict[str, object],
+        cfg: dict[str, object] | None,
         default_work_dir: Path | None,
     ) -> dict[str, object]:
         class FakeModel(torch.nn.Module):
@@ -1954,6 +2066,8 @@ class MFNetTrainingTest(unittest.TestCase):
 
             def fake_load_config(path: str) -> dict[str, object]:
                 captured_load_config_paths.append(path)
+                if cfg is None:
+                    return original_load_config(path)
                 return cfg
 
             module.load_config = fake_load_config
@@ -2165,7 +2279,7 @@ class MFNetTrainingTest(unittest.TestCase):
             )
             self.assertEqual(len(result["model_cfg"]), 1)
             self.assertEqual(result["model_cfg"][0]["sam_checkpoint"], "/tmp/sam_vit_b.pth")
-            self.assertIsInstance(trainer_kwargs["logger"], MFNetLogger)
+            self.assertIsInstance(trainer_kwargs["logger"], TestNetLogger)
             self.assertTrue(trainer_kwargs["logger"].use_tensorboard)
             self.assertEqual(trainer_kwargs["cfg"]["val_epoch_interval"], 1)
             self.assertEqual(trainer_kwargs["cfg"]["batch_size"], 2)
@@ -2260,6 +2374,67 @@ class MFNetTrainingTest(unittest.TestCase):
             self.assertEqual(saved_cfg["seed"], 123)
             self.assertEqual(config_path.read_text(encoding="utf-8"), config_text)
 
+    def test_train_entry_saves_merged_config_using_child_config_name(self) -> None:
+        module = self._load_train_entry_module()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_dir = Path(tmpdir) / "config"
+            config_dir.mkdir()
+            base_config_path = config_dir / "base_config.jsonc"
+            child_config_path = config_dir / "child_config.jsonc"
+            base_cfg = self._make_train_entry_config(root_dir=str(Path(tmpdir) / "dataset_root"))
+            base_cfg["train"]["batch_size"] = 2  # type: ignore[index]
+            base_cfg["dataset"]["train_ids"] = ["1", "2"]  # type: ignore[index]
+            base_config_path.write_text(json.dumps(base_cfg, indent=4) + "\n", encoding="utf-8")
+            child_config_text = """
+            {
+              "extends": "base_config.jsonc",
+              "seed": 80,
+              "dataset": {
+                "train_ids": ["3"]
+              },
+              "train": {
+                "batch_size": 4
+              }
+            }
+            """
+            child_config_path.write_text(child_config_text, encoding="utf-8")
+            work_dir = Path(tmpdir) / "auto_work"
+            args = type(
+                "Args",
+                (),
+                {
+                    "config": str(child_config_path),
+                    "device": "cpu",
+                    "resume_dir": None,
+                    "resume_ckpt": None,
+                    "load_from": None,
+                    "model_type": "mfnet_unetformer_dga10",
+                    "seed": 123,
+                },
+            )()
+
+            result = self._run_train_entry(
+                module=module,
+                args=args,
+                cfg=None,
+                default_work_dir=work_dir,
+            )
+
+            self.assertEqual(result["load_config_paths"], [str(child_config_path)])
+            self.assertFalse((work_dir / base_config_path.name).exists())
+            saved_config_path = work_dir / child_config_path.name
+            self.assertTrue(saved_config_path.is_file())
+            saved_cfg = json.loads(saved_config_path.read_text(encoding="utf-8"))
+            self.assertNotIn("extends", saved_cfg)
+            self.assertEqual(saved_cfg["seed"], 123)
+            self.assertEqual(saved_cfg["model"]["type"], "mfnet_unetformer_dga10")
+            self.assertEqual(saved_cfg["model"]["num_classes"], 6)
+            self.assertEqual(saved_cfg["dataset"]["train_ids"], ["3"])
+            self.assertEqual(saved_cfg["dataset"]["val_ids"], ["5"])
+            self.assertEqual(saved_cfg["train"]["batch_size"], 4)
+            self.assertEqual(saved_cfg["train"]["max_epochs"], 1)
+            self.assertEqual(child_config_path.read_text(encoding="utf-8"), child_config_text)
+
     def test_train_entry_uses_dga_trainer_and_logger_for_dga_model(self) -> None:
         module = self._load_train_entry_module()
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2289,7 +2464,7 @@ class MFNetTrainingTest(unittest.TestCase):
 
             self.assertEqual(result["trainer_classes"], ["MFNetDGATrainer"])
             trainer_kwargs = result["trainer_kwargs"][0]
-            self.assertIsInstance(trainer_kwargs["logger"], MFNetDGALogger)
+            self.assertIsInstance(trainer_kwargs["logger"], TestNetRecorderLogger)
 
     def test_train_entry_uses_dga_trainer_and_logger_for_dga2_model(self) -> None:
         module = self._load_train_entry_module()
@@ -2320,7 +2495,7 @@ class MFNetTrainingTest(unittest.TestCase):
 
             self.assertEqual(result["trainer_classes"], ["MFNetDGATrainer"])
             trainer_kwargs = result["trainer_kwargs"][0]
-            self.assertIsInstance(trainer_kwargs["logger"], MFNetDGALogger)
+            self.assertIsInstance(trainer_kwargs["logger"], TestNetRecorderLogger)
 
     def test_train_entry_uses_dga_trainer_and_logger_for_dga3_model(self) -> None:
         module = self._load_train_entry_module()
@@ -2351,7 +2526,7 @@ class MFNetTrainingTest(unittest.TestCase):
 
             self.assertEqual(result["trainer_classes"], ["MFNetDGATrainer"])
             trainer_kwargs = result["trainer_kwargs"][0]
-            self.assertIsInstance(trainer_kwargs["logger"], MFNetDGALogger)
+            self.assertIsInstance(trainer_kwargs["logger"], TestNetRecorderLogger)
 
     def test_train_entry_uses_auxalign_trainer_for_auxalign_model(self) -> None:
         module = self._load_train_entry_module()
@@ -2384,7 +2559,7 @@ class MFNetTrainingTest(unittest.TestCase):
             self.assertEqual(result["trainer_classes"], ["MFNetAuxAlignTrainer"])
             self.assertEqual(result["default_work_dir_calls"][0]["lambda_align"], 0.5)
             trainer_kwargs = result["trainer_kwargs"][0]
-            self.assertIsInstance(trainer_kwargs["logger"], MFNetLogger)
+            self.assertIsInstance(trainer_kwargs["logger"], TestNetLogger)
             self.assertEqual(trainer_kwargs["cfg"]["lambda_align"], 0.5)
 
     def test_train_entry_uses_resume_ckpt_for_new_experiment_only(self) -> None:
