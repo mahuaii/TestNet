@@ -963,6 +963,51 @@ class MFNetTrainingTest(unittest.TestCase):
             else:
                 sys.modules["models.mfnet"] = original_mfnet_module
 
+    def test_build_model_dispatches_to_mfnet_prealign_auxalign_dgsf10(self) -> None:
+        build_module = importlib.import_module("models.build")
+        captured_kwargs: list[dict[str, object]] = []
+
+        class FakeUNetFormerPreAlignAuxAlignDGSF10:
+            def __init__(self, **kwargs: object) -> None:
+                captured_kwargs.append(kwargs)
+
+        fake_mfnet_module = types.ModuleType("models.mfnet")
+        fake_mfnet_module.UNetFormerPreAlignAuxAlignDGSF10 = FakeUNetFormerPreAlignAuxAlignDGSF10
+        original_mfnet_module = sys.modules.get("models.mfnet")
+
+        try:
+            sys.modules["models.mfnet"] = fake_mfnet_module
+
+            model = build_module.build_model(
+                {
+                    "type": "mfnet_unetformer_prealign_auxalign_dgsf10",
+                    "num_classes": 6,
+                    "sam_backbone": "vit_b",
+                    "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
+                    "record_intermediate_stats": True,
+                    "record_intermediate_modules": ["dgsf10"],
+                }
+            )
+
+            self.assertIsInstance(model, FakeUNetFormerPreAlignAuxAlignDGSF10)
+            self.assertEqual(
+                captured_kwargs,
+                [
+                    {
+                        "num_classes": 6,
+                        "sam_backbone": "vit_b",
+                        "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
+                        "record_intermediate_stats": True,
+                        "record_intermediate_modules": ["dgsf10"],
+                    }
+                ],
+            )
+        finally:
+            if original_mfnet_module is None:
+                del sys.modules["models.mfnet"]
+            else:
+                sys.modules["models.mfnet"] = original_mfnet_module
+
     def test_build_model_passes_dga_intermediate_stats_flag(self) -> None:
         build_module = importlib.import_module("models.build")
         captured_kwargs: list[dict[str, object]] = []
@@ -2066,6 +2111,158 @@ class MFNetTrainingTest(unittest.TestCase):
         self.assertEqual(decoder.output_size, (8, 8))
         self.assertEqual(tuple(output.shape), (2, 6, 8, 8))
 
+    def test_unetformer_prealign_auxalign_dgsf10_uses_aligned_aux_and_dgsf_features(self) -> None:
+        with _fake_mfnet_optional_imports():
+            from models.mfnet.UNetFormer_MMSAM_prealign_auxalign_dgsf10 import (
+                UNetFormerPreAlignAuxAlignDGSF10,
+            )
+
+        events: list[str] = []
+
+        class FakeAuxPreAlign(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.input_shape: tuple[int, ...] | None = None
+
+            def forward(self, y: torch.Tensor) -> torch.Tensor:
+                self.input_shape = tuple(y.shape)
+                return y.repeat(1, 3, 1, 1)
+
+        class FakePatchEmbed(torch.nn.Module):
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                x = torch.nn.functional.avg_pool2d(x, kernel_size=4)
+                x = x.mean(dim=1, keepdim=True).repeat(1, 4, 1, 1)
+                return x.permute(0, 2, 3, 1)
+
+        class FakeBlock(torch.nn.Module):
+            def __init__(self, name: str, window_size: int, rgb_offset: float, aux_offset: float) -> None:
+                super().__init__()
+                self.name = name
+                self.window_size = window_size
+                self.rgb_offset = rgb_offset
+                self.aux_offset = aux_offset
+                self.output_rgb: torch.Tensor | None = None
+                self.output_aux: torch.Tensor | None = None
+
+            def forward(self, x: torch.Tensor, y: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+                events.append(self.name)
+                self.output_rgb = x.detach().clone() + self.rgb_offset
+                self.output_aux = y.detach().clone() + self.aux_offset
+                return x + self.rgb_offset, y + self.aux_offset
+
+        class ForbiddenNeck(torch.nn.Module):
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                del x
+                raise AssertionError("DGSF10 features must be captured before encoder.neck")
+
+        class FakeImageEncoder(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.embed_dim = 4
+                self.patch_embed = FakePatchEmbed()
+                self.pos_embed = None
+                self.blocks = torch.nn.ModuleList(
+                    [
+                        FakeBlock("block0", window_size=0, rgb_offset=1.0, aux_offset=10.0),
+                        FakeBlock("block1", window_size=14, rgb_offset=2.0, aux_offset=20.0),
+                        FakeBlock("block2", window_size=0, rgb_offset=3.0, aux_offset=30.0),
+                        FakeBlock("block3", window_size=0, rgb_offset=4.0, aux_offset=40.0),
+                        FakeBlock("block4", window_size=0, rgb_offset=5.0, aux_offset=50.0),
+                        FakeBlock("block5", window_size=14, rgb_offset=6.0, aux_offset=60.0),
+                    ]
+                )
+                self.neck = ForbiddenNeck()
+
+        class SpyDGSF10(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.rgb_feats: tuple[torch.Tensor, ...] | None = None
+                self.aux_feats: tuple[torch.Tensor, ...] | None = None
+                self.outputs = tuple(torch.full((2, 4, 2, 2), float(index)) for index in range(1, 5))
+
+            def forward(
+                self,
+                rgb_feats: tuple[torch.Tensor, ...],
+                aux_feats: tuple[torch.Tensor, ...],
+            ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+                events.append("dgsf10")
+                self.rgb_feats = tuple(feature.detach().clone() for feature in rgb_feats)
+                self.aux_feats = tuple(feature.detach().clone() for feature in aux_feats)
+                return self.outputs
+
+        class SpyDecoder(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.inputs: tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor] | None = None
+                self.output_size: tuple[int, int] | None = None
+
+            def forward(
+                self,
+                res1: torch.Tensor,
+                res2: torch.Tensor,
+                res3: torch.Tensor,
+                res4: torch.Tensor,
+                h: int,
+                w: int,
+            ) -> torch.Tensor:
+                events.append("decoder")
+                self.inputs = (res1, res2, res3, res4)
+                self.output_size = (h, w)
+                return torch.zeros(res1.shape[0], 6, h, w)
+
+        def make_model() -> torch.nn.Module:
+            model = UNetFormerPreAlignAuxAlignDGSF10.__new__(UNetFormerPreAlignAuxAlignDGSF10)
+            torch.nn.Module.__init__(model)
+            model.aux_prealign = FakeAuxPreAlign()
+            model.image_encoder = FakeImageEncoder()
+            model.align_index = 2
+            model.dgsf10_indexes = [0, 2, 3, 4]
+            model.dgsf10 = SpyDGSF10()
+            model.decoder = SpyDecoder()
+            return model
+
+        model = make_model()
+        output = model(torch.zeros(2, 3, 8, 8), torch.ones(2, 8, 8), return_align=False)
+
+        dgsf10 = model.dgsf10
+        decoder = model.decoder
+        assert isinstance(dgsf10, SpyDGSF10)
+        assert isinstance(decoder, SpyDecoder)
+        self.assertIsInstance(output, torch.Tensor)
+        self.assertEqual(tuple(output.shape), (2, 6, 8, 8))
+        self.assertEqual(model.aux_prealign.input_shape, (2, 1, 8, 8))
+        self.assertEqual(events, ["block0", "block1", "block2", "block3", "block4", "block5", "dgsf10", "decoder"])
+        self.assertIsNotNone(dgsf10.rgb_feats)
+        self.assertIsNotNone(dgsf10.aux_feats)
+        for feature_index, block_index in enumerate(model.dgsf10_indexes):
+            block = model.image_encoder.blocks[block_index]
+            assert isinstance(block, FakeBlock)
+            self.assertTrue(torch.equal(dgsf10.rgb_feats[feature_index], block.output_rgb.permute(0, 3, 1, 2)))
+            self.assertTrue(torch.equal(dgsf10.aux_feats[feature_index], block.output_aux.permute(0, 3, 1, 2)))
+        final_block = model.image_encoder.blocks[-1]
+        assert isinstance(final_block, FakeBlock)
+        self.assertTrue(torch.equal(dgsf10.rgb_feats[4], final_block.output_rgb.permute(0, 3, 1, 2)))
+        self.assertTrue(torch.equal(dgsf10.aux_feats[4], final_block.output_aux.permute(0, 3, 1, 2)))
+        self.assertIsNotNone(decoder.inputs)
+        for actual, expected in zip(decoder.inputs, dgsf10.outputs):
+            self.assertIs(actual, expected)
+        self.assertEqual(decoder.output_size, (8, 8))
+
+        events.clear()
+        model = make_model()
+        logits, x_align_feat, y_align_feat = model(
+            torch.zeros(2, 3, 8, 8),
+            torch.ones(2, 8, 8),
+            return_align=True,
+        )
+
+        self.assertEqual(tuple(logits.shape), (2, 6, 8, 8))
+        self.assertEqual(x_align_feat.shape, y_align_feat.shape)
+        align_block = model.image_encoder.blocks[2]
+        assert isinstance(align_block, FakeBlock)
+        self.assertTrue(torch.equal(x_align_feat, align_block.output_rgb))
+        self.assertTrue(torch.equal(y_align_feat, align_block.output_aux))
+
     def test_attach_intermediate_stats_sets_recorder_and_prefix(self) -> None:
         from models.mfnet.intermediate_stats_config import attach_intermediate_stats
 
@@ -2171,6 +2368,58 @@ class MFNetTrainingTest(unittest.TestCase):
                     record_intermediate_stats=True,
                     record_intermediate_modules=["dga"],
                 )
+
+        self.assertFalse(hasattr(model, "intermediate_stats"))
+        self.assertFalse(hasattr(model.dgsf10, "intermediate_stats"))
+
+    def test_unetformer_prealign_auxalign_dgsf10_records_dgsf10_stats_when_requested(self) -> None:
+        with _fake_mfnet_optional_imports():
+            from models.mfnet.UNetFormer_MMSAM_prealign_auxalign_dgsf10 import (
+                UNetFormerPreAlignAuxAlignDGSF10,
+            )
+
+            def fake_parent_init(self: torch.nn.Module, *args: object, **kwargs: object) -> None:
+                del args, kwargs
+                torch.nn.Module.__init__(self)
+                self.image_encoder = types.SimpleNamespace(
+                    embed_dim=8,
+                    blocks=[types.SimpleNamespace(window_size=0) for _ in range(4)],
+                )
+                self.align_index = 0
+
+            with patch(
+                "models.mfnet.UNetFormer_MMSAM_prealign_auxalign_dgsf10.UNetFormerPreAlignAuxAlign.__init__",
+                new=fake_parent_init,
+            ):
+                model = UNetFormerPreAlignAuxAlignDGSF10(
+                    record_intermediate_stats=True,
+                    record_intermediate_modules=["dgsf10"],
+                )
+
+        self.assertIsNotNone(model.intermediate_stats)
+        self.assertIs(model.dgsf10.intermediate_stats, model.intermediate_stats)
+        self.assertEqual(model.dgsf10.intermediate_stats_prefix, "dgsf10")
+
+    def test_unetformer_prealign_auxalign_dgsf10_records_no_stats_by_default(self) -> None:
+        with _fake_mfnet_optional_imports():
+            from models.mfnet.UNetFormer_MMSAM_prealign_auxalign_dgsf10 import (
+                UNetFormerPreAlignAuxAlignDGSF10,
+            )
+
+            def fake_parent_init(self: torch.nn.Module, *args: object, **kwargs: object) -> None:
+                del args, kwargs
+                torch.nn.Module.__init__(self)
+                self.image_encoder = types.SimpleNamespace(
+                    embed_dim=8,
+                    blocks=[types.SimpleNamespace(window_size=0) for _ in range(4)],
+                )
+                self.align_index = 0
+
+            with patch(
+                "models.mfnet.UNetFormer_MMSAM_prealign_auxalign_dgsf10.UNetFormerPreAlignAuxAlign.__init__",
+                new=fake_parent_init,
+            ):
+                model = UNetFormerPreAlignAuxAlignDGSF10(record_intermediate_stats=True)
 
         self.assertFalse(hasattr(model, "intermediate_stats"))
         self.assertFalse(hasattr(model.dgsf10, "intermediate_stats"))
@@ -3343,6 +3592,40 @@ class MFNetTrainingTest(unittest.TestCase):
             self.assertEqual(result["default_work_dir_calls"][0]["lambda_align"], 0.5)
             trainer_kwargs = result["trainer_kwargs"][0]
             self.assertIsInstance(trainer_kwargs["logger"], TestNetLogger)
+            self.assertEqual(trainer_kwargs["cfg"]["lambda_align"], 0.5)
+
+    def test_train_entry_uses_auxalign_trainer_and_recorder_logger_for_prealign_auxalign_dgsf10(self) -> None:
+        module = self._load_train_entry_module()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "external_config.jsonc"
+            config_path.write_text('{"train": {"max_epochs": 1}}\n', encoding="utf-8")
+            work_dir = Path(tmpdir) / "auto_work"
+            cfg = self._make_train_entry_config(root_dir=str(work_dir))
+            cfg["model"]["type"] = "mfnet_unetformer_prealign_auxalign_dgsf10"  # type: ignore[index]
+            cfg["train"]["lambda_align"] = 0.5  # type: ignore[index]
+            args = type(
+                "Args",
+                (),
+                {
+                    "config": str(config_path),
+                    "device": "cpu",
+                    "resume_dir": None,
+                    "resume_ckpt": None,
+                    "load_from": None,
+                },
+            )()
+
+            result = self._run_train_entry(
+                module=module,
+                args=args,
+                cfg=cfg,
+                default_work_dir=work_dir,
+            )
+
+            self.assertEqual(result["trainer_classes"], ["MFNetAuxAlignTrainer"])
+            self.assertEqual(result["default_work_dir_calls"][0]["lambda_align"], 0.5)
+            trainer_kwargs = result["trainer_kwargs"][0]
+            self.assertIsInstance(trainer_kwargs["logger"], TestNetRecorderLogger)
             self.assertEqual(trainer_kwargs["cfg"]["lambda_align"], 0.5)
 
     def test_train_entry_uses_resume_ckpt_for_new_experiment_only(self) -> None:

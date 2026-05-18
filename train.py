@@ -44,10 +44,12 @@ DGA_MODEL_TYPES = {
 
 RECORDER_LOGGER_MODEL_TYPES = DGA_MODEL_TYPES | {
     "mfnet_unetformer_dgsf10",
+    "mfnet_unetformer_prealign_auxalign_dgsf10",
 }
 
 AUX_ALIGN_MODEL_TYPES = {
     "mfnet_unetformer_prealign_auxalign",
+    "mfnet_unetformer_prealign_auxalign_dgsf10",
 }
 
 
