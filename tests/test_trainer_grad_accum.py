@@ -8,7 +8,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 
 from engine import GradAccumTrainer, MFNetDGATrainer, Trainer
-from utils import CheckpointManager, TestNetLogger, StatTracker
+from utils import CheckpointManager, IntermediateStatsRecorder, TestNetLogger, StatTracker
 
 
 class ScalarDataset(Dataset):
@@ -33,6 +33,9 @@ class RegressionTrainer(Trainer):
         x = batch["x"].to(self.device)
         y = batch["y"].to(self.device)
         pred = self.model(x)
+        intermediate_stats = getattr(self.model, "intermediate_stats", None)
+        if intermediate_stats is not None:
+            intermediate_stats.record_scalar("forward/value", x.detach().mean())
         loss = torch.mean((pred - y) ** 2)
         return loss, {"loss": float(loss.detach())}
 
@@ -44,6 +47,9 @@ class GradAccumRegressionTrainer(GradAccumTrainer):
         x = batch["x"].to(self.device)
         y = batch["y"].to(self.device)
         pred = self.model(x)
+        intermediate_stats = getattr(self.model, "intermediate_stats", None)
+        if intermediate_stats is not None:
+            intermediate_stats.record_scalar("forward/value", x.detach().mean())
         loss = torch.mean((pred - y) ** 2)
         return loss, {"loss": float(loss.detach())}
 
@@ -307,6 +313,23 @@ class TrainerGradAccumTest(unittest.TestCase):
             self.assertFalse(hasattr(trainer, "grad_accum_steps"))
             self.assertIn("loss", train_metrics)
 
+    def test_base_trainer_merges_intermediate_stats_before_tracking_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trainer = build_trainer(
+                work_dir=tmpdir,
+                values=[2.0],
+                batch_size=1,
+                effective_batch_size=None,
+            )
+            trainer.model.intermediate_stats = IntermediateStatsRecorder()
+            trainer.model.intermediate_stats.record_scalar("stale/value", 99.0)
+
+            train_metrics = trainer.train_one_epoch()
+
+            self.assertAlmostEqual(train_metrics["forward/value"], 2.0)
+            self.assertNotIn("stale/value", train_metrics)
+            self.assertEqual(trainer.model.intermediate_stats.snapshot(), {})
+
     def test_grad_accum_trainer_defaults_effective_batch_size_to_batch_size(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             trainer = build_trainer(
@@ -319,6 +342,24 @@ class TrainerGradAccumTest(unittest.TestCase):
 
             self.assertEqual(trainer.train_loader.batch_size, 2)
             self.assertEqual(trainer.grad_accum_steps, 1)
+
+    def test_grad_accum_trainer_merges_intermediate_stats_per_micro_batch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trainer = build_trainer(
+                work_dir=tmpdir,
+                values=[2.0, 4.0],
+                batch_size=1,
+                effective_batch_size=2,
+                trainer_cls=GradAccumRegressionTrainer,
+            )
+            trainer.model.intermediate_stats = IntermediateStatsRecorder()
+            trainer.model.intermediate_stats.record_scalar("stale/value", 99.0)
+
+            train_metrics = trainer.train_one_epoch()
+
+            self.assertAlmostEqual(train_metrics["forward/value"], 3.0)
+            self.assertNotIn("stale/value", train_metrics)
+            self.assertEqual(trainer.model.intermediate_stats.snapshot(), {})
 
     def test_logged_interval_time_tracks_each_log_window(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

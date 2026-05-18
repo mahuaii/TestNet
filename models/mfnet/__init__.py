@@ -14,6 +14,10 @@ _MODEL_EXPORTS = {
     "UNetFormerPreAlign": (".UNetFormer_MMSAM_prealign", "UNetFormerPreAlign"),
     "UNetFormerPreAlignAuxAlign": (".UNetFormer_MMSAM_prealign_auxalign", "UNetFormerPreAlignAuxAlign"),
     "UNetFormerPreAlignDGA10": (".UNetFormer_MMSAM_prealign_dga10", "UNetFormerPreAlignDGA10"),
+    "UNetFormerPreAlignAuxAlignDGA10": (
+        ".UNetFormer_MMSAM_prealign_auxalign_dga10",
+        "UNetFormerPreAlignAuxAlignDGA10",
+    ),
     "UNetFormerPreAlignAuxAlignDGSF10": (
         ".UNetFormer_MMSAM_prealign_auxalign_dgsf10",
         "UNetFormerPreAlignAuxAlignDGSF10",
@@ -45,5 +49,6 @@ __all__ = [
     "UNetFormerPreAlign",
     "UNetFormerPreAlignAuxAlign",
     "UNetFormerPreAlignDGA10",
+    "UNetFormerPreAlignAuxAlignDGA10",
     "UNetFormerPreAlignAuxAlignDGSF10",
 ]

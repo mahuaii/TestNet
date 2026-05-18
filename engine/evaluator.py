@@ -85,6 +85,7 @@ class Evaluator:
             "pixels_processed": int(total),
             "class_names": list(label_values),
             "per_class_accuracy": per_class_accuracy,
+            "per_class_recall": per_class_accuracy,
             "per_class_f1": f1_score,
             "per_class_iou": miou,
         }

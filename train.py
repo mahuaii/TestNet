@@ -15,6 +15,7 @@ from torch.utils.data import DataLoader
 from data import build_isprs_dataset
 from engine import (
     Evaluator,
+    MFNetAuxAlignDGATrainer,
     MFNetAuxAlignTrainer,
     MFNetDGATrainer,
     MFNetTrainer,
@@ -40,6 +41,7 @@ DGA_MODEL_TYPES = {
     "mfnet_unetformer_dga20_softplus",
     "mfnet_unetformer_dga30",
     "mfnet_unetformer_prealign_dga10",
+    "mfnet_unetformer_prealign_auxalign_dga10",
 }
 
 RECORDER_LOGGER_MODEL_TYPES = DGA_MODEL_TYPES | {
@@ -49,8 +51,11 @@ RECORDER_LOGGER_MODEL_TYPES = DGA_MODEL_TYPES | {
 
 AUX_ALIGN_MODEL_TYPES = {
     "mfnet_unetformer_prealign_auxalign",
+    "mfnet_unetformer_prealign_auxalign_dga10",
     "mfnet_unetformer_prealign_auxalign_dgsf10",
 }
+
+AUX_ALIGN_DGA_MODEL_TYPES = DGA_MODEL_TYPES & AUX_ALIGN_MODEL_TYPES
 
 
 def parse_args() -> argparse.Namespace:
@@ -164,7 +169,9 @@ def main() -> None:
         )
 
     model_type = str(cfg["model"]["type"])
-    if model_type in AUX_ALIGN_MODEL_TYPES:
+    if model_type in AUX_ALIGN_DGA_MODEL_TYPES:
+        trainer_cls = MFNetAuxAlignDGATrainer
+    elif model_type in AUX_ALIGN_MODEL_TYPES:
         trainer_cls = MFNetAuxAlignTrainer
     elif model_type in DGA_MODEL_TYPES:
         trainer_cls = MFNetDGATrainer

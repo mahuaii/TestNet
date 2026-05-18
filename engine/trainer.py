@@ -156,7 +156,7 @@ class Trainer(ABC):
         # batch循环
         for batch in self.train_loader:
             # 前向、反向
-            loss, metrics = self.train_forward(batch)
+            loss, metrics = self._run_train_forward(batch)
             loss.backward()
 
             log_window_metrics.update_mean_stats(metrics)
@@ -193,6 +193,22 @@ class Trainer(ABC):
         - 当前 batch 的 loss tensor 和训练指标字典
         """
         ...
+
+    def before_train_forward(self) -> None:
+        intermediate_stats = getattr(self.model, "intermediate_stats", None)
+        if intermediate_stats is not None:
+            intermediate_stats.clear()
+
+    def after_train_forward(self, metrics: dict[str, float]) -> dict[str, float]:
+        intermediate_stats = getattr(self.model, "intermediate_stats", None)
+        if intermediate_stats is not None:
+            metrics.update(intermediate_stats.snapshot(reset=True))
+        return metrics
+
+    def _run_train_forward(self, batch: dict[str, Any]) -> tuple[torch.Tensor, dict[str, float]]:
+        self.before_train_forward()
+        loss, metrics = self.train_forward(batch)
+        return loss, self.after_train_forward(metrics)
 
     def after_step(
         self,

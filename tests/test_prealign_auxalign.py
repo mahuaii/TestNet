@@ -9,7 +9,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 
 from engine.mfnet_auxalign_trainer import MFNetAuxAlignTrainer
-from utils import TestNetLogger
+from utils import IntermediateStatsRecorder, TestNetLogger
 
 if importlib.util.find_spec("timm") is not None:
     from models.mfnet.UNetFormer_MMSAM_prealign_auxalign import UNetFormerPreAlignAuxAlign
@@ -131,6 +131,9 @@ class _AuxAlignToyModel(torch.nn.Module):
         )
         x_align = torch.ones(rgb.shape[0], 1, device=rgb.device)
         y_align = y_aligned.mean(dim=(1, 2, 3), keepdim=False).unsqueeze(1) * self.encoder_adapter
+        intermediate_stats = getattr(self, "intermediate_stats", None)
+        if intermediate_stats is not None:
+            intermediate_stats.record_scalar("align/value", 11.0)
         return logits, x_align, y_align
 
 
@@ -231,6 +234,19 @@ class MFNetAuxAlignTrainerTest(unittest.TestCase):
         self.assertIn("accuracy", metrics)
         self.assertIsNotNone(model.aux_prealign.weight.grad)
         self.assertIsNone(model.encoder_adapter.grad)
+
+    def test_train_one_epoch_merges_intermediate_stats(self) -> None:
+        model = _AuxAlignToyModel()
+        model.intermediate_stats = IntermediateStatsRecorder()
+        model.intermediate_stats.record_scalar("stale/value", 99.0)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trainer = self._build_trainer(tmpdir, model)
+
+            train_metrics = trainer.train_one_epoch()
+
+        self.assertAlmostEqual(train_metrics["align/value"], 11.0)
+        self.assertNotIn("stale/value", train_metrics)
+        self.assertEqual(model.intermediate_stats.snapshot(), {})
 
 
 if __name__ == "__main__":

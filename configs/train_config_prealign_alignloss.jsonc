@@ -1,6 +1,5 @@
 {
     "extends": "train_config.jsonc",
-    "seed": 80,
     "model": {
         "type": "mfnet_unetformer_prealign_auxalign"
     },

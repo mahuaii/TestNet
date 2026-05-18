@@ -1,6 +1,7 @@
 from .evaluator import Evaluator
 from .grad_accum_trainer import GradAccumTrainer
 from .inferencer import Inferencer
+from .mfnet_auxalign_dga_trainer import MFNetAuxAlignDGATrainer
 from .mfnet_auxalign_trainer import MFNetAuxAlignTrainer
 from .mfnet_dga_trainer import MFNetDGATrainer
 from .mfnet_trainer import MFNetTrainer
@@ -11,6 +12,7 @@ __all__ = [
     "Evaluator",
     "GradAccumTrainer",
     "Inferencer",
+    "MFNetAuxAlignDGATrainer",
     "MFNetAuxAlignTrainer",
     "MFNetDGATrainer",
     "MFNetTrainer",

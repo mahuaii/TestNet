@@ -32,6 +32,10 @@ class TrainUtilsTest(unittest.TestCase):
 
     def test_work_dir_model_suffix_removes_common_mfnet_tokens(self) -> None:
         self.assertEqual(work_dir_model_suffix("mfnet_unetformer_prealign_dga10"), "prealign_dga10")
+        self.assertEqual(
+            work_dir_model_suffix("mfnet_unetformer_prealign_auxalign_dga10"),
+            "prealign_auxalign_dga10",
+        )
         self.assertEqual(work_dir_model_suffix("mfnet_unetformer"), "base")
 
     def test_build_default_work_dir_uses_short_run_id_instead_of_timestamp(self) -> None:

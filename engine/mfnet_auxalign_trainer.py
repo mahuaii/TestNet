@@ -29,7 +29,7 @@ class MFNetAuxAlignTrainer(MFNetTrainer):
         self.optimizer.zero_grad()
 
         for batch in self.train_loader:
-            _, metrics = self.train_forward(batch)
+            _, metrics = self._run_train_forward(batch)
 
             log_window_metrics.update_mean_stats(metrics)
             epoch_metrics.update_mean_stats(metrics)

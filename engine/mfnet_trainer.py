@@ -29,13 +29,8 @@ class MFNetTrainer(Trainer):
     @override
     def train_forward(self, batch: dict[str, Any]) -> tuple[torch.Tensor, dict[str, float]]:
         rgb, dsm, target = self._extract_train_tensors(batch)
-        intermediate_stats = getattr(self.model, "intermediate_stats", None)
-        if intermediate_stats is not None:
-            intermediate_stats.clear()
         logits = self.model(rgb, dsm, mode="Train")
         loss, metrics = self._compute_loss_and_metrics(logits=logits, target=target)
-        if intermediate_stats is not None:
-            metrics.update(intermediate_stats.snapshot(reset=True))
         return loss, metrics
 
     @override

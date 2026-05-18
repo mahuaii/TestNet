@@ -277,6 +277,24 @@ class LoggerTest(unittest.TestCase):
             logger.close()
             self.assertTrue(writer.closed)
 
+    def test_testnet_logger_formats_per_class_recall_between_f1_and_iou(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            logger = TestNetLogger(tmpdir, use_tensorboard=False)
+
+            lines = logger._format_per_class_metrics(
+                {
+                    "class_names": ["roads", "buildings"],
+                    "per_class_accuracy": [1.0, 0.5],
+                    "per_class_f1": [0.9, 0.4],
+                    "per_class_recall": [0.8, 0.3],
+                    "per_class_iou": [0.7, 0.2],
+                }
+            )
+
+            self.assertEqual(lines[0], "  class            Acc      F1  Recall     IoU")
+            self.assertEqual(lines[1], "  roads         1.0000  0.9000  0.8000  0.7000")
+            logger.close()
+
     def test_testnet_recorder_logger_writes_dga_tensorboard_scalars(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             logger = TestNetRecorderLogger(tmpdir, use_tensorboard=False)

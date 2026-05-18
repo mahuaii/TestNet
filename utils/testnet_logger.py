@@ -147,24 +147,37 @@ class TestNetLogger(Logger):
         return f"{scalar:7.4f}"
 
     def _format_per_class_metrics(self, val_metrics: dict[str, Any]) -> list[str]:
-        required_keys = ["class_names", "per_class_accuracy", "per_class_f1", "per_class_iou"]
+        required_keys = [
+            "class_names",
+            "per_class_accuracy",
+            "per_class_f1",
+            "per_class_recall",
+            "per_class_iou",
+        ]
         if any(key not in val_metrics for key in required_keys):
             return []
 
         class_names = list(val_metrics["class_names"])
         per_class_accuracy = np.asarray(val_metrics["per_class_accuracy"])
         per_class_f1 = np.asarray(val_metrics["per_class_f1"])
+        per_class_recall = np.asarray(val_metrics["per_class_recall"])
         per_class_iou = np.asarray(val_metrics["per_class_iou"])
         class_width = max([12, *(len(str(name)) for name in class_names)])
 
-        lines = [f"  {'class':<{class_width}} {'Acc':>7} {'F1':>7} {'IoU':>7}"]
+        lines = [f"  {'class':<{class_width}} {'Acc':>7} {'F1':>7} {'Recall':>7} {'IoU':>7}"]
         for index, class_name in enumerate(class_names):
-            if index >= len(per_class_accuracy) or index >= len(per_class_f1) or index >= len(per_class_iou):
+            if (
+                index >= len(per_class_accuracy)
+                or index >= len(per_class_f1)
+                or index >= len(per_class_recall)
+                or index >= len(per_class_iou)
+            ):
                 break
             lines.append(
                 f"  {str(class_name):<{class_width}} "
                 f"{self._format_metric(per_class_accuracy[index])} "
                 f"{self._format_metric(per_class_f1[index])} "
+                f"{self._format_metric(per_class_recall[index])} "
                 f"{self._format_metric(per_class_iou[index])}"
             )
         return lines

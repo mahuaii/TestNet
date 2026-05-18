@@ -41,7 +41,7 @@ class GradAccumTrainer(Trainer):
             remaining_batches = total_batches - batch_count_in_epoch
             accum_batch_target = min(self.grad_accum_steps, remaining_batches)
 
-            loss, metrics = self.train_forward(batch)
+            loss, metrics = self._run_train_forward(batch)
             (loss / accum_batch_target).backward()
 
             log_window_metrics.update_mean_stats(metrics)

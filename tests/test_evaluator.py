@@ -29,6 +29,7 @@ class EvaluatorTest(unittest.TestCase):
             "pixels_processed",
             "class_names",
             "per_class_accuracy",
+            "per_class_recall",
             "per_class_f1",
             "per_class_iou",
         ]:
@@ -41,6 +42,7 @@ class EvaluatorTest(unittest.TestCase):
         self.assertEqual(metrics["class_names"], ["roads", "buildings", "low veg.", "trees", "cars", "clutter"])
         self.assertEqual(metrics["confusion_matrix"].shape, (6, 6))
         self.assertEqual(metrics["per_class_accuracy"].shape, (6,))
+        self.assertEqual(metrics["per_class_recall"].shape, (6,))
         self.assertEqual(metrics["per_class_f1"].shape, (6,))
         self.assertEqual(metrics["per_class_iou"].shape, (6,))
 
