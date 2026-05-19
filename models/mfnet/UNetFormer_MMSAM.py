@@ -575,9 +575,11 @@ class UNetFormer(nn.Module):
         *,
         sam_backbone: str,
         sam_checkpoint: str,
+        mm_adapter_block: str = "default",
     ):
         super().__init__()
         args = cfg.parse_args()
+        args.mm_adapter_block = mm_adapter_block
         self.sam = sam_model_registry[sam_backbone](args, checkpoint=sam_checkpoint)
         # self.sam = sam_model_registry["vit_l"](args,checkpoint='weights/sam_vit_l_0b3195.pth')
         # self.sam = sam_model_registry["vit_h"](args,checkpoint='weights/sam_vit_h_4b8939.pth')
@@ -654,3 +656,8 @@ class UNetFormer(nn.Module):
         # x = self.decoder(res4, h, w)
 
         return x
+
+
+class UNetFormerMMAdapter10(UNetFormer):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, mm_adapter_block="mmadapter10", **kwargs)

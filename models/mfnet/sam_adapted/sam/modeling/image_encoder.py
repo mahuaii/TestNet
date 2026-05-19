@@ -13,7 +13,7 @@ import torch.nn.functional as F
 from einops import rearrange
 
 from ...common import LayerNorm2d
-from ...ImageEncoder import AdapterBlock, AdapterFusionBlock, Block, LoraBlock
+from ...ImageEncoder import AdapterBlock, AdapterFusionBlock, Block, LoraBlock, MMAdapter10FusionBlock
 from ...common import Adapter
 
 
@@ -79,7 +79,10 @@ class ImageEncoderViT(nn.Module):
 
         self.blocks = nn.ModuleList()
         if args.mod == 'sam_adpt':
-            block_class = AdapterFusionBlock 
+            if getattr(args, "mm_adapter_block", "default") == "mmadapter10":
+                block_class = MMAdapter10FusionBlock
+            else:
+                block_class = AdapterFusionBlock
         elif args.mod == 'sam_lora':
             block_class = LoraBlock 
         else:
@@ -195,4 +198,3 @@ class PatchEmbed(nn.Module):
         # B C H W -> B H W C
         x = x.permute(0, 2, 3, 1)
         return x
-

@@ -4,6 +4,7 @@ from typing import Any
 
 _MODEL_EXPORTS = {
     "UNetFormer": (".UNetFormer_MMSAM", "UNetFormer"),
+    "UNetFormerMMAdapter10": (".UNetFormer_MMSAM", "UNetFormerMMAdapter10"),
     "UNetFormerDGA10": (".UNetFormer_MMSAM_dga10", "UNetFormerDGA10"),
     "UNetFormerDGA20": (".UNetFormer_MMSAM_dga20", "UNetFormerDGA20"),
     "UNetFormerDGA20DGSF10": (".UNetFormer_MMSAM_dga20_dgsf10", "UNetFormerDGA20DGSF10"),
@@ -39,6 +40,7 @@ def __getattr__(name: str) -> Any:
 
 __all__ = [
     "UNetFormer",
+    "UNetFormerMMAdapter10",
     "UNetFormerDGA10",
     "UNetFormerDGA20",
     "UNetFormerDGA20DGSF10",

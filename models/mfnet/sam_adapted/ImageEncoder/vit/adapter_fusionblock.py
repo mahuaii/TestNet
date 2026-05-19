@@ -104,14 +104,24 @@ class AdapterFusionBlock(nn.Module):
         #### MMAdapter
         adax = self.MLPx_Adapter(xn)
         aday = self.MLPy_Adapter(yn)
-        x = x + self.mlp(xn) + self.wx_Adapter * adax + (1 - self.wx_Adapter) * aday
-        y = y + self.mlp(yn) + self.wy_Adapter * aday + (1 - self.wy_Adapter) * adax
+        x_fuse, y_fuse = self.fuse_adapter_messages(adax, aday)
+        x = x + self.mlp(xn) + x_fuse
+        y = y + self.mlp(yn) + y_fuse
 
         #### ablation: without MMAdapter
         # x = x + self.mlp(xn)
         # y = y + self.mlp(yn)
 
         return x, y
+
+    def fuse_adapter_messages(
+        self,
+        x_msg: torch.Tensor,
+        y_msg: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        x_fuse = self.wx_Adapter * x_msg + (1 - self.wx_Adapter) * y_msg
+        y_fuse = self.wy_Adapter * y_msg + (1 - self.wy_Adapter) * x_msg
+        return x_fuse, y_fuse
     
     # ## Single modality
     # def forward(self, x: torch.Tensor):
@@ -138,6 +148,45 @@ class AdapterFusionBlock(nn.Module):
 
     #     x = x + self.mlp(xn)
     #     return x
+
+
+class MMAdapter10FusionBlock(AdapterFusionBlock):
+    def __init__(self, *args, **kwargs) -> None:
+        dim = kwargs.get("dim")
+        if dim is None and len(args) >= 2:
+            dim = args[1]
+        super().__init__(*args, **kwargs)
+        del self.wx_Adapter
+        del self.wy_Adapter
+        self.MMAdapter_Fusion = nn.Sequential(
+            nn.Linear(2 * int(dim), 64),
+            nn.GELU(),
+            nn.Linear(64, 2),
+            nn.Sigmoid(),
+        )
+
+    def fuse_adapter_messages(
+        self,
+        x_msg: torch.Tensor,
+        y_msg: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        if x_msg.ndim != 4 or y_msg.ndim != 4:
+            raise ValueError(
+                "MMAdapter10FusionBlock expects x_msg and y_msg with shape [B, H, W, C]."
+            )
+        if x_msg.shape != y_msg.shape:
+            raise ValueError(
+                "MMAdapter10FusionBlock expects x_msg and y_msg to have the same shape."
+            )
+
+        z = torch.cat([x_msg, y_msg], dim=-1)
+        gate = self.MMAdapter_Fusion(z)
+        g_x = gate[..., 0:1]
+        g_y = gate[..., 1:2]
+        x_fuse = x_msg + g_x * y_msg
+        y_fuse = y_msg + g_y * x_msg
+        return x_fuse, y_fuse
+
 
 class Attention(nn.Module):
     """Multi-head Attention block with relative position embeddings."""

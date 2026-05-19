@@ -82,6 +82,141 @@ class _ListDataset(Dataset):
         return self.batches[index]
 
 
+class MMAdapter10FusionBlockTest(unittest.TestCase):
+    def _make_block(self) -> torch.nn.Module:
+        with _fake_mfnet_optional_imports():
+            from models.mfnet.sam_adapted.ImageEncoder.vit.adapter_fusionblock import MMAdapter10FusionBlock
+
+            args = types.SimpleNamespace(mid_dim=None)
+            return MMAdapter10FusionBlock(
+                args=args,
+                dim=8,
+                num_heads=2,
+                mlp_ratio=2.0,
+                qkv_bias=True,
+                window_size=0,
+            )
+
+    def test_patch_wise_fusion_uses_patch_scalar_gates(self) -> None:
+        block = self._make_block()
+        x_msg = torch.randn(2, 3, 5, 8)
+        y_msg = torch.randn(2, 3, 5, 8)
+
+        x_fuse, y_fuse = block.fuse_adapter_messages(x_msg, y_msg)
+        gate = block.MMAdapter_Fusion(torch.cat([x_msg, y_msg], dim=-1))
+        g_x = gate[..., 0:1]
+        g_y = gate[..., 1:2]
+
+        self.assertEqual(x_fuse.shape, x_msg.shape)
+        self.assertEqual(y_fuse.shape, y_msg.shape)
+        self.assertEqual(gate.shape, (2, 3, 5, 2))
+        self.assertEqual(g_x.shape, (2, 3, 5, 1))
+        self.assertEqual(g_y.shape, (2, 3, 5, 1))
+        self.assertTrue(torch.allclose(x_fuse, x_msg + g_x * y_msg))
+        self.assertTrue(torch.allclose(y_fuse, y_msg + g_y * x_msg))
+
+    def test_patch_wise_fusion_rejects_non_spatial_tokens(self) -> None:
+        block = self._make_block()
+
+        with self.assertRaisesRegex(ValueError, r"\[B, H, W, C\]"):
+            block.fuse_adapter_messages(torch.randn(2, 15, 8), torch.randn(2, 15, 8))
+
+    def test_mmadapter10_block_forward_and_parameters(self) -> None:
+        block = self._make_block()
+        x = torch.randn(2, 3, 5, 8)
+        y = torch.randn(2, 3, 5, 8)
+
+        out_x, out_y = block(x, y)
+        named_parameters = dict(block.named_parameters())
+
+        self.assertEqual(out_x.shape, x.shape)
+        self.assertEqual(out_y.shape, y.shape)
+        self.assertNotIn("wx_Adapter", named_parameters)
+        self.assertNotIn("wy_Adapter", named_parameters)
+        fusion_parameter_names = [
+            name for name in named_parameters if name.startswith("MMAdapter_Fusion.")
+        ]
+        self.assertTrue(fusion_parameter_names)
+        self.assertTrue(all(named_parameters[name].requires_grad for name in fusion_parameter_names))
+
+    def test_image_encoder_uses_mmadapter10_block_when_args_select_it(self) -> None:
+        with _fake_mfnet_optional_imports():
+            from models.mfnet.sam_adapted.ImageEncoder.vit.adapter_fusionblock import MMAdapter10FusionBlock
+            from models.mfnet.sam_adapted.sam.modeling.image_encoder import ImageEncoderViT
+
+            args = types.SimpleNamespace(mod="sam_adpt", mid_dim=None, mm_adapter_block="mmadapter10")
+            encoder = ImageEncoderViT(
+                args=args,
+                img_size=16,
+                patch_size=16,
+                embed_dim=8,
+                depth=1,
+                num_heads=2,
+                out_chans=4,
+                use_abs_pos=False,
+                use_rel_pos=False,
+            )
+
+        self.assertIsInstance(encoder.blocks[0], MMAdapter10FusionBlock)
+
+    def test_image_encoder_uses_default_adapter_fusion_block_without_mmadapter10(self) -> None:
+        with _fake_mfnet_optional_imports():
+            from models.mfnet.sam_adapted.ImageEncoder.vit.adapter_fusionblock import AdapterFusionBlock
+            from models.mfnet.sam_adapted.sam.modeling.image_encoder import ImageEncoderViT
+
+            args = types.SimpleNamespace(mod="sam_adpt", mid_dim=None)
+            encoder = ImageEncoderViT(
+                args=args,
+                img_size=16,
+                patch_size=16,
+                embed_dim=8,
+                depth=1,
+                num_heads=2,
+                out_chans=4,
+                use_abs_pos=False,
+                use_rel_pos=False,
+            )
+
+        self.assertIsInstance(encoder.blocks[0], AdapterFusionBlock)
+
+    def test_unetformer_mmadapter10_passes_mmadapter10_arg_to_sam_builder(self) -> None:
+        with _fake_mfnet_optional_imports():
+            import models.mfnet.UNetFormer_MMSAM as module
+
+            captured_args: list[object] = []
+
+            class FakeSam(torch.nn.Module):
+                def __init__(self) -> None:
+                    super().__init__()
+                    self.image_encoder = torch.nn.Module()
+
+            def fake_build_sam(args: object, checkpoint: str) -> FakeSam:
+                del checkpoint
+                captured_args.append(args)
+                return FakeSam()
+
+            original_parse_args = module.cfg.parse_args
+            original_builder = module.sam_model_registry.get("vit_b")
+            try:
+                module.cfg.parse_args = lambda: types.SimpleNamespace(mod="sam_adpt")
+                module.sam_model_registry["vit_b"] = fake_build_sam
+
+                module.UNetFormerMMAdapter10(
+                    num_classes=6,
+                    sam_backbone="vit_b",
+                    sam_checkpoint="/tmp/sam_vit_b_01ec64.pth",
+                )
+            finally:
+                module.cfg.parse_args = original_parse_args
+                if original_builder is None:
+                    del module.sam_model_registry["vit_b"]
+                else:
+                    module.sam_model_registry["vit_b"] = original_builder
+
+        self.assertEqual(len(captured_args), 1)
+        self.assertEqual(captured_args[0].mm_adapter_block, "mmadapter10")
+
+
 class _DelegatingMFNetTrainer(MFNetTrainer):
     def __init__(self, *args: object, **kwargs: object) -> None:
         super().__init__(*args, **kwargs)
@@ -781,6 +916,41 @@ class MFNetTrainingTest(unittest.TestCase):
             )
 
             self.assertIsInstance(model, FakeUNetFormer)
+            self.assertEqual(
+                captured_kwargs,
+                [{"num_classes": 6, "sam_backbone": "vit_b", "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth"}],
+            )
+        finally:
+            if original_mfnet_module is None:
+                del sys.modules["models.mfnet"]
+            else:
+                sys.modules["models.mfnet"] = original_mfnet_module
+
+    def test_build_model_dispatches_to_mfnet_unetformer_mmadapter10(self) -> None:
+        build_module = importlib.import_module("models.build")
+        captured_kwargs: list[dict[str, object]] = []
+
+        class FakeUNetFormerMMAdapter10:
+            def __init__(self, **kwargs: object) -> None:
+                captured_kwargs.append(kwargs)
+
+        fake_mfnet_module = types.ModuleType("models.mfnet")
+        fake_mfnet_module.UNetFormerMMAdapter10 = FakeUNetFormerMMAdapter10
+        original_mfnet_module = sys.modules.get("models.mfnet")
+
+        try:
+            sys.modules["models.mfnet"] = fake_mfnet_module
+
+            model = build_module.build_model(
+                {
+                    "type": "mfnet_unetformer_mmadapter10",
+                    "num_classes": 6,
+                    "sam_backbone": "vit_b",
+                    "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
+                }
+            )
+
+            self.assertIsInstance(model, FakeUNetFormerMMAdapter10)
             self.assertEqual(
                 captured_kwargs,
                 [{"num_classes": 6, "sam_backbone": "vit_b", "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth"}],

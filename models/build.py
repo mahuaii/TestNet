@@ -25,6 +25,15 @@ def build_model(cfg: dict[str, Any]) -> Any:
             sam_checkpoint=str(cfg["sam_checkpoint"]),
         )
         return model
+    if model_type == "mfnet_unetformer_mmadapter10":
+        from .mfnet import UNetFormerMMAdapter10
+
+        model = UNetFormerMMAdapter10(
+            num_classes=int(cfg["num_classes"]),
+            sam_backbone=str(cfg["sam_backbone"]),
+            sam_checkpoint=str(cfg["sam_checkpoint"]),
+        )
+        return model
     if model_type == "mfnet_unetformer_dga10":
         from .mfnet import UNetFormerDGA10
 
@@ -143,6 +152,7 @@ def build_model(cfg: dict[str, Any]) -> Any:
     raise KeyError(
         "Unsupported model type: "
         f"{model_type!r}. Supported types: 'mfnet_unetformer', "
+        "'mfnet_unetformer_mmadapter10', "
         "'mfnet_unetformer_dga10', 'mfnet_unetformer_dga20', "
         "'mfnet_unetformer_dga20_dgsf10', 'mfnet_unetformer_dgsf10', "
         "'mfnet_unetformer_dga10_softplus', 'mfnet_unetformer_dga20_softplus', "
