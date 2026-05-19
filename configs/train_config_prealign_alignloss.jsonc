@@ -1,9 +1,0 @@
-{
-    "extends": "train_config.jsonc",
-    "model": {
-        "type": "mfnet_unetformer_prealign_auxalign"
-    },
-    "train": {
-        "lambda_align": 1.0
-    }
-}
