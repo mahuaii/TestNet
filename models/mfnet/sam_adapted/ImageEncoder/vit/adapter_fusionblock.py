@@ -181,10 +181,10 @@ class MMAdapter10FusionBlock(AdapterFusionBlock):
 
         z = torch.cat([x_msg, y_msg], dim=-1)
         gate = self.MMAdapter_Fusion(z)
-        g_x = gate[..., 0:1]
-        g_y = gate[..., 1:2]
-        x_fuse = x_msg + g_x * y_msg
-        y_fuse = y_msg + g_y * x_msg
+        gate_y_to_x = gate[..., 0:1]
+        gate_x_to_y = gate[..., 1:2]
+        x_fuse = x_msg + gate_y_to_x * y_msg
+        y_fuse = y_msg + gate_x_to_y * x_msg
         return x_fuse, y_fuse
 
 

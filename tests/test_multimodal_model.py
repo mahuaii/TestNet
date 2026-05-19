@@ -104,16 +104,16 @@ class MMAdapter10FusionBlockTest(unittest.TestCase):
 
         x_fuse, y_fuse = block.fuse_adapter_messages(x_msg, y_msg)
         gate = block.MMAdapter_Fusion(torch.cat([x_msg, y_msg], dim=-1))
-        g_x = gate[..., 0:1]
-        g_y = gate[..., 1:2]
+        gate_y_to_x = gate[..., 0:1]
+        gate_x_to_y = gate[..., 1:2]
 
         self.assertEqual(x_fuse.shape, x_msg.shape)
         self.assertEqual(y_fuse.shape, y_msg.shape)
         self.assertEqual(gate.shape, (2, 3, 5, 2))
-        self.assertEqual(g_x.shape, (2, 3, 5, 1))
-        self.assertEqual(g_y.shape, (2, 3, 5, 1))
-        self.assertTrue(torch.allclose(x_fuse, x_msg + g_x * y_msg))
-        self.assertTrue(torch.allclose(y_fuse, y_msg + g_y * x_msg))
+        self.assertEqual(gate_y_to_x.shape, (2, 3, 5, 1))
+        self.assertEqual(gate_x_to_y.shape, (2, 3, 5, 1))
+        self.assertTrue(torch.allclose(x_fuse, x_msg + gate_y_to_x * y_msg))
+        self.assertTrue(torch.allclose(y_fuse, y_msg + gate_x_to_y * x_msg))
 
     def test_patch_wise_fusion_rejects_non_spatial_tokens(self) -> None:
         block = self._make_block()
