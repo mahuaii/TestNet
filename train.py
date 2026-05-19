@@ -204,8 +204,8 @@ def main() -> None:
             "validation": cfg["validation"],
         },
     )
-    # A --resume-dir run reuses the existing work_dir and train.log, so the
-    # initial run summary should already be present and must not be duplicated.
+    # A --resume-dir run reuses the existing work_dir, so the initial run
+    # summary in train.log should already be present and must not be duplicated.
     if args.resume_dir is None:
         log_run_summary(
             logger=logger,

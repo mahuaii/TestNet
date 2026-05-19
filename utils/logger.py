@@ -28,6 +28,7 @@ class Logger(ABC):
         use_tensorboard: bool = True,
     ) -> None:
         self.log_path = Path(work_dir) / "train.log"
+        self.val_log_path = Path(work_dir) / "val.log"
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         self.use_tensorboard = bool(use_tensorboard)
         self._summary_writer = self._build_summary_writer(
@@ -98,13 +99,13 @@ class Logger(ABC):
         epoch: int,
         val_metrics: dict[str, float] | None = None,
     ) -> None:
-        self.log_message("")
-        self._log_section_header(f"VALIDATION EPOCH {epoch}", fill="-")
-        self.log_message(f"Validation time: {self.format_time(test_time_seconds)}")
+        self.log_val_message("")
+        self._log_val_section_header(f"VALIDATION EPOCH {epoch}", fill="-")
+        self.log_val_message(f"Validation time: {self.format_time(test_time_seconds)}")
         if val_metrics:
             message = self._format_validation_summary(val_metrics=val_metrics)
             if message is not None:
-                self.log_message(message)
+                self.log_val_message(message)
             self._write_validation_scalars(epoch=epoch, val_metrics=val_metrics)
 
     def log_checkpoint_saved(self, path: str | Path) -> None:
@@ -113,10 +114,20 @@ class Logger(ABC):
     def log_best_metric(self, name: str, value: float) -> None:
         self.log_message(f"[{name}: {value:.4f}]")
 
+    def log_val_best_metric(self, name: str, value: float) -> None:
+        self.log_val_message(f"[{name}: {value:.4f}]")
+
     def log_message(self, message: str, writefile: bool = True) -> None:
+        self._log_message_to_path(self.log_path, message, writefile=writefile)
+
+    def log_val_message(self, message: str, writefile: bool = True) -> None:
+        self._log_message_to_path(self.val_log_path, message, writefile=writefile)
+
+    @staticmethod
+    def _log_message_to_path(path: Path, message: str, writefile: bool = True) -> None:
         print(message)
         if writefile:
-            with self.log_path.open("a", encoding="utf-8") as f:
+            with path.open("a", encoding="utf-8") as f:
                 f.write(message + "\n")
 
     def truncate_after_completed_epoch(self, completed_epoch: int) -> bool:
@@ -161,6 +172,12 @@ class Logger(ABC):
         self.log_message(line)
         self.log_message(f"  {title}")
         self.log_message(line)
+
+    def _log_val_section_header(self, title: str, fill: str) -> None:
+        line = fill * self._SECTION_WIDTH
+        self.log_val_message(line)
+        self.log_val_message(f"  {title}")
+        self.log_val_message(line)
 
     def close(self) -> None:
         self._summary_writer.close()

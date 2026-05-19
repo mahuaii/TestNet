@@ -109,6 +109,7 @@ class LoggerTest(unittest.TestCase):
             logger.close()
 
             log_lines = Path(tmpdir, "train.log").read_text(encoding="utf-8").splitlines()
+            val_log_lines = Path(tmpdir, "val.log").read_text(encoding="utf-8").splitlines()
             self.assertEqual(log_lines[0], "")
             self.assertEqual(log_lines[1], "=" * 80)
             self.assertEqual(log_lines[2], "  EPOCH 1 / 3")
@@ -117,11 +118,12 @@ class LoggerTest(unittest.TestCase):
             self.assertEqual(log_lines[5], "  TRAINING SUMMARY")
             self.assertEqual(log_lines[6], "-" * 80)
             self.assertEqual(log_lines[7], "Training time: 1:01:01")
-            self.assertEqual(log_lines[8], "")
-            self.assertEqual(log_lines[9], "-" * 80)
-            self.assertEqual(log_lines[10], "  VALIDATION EPOCH 2")
-            self.assertEqual(log_lines[11], "-" * 80)
-            self.assertEqual(log_lines[12], "Validation time: 0:01:01")
+            self.assertEqual(len(log_lines), 8)
+            self.assertEqual(val_log_lines[0], "")
+            self.assertEqual(val_log_lines[1], "-" * 80)
+            self.assertEqual(val_log_lines[2], "  VALIDATION EPOCH 2")
+            self.assertEqual(val_log_lines[3], "-" * 80)
+            self.assertEqual(val_log_lines[4], "Validation time: 0:01:01")
 
     def test_testnet_logger_formats_mfnet_style_messages(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -150,10 +152,11 @@ class LoggerTest(unittest.TestCase):
                 val_metrics={"MIoU": 0.6, "accuracy": 88.0},
             )
             logger.log_checkpoint_saved("/tmp/model.pth")
-            logger.log_best_metric("MIoU_best", 0.6)
+            logger.log_val_best_metric("MIoU_best", 0.6)
             logger.close()
 
             log_lines = Path(tmpdir, "train.log").read_text(encoding="utf-8").splitlines()
+            val_log_lines = Path(tmpdir, "val.log").read_text(encoding="utf-8").splitlines()
             self.assertEqual(log_lines[0], "")
             self.assertEqual(log_lines[1], "=" * 80)
             self.assertEqual(log_lines[2], "  EPOCH 1 / 3")
@@ -171,15 +174,16 @@ class LoggerTest(unittest.TestCase):
                 "Train summary: Loss: 0.500000 | Accuracy: 90.0000 | LR: 0.010000",
                 log_lines[9],
             )
-            self.assertEqual(log_lines[10], "")
-            self.assertEqual(log_lines[11], "-" * 80)
-            self.assertEqual(log_lines[12], "  VALIDATION EPOCH 2")
-            self.assertEqual(log_lines[13], "-" * 80)
-            self.assertEqual(log_lines[14], "Validation time: 0:01:01")
-            self.assertEqual(log_lines[15], "Validation Report")
-            self.assertIn("Total accuracy: 88.0000", log_lines[16])
-            self.assertIn("Mean MIoU: 0.6000", "\n".join(log_lines))
-            self.assertEqual(log_lines[-1], "[MIoU_best: 0.6000]")
+            self.assertNotIn("VALIDATION EPOCH", "\n".join(log_lines))
+            self.assertEqual(val_log_lines[0], "")
+            self.assertEqual(val_log_lines[1], "-" * 80)
+            self.assertEqual(val_log_lines[2], "  VALIDATION EPOCH 2")
+            self.assertEqual(val_log_lines[3], "-" * 80)
+            self.assertEqual(val_log_lines[4], "Validation time: 0:01:01")
+            self.assertEqual(val_log_lines[5], "Validation Report")
+            self.assertIn("Total accuracy: 88.0000", val_log_lines[6])
+            self.assertIn("Mean MIoU: 0.6000", "\n".join(val_log_lines))
+            self.assertEqual(val_log_lines[-1], "[MIoU_best: 0.6000]")
 
     def test_truncate_after_completed_epoch_removes_incomplete_epoch_tail(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
