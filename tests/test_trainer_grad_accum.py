@@ -599,7 +599,37 @@ class TrainerGradAccumTest(unittest.TestCase):
                     trainer_cls=GradAccumRegressionTrainer,
                 )
 
-    def test_checkpoint_resume_restores_recorded_epoch_and_optimizer_step(self) -> None:
+    def test_step_checkpoint_resume_restores_current_epoch_and_optimizer_step(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trainer = build_trainer(
+                work_dir=tmpdir,
+                values=[1.0, 2.0, 3.0, 4.0],
+                batch_size=2,
+                effective_batch_size=4,
+                save_step_interval=1,
+                trainer_cls=GradAccumRegressionTrainer,
+            )
+
+            trainer.train()
+
+            resumed = build_trainer(
+                work_dir=tmpdir,
+                values=[1.0, 2.0, 3.0, 4.0],
+                batch_size=2,
+                effective_batch_size=4,
+                trainer_cls=GradAccumRegressionTrainer,
+            )
+            step_path = Path(tmpdir) / "global_step_1.pth"
+            state_dict = CheckpointManager.load(path=str(step_path))
+            self.assertEqual(state_dict["epoch"], 1)
+            self.assertEqual(state_dict["resume_epoch"], 1)
+
+            resumed._load_training_state(str(step_path))
+
+            self.assertEqual(resumed.epoch, 1)
+            self.assertEqual(resumed.global_step, 1)
+
+    def test_latest_checkpoint_resume_starts_after_completed_epoch(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             trainer = build_trainer(
                 work_dir=tmpdir,
@@ -622,10 +652,11 @@ class TrainerGradAccumTest(unittest.TestCase):
             latest_path = Path(tmpdir) / "latest.pth"
             state_dict = CheckpointManager.load(path=str(latest_path))
             self.assertEqual(state_dict["epoch"], 1)
+            self.assertEqual(state_dict["resume_epoch"], 2)
 
             resumed._load_training_state(str(latest_path))
 
-            self.assertEqual(resumed.epoch, 1)
+            self.assertEqual(resumed.epoch, 2)
             self.assertEqual(resumed.global_step, 1)
 
     def test_checkpoint_persists_best_miou_in_named_and_latest_files(self) -> None:
@@ -645,6 +676,8 @@ class TrainerGradAccumTest(unittest.TestCase):
             latest_state = CheckpointManager.load(str(Path(tmpdir) / "latest.pth"))
             self.assertEqual(float(named_state["best_miou"]), 0.7)
             self.assertEqual(float(latest_state["best_miou"]), 0.7)
+            self.assertEqual(named_state["resume_epoch"], 1)
+            self.assertEqual(latest_state["resume_epoch"], 2)
 
     def test_load_training_state_defaults_best_miou_for_legacy_checkpoints(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -696,6 +729,58 @@ class TrainerGradAccumTest(unittest.TestCase):
             self.assertEqual(trainer.epoch, 4)
             self.assertEqual(trainer.global_step, 7)
             self.assertEqual(trainer.best_miou, 0.82)
+
+    def test_legacy_latest_checkpoint_resume_starts_after_completed_epoch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trainer = build_trainer(
+                work_dir=tmpdir,
+                values=[1.0, 2.0],
+                batch_size=1,
+                effective_batch_size=1,
+            )
+            latest_path = Path(tmpdir) / "latest.pth"
+            torch.save(
+                {
+                    "model": trainer.model.state_dict(),
+                    "optimizer": trainer.optimizer.state_dict(),
+                    "scheduler": None,
+                    "epoch": 3,
+                    "global_step": 9,
+                    "best_miou": 0.5,
+                },
+                latest_path,
+            )
+
+            trainer._load_training_state(str(latest_path))
+
+            self.assertEqual(trainer.epoch, 4)
+            self.assertEqual(trainer.global_step, 9)
+
+    def test_legacy_step_checkpoint_resume_keeps_current_epoch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trainer = build_trainer(
+                work_dir=tmpdir,
+                values=[1.0, 2.0],
+                batch_size=1,
+                effective_batch_size=1,
+            )
+            step_path = Path(tmpdir) / "global_step_9.pth"
+            torch.save(
+                {
+                    "model": trainer.model.state_dict(),
+                    "optimizer": trainer.optimizer.state_dict(),
+                    "scheduler": None,
+                    "epoch": 3,
+                    "global_step": 9,
+                    "best_miou": 0.5,
+                },
+                step_path,
+            )
+
+            trainer._load_training_state(str(step_path))
+
+            self.assertEqual(trainer.epoch, 3)
+            self.assertEqual(trainer.global_step, 9)
 
     def test_functional_train_step_forward_interface_runs_train_one_epoch(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -778,7 +863,7 @@ class TrainerGradAccumTest(unittest.TestCase):
             trainer.validate()
 
             self.assertEqual(trainer.best_miou, 0.6)
-            log_lines = Path(tmpdir, "train.log").read_text(encoding="utf-8").splitlines()
+            log_lines = Path(tmpdir, "val.log").read_text(encoding="utf-8").splitlines()
             self.assertIn("[MIoU_best: 0.6000]", log_lines[-1])
 
     def test_validate_keeps_best_miou_when_metric_does_not_improve(self) -> None:
@@ -798,7 +883,7 @@ class TrainerGradAccumTest(unittest.TestCase):
             trainer.validate()
 
             self.assertEqual(trainer.best_miou, 0.6)
-            log_lines = Path(tmpdir, "train.log").read_text(encoding="utf-8").splitlines()
+            log_lines = Path(tmpdir, "val.log").read_text(encoding="utf-8").splitlines()
             self.assertEqual(sum(line == "[MIoU_best: 0.6000]" for line in log_lines), 2)
 
     def test_validate_ignores_missing_miou_for_best_tracking(self) -> None:
@@ -818,7 +903,7 @@ class TrainerGradAccumTest(unittest.TestCase):
             trainer.validate()
 
             self.assertEqual(trainer.best_miou, 0.4)
-            log_lines = Path(tmpdir, "train.log").read_text(encoding="utf-8").splitlines()
+            log_lines = Path(tmpdir, "val.log").read_text(encoding="utf-8").splitlines()
             self.assertIn("[MIoU_best: 0.4000]", log_lines)
 
     def test_train_raises_when_validation_enabled_without_dependencies(self) -> None:

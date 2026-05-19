@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+import re
 from pathlib import Path
 from typing import Any
 
@@ -82,14 +83,32 @@ class Trainer(ABC):
         self.optimizer.load_state_dict(state_dict["optimizer"])
         if self.scheduler is not None and state_dict["scheduler"] is not None:
             self.scheduler.load_state_dict(state_dict["scheduler"])
-        # Checkpoints store the current in-progress epoch, so resume that epoch.
         checkpoint_epoch = int(state_dict["epoch"])
+        resume_epoch = self._resolve_resume_epoch(path=path, state_dict=state_dict)
         checkpoint_global_step = int(state_dict["global_step"])
-        self.logger.truncate_after_completed_epoch(max(0, checkpoint_epoch - 1))
+        completed_epoch = (
+            checkpoint_epoch if resume_epoch > checkpoint_epoch else checkpoint_epoch - 1
+        )
+        self.logger.truncate_after_completed_epoch(max(0, completed_epoch))
         self.logger.purge_tensorboard_after_global_step(checkpoint_global_step)
-        self.epoch = checkpoint_epoch
+        self.epoch = resume_epoch
         self.global_step = checkpoint_global_step
         self.best_miou = float(state_dict.get("best_miou", 0.0))
+
+    @staticmethod
+    def _resolve_resume_epoch(path: str, state_dict: dict[str, Any]) -> int:
+        if "resume_epoch" in state_dict:
+            return int(state_dict["resume_epoch"])
+
+        checkpoint_epoch = int(state_dict["epoch"])
+        checkpoint_name = Path(path).name
+        if (
+            checkpoint_name == "latest.pth"
+            or checkpoint_name == "best_miou.pth"
+            or re.fullmatch(r"epoch_\d+\.pth", checkpoint_name) is not None
+        ):
+            return checkpoint_epoch + 1
+        return checkpoint_epoch
 
     def train(self):
         """
@@ -238,7 +257,10 @@ class Trainer(ABC):
         # 保存训练状态
         save_step_interval = self.cfg["save_step_interval"]
         if save_step_interval > 0 and self.global_step % save_step_interval == 0:
-            self._save_training_state(name=f"global_step_{self.global_step}.pth")
+            self._save_training_state(
+                name=f"global_step_{self.global_step}.pth",
+                resume_epoch=self.epoch,
+            )
 
     def after_epoch(
         self,
@@ -255,10 +277,14 @@ class Trainer(ABC):
             lr=self.lr,
         )
 
-        self._save_training_state(name="latest.pth")
+        next_epoch = self.epoch + 1
+        self._save_training_state(name="latest.pth", resume_epoch=next_epoch)
         save_epoch_interval = int(self.cfg["save_epoch_interval"])
         if save_epoch_interval > 0 and self.epoch % save_epoch_interval == 0:
-            self._save_training_state(name=f"epoch_{self.epoch}.pth")
+            self._save_training_state(
+                name=f"epoch_{self.epoch}.pth",
+                resume_epoch=next_epoch,
+            )
 
     def after_val(
         self,
@@ -276,7 +302,7 @@ class Trainer(ABC):
 
         if "MIoU" in val_metrics:
             self._update_save_best_miou(float(val_metrics["MIoU"]))
-        self.logger.log_best_metric("MIoU_best", self.best_miou)
+        self.logger.log_val_best_metric("MIoU_best", self.best_miou)
 
     @torch.no_grad()
     def validate(self):
@@ -310,7 +336,7 @@ class Trainer(ABC):
         self.optimizer.zero_grad()
         self.global_step += 1
 
-    def _save_training_state(self, name: str) -> None:
+    def _save_training_state(self, name: str, resume_epoch: int | None = None) -> None:
         path = CheckpointManager.save_training_state(
             path=Path(self.cfg["work_dir"]) / name,
             model=self.model,
@@ -319,6 +345,7 @@ class Trainer(ABC):
             epoch=self.epoch,
             global_step=self.global_step,
             best_miou=self.best_miou,
+            resume_epoch=resume_epoch,
         )
         self.logger.log_checkpoint_saved(path)
 
@@ -328,4 +355,5 @@ class Trainer(ABC):
 
             self._save_training_state(
                 name="best_miou.pth",
+                resume_epoch=self.epoch + 1,
             )

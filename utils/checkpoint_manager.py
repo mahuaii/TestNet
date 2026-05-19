@@ -16,6 +16,7 @@ class CheckpointManager:
         epoch: int,
         global_step: int,
         best_miou: float,
+        resume_epoch: int | None = None,
     ) -> Path:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -26,6 +27,7 @@ class CheckpointManager:
             epoch=epoch,
             global_step=global_step,
             best_miou=best_miou,
+            resume_epoch=resume_epoch,
         )
         torch.save(state_dict, path)
         return path
@@ -43,12 +45,14 @@ class CheckpointManager:
         epoch: int,
         global_step: int,
         best_miou: float,
+        resume_epoch: int | None = None,
     ) -> dict[str, Any]:
         state_dict = {
             "model": model.state_dict(),
             "optimizer": optimizer.state_dict(),
             "scheduler": None if scheduler is None else scheduler.state_dict(),
             "epoch": epoch,
+            "resume_epoch": epoch if resume_epoch is None else int(resume_epoch),
             "global_step": global_step,
             "best_miou": float(best_miou),
         }

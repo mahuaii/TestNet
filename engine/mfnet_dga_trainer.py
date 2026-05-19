@@ -36,7 +36,10 @@ class MFNetDGATrainer(MFNetTrainer):
 
         save_step_interval = self.cfg["save_step_interval"]
         if save_step_interval > 0 and self.global_step % save_step_interval == 0:
-            self._save_training_state(name=f"global_step_{self.global_step}.pth")
+            self._save_training_state(
+                name=f"global_step_{self.global_step}.pth",
+                resume_epoch=self.epoch,
+            )
 
     def _collect_dga_block_scalars(self) -> dict[str, float]:
         dga_blocks = getattr(self.model, "dga_blocks", None)
