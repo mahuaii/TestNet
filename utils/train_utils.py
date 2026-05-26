@@ -40,10 +40,10 @@ def build_default_work_dir(
         safe_path_component(dataset_name, "dataset"),
         work_dir_model_suffix(model_name),
         safe_path_component(seed, "seed"),
-        run_id,
     ]
     if lambda_align is not None:
         name_parts.append(safe_path_component(f"lambda-{lambda_align}", "lambda"))
+    name_parts.append(run_id)
     experiment_name = "_".join(name_parts)
     return Path(root_dir) / experiment_name
 

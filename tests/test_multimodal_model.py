@@ -3570,7 +3570,7 @@ class MFNetTrainingTest(unittest.TestCase):
             )
             self.assertRegex(
                 lambda_work_dir.name,
-                re.compile(r"^vaihingen_prealign_auxalign_80_[0-9a-f]{5}_lambda-0.01$"),
+                re.compile(r"^vaihingen_prealign_auxalign_80_lambda-0.01_[0-9a-f]{5}$"),
             )
 
     def test_optimizer_param_groups_exclude_gate_scalars_from_weight_decay(self) -> None:

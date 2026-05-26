@@ -50,7 +50,8 @@ class TrainUtilsTest(unittest.TestCase):
         self.assertEqual(path.parent.name, "runs")
         parts = path.name.split("_")
         self.assertEqual(parts[0:5], ["vaihingen", "dataset", "prealign", "auxalign", "80"])
-        self.assertRegex(path.name, r"_[0-9a-f]{5}_lambda-0.5$")
+        self.assertEqual(parts[-2], "lambda-0.5")
+        self.assertRegex(path.name, r"_lambda-0.5_[0-9a-f]{5}$")
 
     def test_build_optimizer_param_groups_exempts_gate_parameter_names(self) -> None:
         model = GateModel()
