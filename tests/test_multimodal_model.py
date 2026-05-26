@@ -216,6 +216,48 @@ class MMAdapter10FusionBlockTest(unittest.TestCase):
         self.assertEqual(len(captured_args), 1)
         self.assertEqual(captured_args[0].mm_adapter_block, "mmadapter10")
 
+    def test_unetformer_prealign_mmadapter10_passes_mmadapter10_arg_and_reuses_prealign_forward(self) -> None:
+        with _fake_mfnet_optional_imports():
+            import models.mfnet.UNetFormer_MMSAM as base_module
+            from models.mfnet.UNetFormer_MMSAM_prealign import UNetFormerPreAlign
+            from models.mfnet.UNetFormer_MMSAM_prealign_mmadapter10 import UNetFormerPreAlignMMAdapter10
+
+            captured_args: list[object] = []
+
+            class FakeSam(torch.nn.Module):
+                def __init__(self) -> None:
+                    super().__init__()
+                    self.image_encoder = torch.nn.Module()
+
+            def fake_build_sam(args: object, checkpoint: str) -> FakeSam:
+                del checkpoint
+                captured_args.append(args)
+                return FakeSam()
+
+            original_parse_args = base_module.cfg.parse_args
+            original_builder = base_module.sam_model_registry.get("vit_b")
+            try:
+                base_module.cfg.parse_args = lambda: types.SimpleNamespace(mod="sam_adpt")
+                base_module.sam_model_registry["vit_b"] = fake_build_sam
+
+                UNetFormerPreAlignMMAdapter10(
+                    num_classes=6,
+                    sam_backbone="vit_b",
+                    sam_checkpoint="/tmp/sam_vit_b_01ec64.pth",
+                )
+            finally:
+                base_module.cfg.parse_args = original_parse_args
+                if original_builder is None:
+                    del base_module.sam_model_registry["vit_b"]
+                else:
+                    base_module.sam_model_registry["vit_b"] = original_builder
+
+        self.assertTrue(issubclass(UNetFormerPreAlignMMAdapter10, UNetFormerPreAlign))
+        self.assertNotIn("forward", UNetFormerPreAlignMMAdapter10.__dict__)
+        self.assertIs(UNetFormerPreAlignMMAdapter10.forward, UNetFormerPreAlign.forward)
+        self.assertEqual(len(captured_args), 1)
+        self.assertEqual(captured_args[0].mm_adapter_block, "mmadapter10")
+
 
 class _DelegatingMFNetTrainer(MFNetTrainer):
     def __init__(self, *args: object, **kwargs: object) -> None:
@@ -1359,6 +1401,41 @@ class MFNetTrainingTest(unittest.TestCase):
             )
 
             self.assertIsInstance(model, FakeUNetFormerPreAlign)
+            self.assertEqual(
+                captured_kwargs,
+                [{"num_classes": 6, "sam_backbone": "vit_b", "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth"}],
+            )
+        finally:
+            if original_mfnet_module is None:
+                del sys.modules["models.mfnet"]
+            else:
+                sys.modules["models.mfnet"] = original_mfnet_module
+
+    def test_build_model_dispatches_to_mfnet_prealign_mmadapter10(self) -> None:
+        build_module = importlib.import_module("models.build")
+        captured_kwargs: list[dict[str, object]] = []
+
+        class FakeUNetFormerPreAlignMMAdapter10:
+            def __init__(self, **kwargs: object) -> None:
+                captured_kwargs.append(kwargs)
+
+        fake_mfnet_module = types.ModuleType("models.mfnet")
+        fake_mfnet_module.UNetFormerPreAlignMMAdapter10 = FakeUNetFormerPreAlignMMAdapter10
+        original_mfnet_module = sys.modules.get("models.mfnet")
+
+        try:
+            sys.modules["models.mfnet"] = fake_mfnet_module
+
+            model = build_module.build_model(
+                {
+                    "type": "mfnet_unetformer_prealign_mmadapter10",
+                    "num_classes": 6,
+                    "sam_backbone": "vit_b",
+                    "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
+                }
+            )
+
+            self.assertIsInstance(model, FakeUNetFormerPreAlignMMAdapter10)
             self.assertEqual(
                 captured_kwargs,
                 [{"num_classes": 6, "sam_backbone": "vit_b", "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth"}],

@@ -112,6 +112,15 @@ def build_model(cfg: dict[str, Any]) -> Any:
             sam_checkpoint=str(cfg["sam_checkpoint"]),
         )
         return model
+    if model_type == "mfnet_unetformer_prealign_mmadapter10":
+        from .mfnet import UNetFormerPreAlignMMAdapter10
+
+        model = UNetFormerPreAlignMMAdapter10(
+            num_classes=int(cfg["num_classes"]),
+            sam_backbone=str(cfg["sam_backbone"]),
+            sam_checkpoint=str(cfg["sam_checkpoint"]),
+        )
+        return model
     if model_type == "mfnet_unetformer_prealign_auxalign":
         from .mfnet import UNetFormerPreAlignAuxAlign
 
@@ -157,7 +166,8 @@ def build_model(cfg: dict[str, Any]) -> Any:
         "'mfnet_unetformer_dga20_dgsf10', 'mfnet_unetformer_dgsf10', "
         "'mfnet_unetformer_dga10_softplus', 'mfnet_unetformer_dga20_softplus', "
         "'mfnet_unetformer_dga30', "
-        "'mfnet_unetformer_prealign', 'mfnet_unetformer_prealign_auxalign', "
+        "'mfnet_unetformer_prealign', 'mfnet_unetformer_prealign_mmadapter10', "
+        "'mfnet_unetformer_prealign_auxalign', "
         "'mfnet_unetformer_prealign_dga10', "
         "'mfnet_unetformer_prealign_auxalign_dga10', "
         "'mfnet_unetformer_prealign_auxalign_dgsf10'."
