@@ -17,6 +17,7 @@ from engine import (
     Evaluator,
     MFNetAuxAlignDGATrainer,
     MFNetAuxAlignTrainer,
+    MFNetBaselineAuxAlignTrainer,
     MFNetDGATrainer,
     MFNetTrainer,
     SlidingWindowInferencer,
@@ -56,6 +57,9 @@ AUX_ALIGN_MODEL_TYPES = {
 }
 
 AUX_ALIGN_DGA_MODEL_TYPES = DGA_MODEL_TYPES & AUX_ALIGN_MODEL_TYPES
+BASELINE_AUX_ALIGN_MODEL_TYPES = {
+    "mfnet_unetformer_auxalign",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -169,7 +173,9 @@ def main() -> None:
         )
 
     model_type = str(cfg["model"]["type"])
-    if model_type in AUX_ALIGN_DGA_MODEL_TYPES:
+    if model_type in BASELINE_AUX_ALIGN_MODEL_TYPES:
+        trainer_cls = MFNetBaselineAuxAlignTrainer
+    elif model_type in AUX_ALIGN_DGA_MODEL_TYPES:
         trainer_cls = MFNetAuxAlignDGATrainer
     elif model_type in AUX_ALIGN_MODEL_TYPES:
         trainer_cls = MFNetAuxAlignTrainer
@@ -214,7 +220,7 @@ def main() -> None:
             experiment_name=experiment_name,
             seed=seed,
         )
-        if model_type in AUX_ALIGN_MODEL_TYPES:
+        if model_type in AUX_ALIGN_MODEL_TYPES or model_type in BASELINE_AUX_ALIGN_MODEL_TYPES:
             logger.log_message(f"Lambda align: {float(cfg['train'].get('lambda_align', 0.01)):.6f}")
             logger.log_message(f"Align index: {model.align_index}")
     trainer.train()

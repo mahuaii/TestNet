@@ -1446,6 +1446,41 @@ class MFNetTrainingTest(unittest.TestCase):
             else:
                 sys.modules["models.mfnet"] = original_mfnet_module
 
+    def test_build_model_dispatches_to_mfnet_auxalign(self) -> None:
+        build_module = importlib.import_module("models.build")
+        captured_kwargs: list[dict[str, object]] = []
+
+        class FakeUNetFormerAuxAlign:
+            def __init__(self, **kwargs: object) -> None:
+                captured_kwargs.append(kwargs)
+
+        fake_mfnet_module = types.ModuleType("models.mfnet")
+        fake_mfnet_module.UNetFormerAuxAlign = FakeUNetFormerAuxAlign
+        original_mfnet_module = sys.modules.get("models.mfnet")
+
+        try:
+            sys.modules["models.mfnet"] = fake_mfnet_module
+
+            model = build_module.build_model(
+                {
+                    "type": "mfnet_unetformer_auxalign",
+                    "num_classes": 6,
+                    "sam_backbone": "vit_b",
+                    "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
+                }
+            )
+
+            self.assertIsInstance(model, FakeUNetFormerAuxAlign)
+            self.assertEqual(
+                captured_kwargs,
+                [{"num_classes": 6, "sam_backbone": "vit_b", "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth"}],
+            )
+        finally:
+            if original_mfnet_module is None:
+                del sys.modules["models.mfnet"]
+            else:
+                sys.modules["models.mfnet"] = original_mfnet_module
+
     def test_build_model_dispatches_to_mfnet_prealign_auxalign(self) -> None:
         build_module = importlib.import_module("models.build")
         captured_kwargs: list[dict[str, object]] = []
@@ -3500,6 +3535,14 @@ class MFNetTrainingTest(unittest.TestCase):
             def train(self) -> None:
                 return None
 
+        class FakeBaselineAuxAlignTrainer:
+            def __init__(self, **kwargs: object) -> None:
+                captured_trainer_classes.append("MFNetBaselineAuxAlignTrainer")
+                captured_trainer_kwargs.append(kwargs)
+
+            def train(self) -> None:
+                return None
+
         class FakeAuxAlignDGATrainer:
             def __init__(self, **kwargs: object) -> None:
                 captured_trainer_classes.append("MFNetAuxAlignDGATrainer")
@@ -3517,6 +3560,7 @@ class MFNetTrainingTest(unittest.TestCase):
         original_trainer = module.MFNetTrainer
         original_dga_trainer = module.MFNetDGATrainer
         original_auxalign_trainer = module.MFNetAuxAlignTrainer
+        original_baseline_auxalign_trainer = module.MFNetBaselineAuxAlignTrainer
         original_auxalign_dga_trainer = module.MFNetAuxAlignDGATrainer
         try:
             module.parse_args = lambda: args
@@ -3570,6 +3614,7 @@ class MFNetTrainingTest(unittest.TestCase):
             module.MFNetTrainer = FakeTrainer
             module.MFNetDGATrainer = FakeDGATrainer
             module.MFNetAuxAlignTrainer = FakeAuxAlignTrainer
+            module.MFNetBaselineAuxAlignTrainer = FakeBaselineAuxAlignTrainer
             module.MFNetAuxAlignDGATrainer = FakeAuxAlignDGATrainer
 
             module.main()
@@ -3583,6 +3628,7 @@ class MFNetTrainingTest(unittest.TestCase):
             module.MFNetTrainer = original_trainer
             module.MFNetDGATrainer = original_dga_trainer
             module.MFNetAuxAlignTrainer = original_auxalign_trainer
+            module.MFNetBaselineAuxAlignTrainer = original_baseline_auxalign_trainer
             module.MFNetAuxAlignDGATrainer = original_auxalign_dga_trainer
 
         return {
@@ -4048,6 +4094,40 @@ class MFNetTrainingTest(unittest.TestCase):
             self.assertEqual(result["trainer_classes"], ["MFNetDGATrainer"])
             trainer_kwargs = result["trainer_kwargs"][0]
             self.assertIsInstance(trainer_kwargs["logger"], TestNetRecorderLogger)
+
+    def test_train_entry_uses_baseline_auxalign_trainer_for_baseline_auxalign_model(self) -> None:
+        module = self._load_train_entry_module()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "external_config.jsonc"
+            config_path.write_text('{"train": {"max_epochs": 1}}\n', encoding="utf-8")
+            work_dir = Path(tmpdir) / "auto_work"
+            cfg = self._make_train_entry_config(root_dir=str(work_dir))
+            cfg["model"]["type"] = "mfnet_unetformer_auxalign"  # type: ignore[index]
+            cfg["train"]["lambda_align"] = 0.5  # type: ignore[index]
+            args = type(
+                "Args",
+                (),
+                {
+                    "config": str(config_path),
+                    "device": "cpu",
+                    "resume_dir": None,
+                    "resume_ckpt": None,
+                    "load_from": None,
+                },
+            )()
+
+            result = self._run_train_entry(
+                module=module,
+                args=args,
+                cfg=cfg,
+                default_work_dir=work_dir,
+            )
+
+            self.assertEqual(result["trainer_classes"], ["MFNetBaselineAuxAlignTrainer"])
+            self.assertEqual(result["default_work_dir_calls"][0]["lambda_align"], 0.5)
+            trainer_kwargs = result["trainer_kwargs"][0]
+            self.assertIsInstance(trainer_kwargs["logger"], TestNetLogger)
+            self.assertEqual(trainer_kwargs["cfg"]["lambda_align"], 0.5)
 
     def test_train_entry_uses_auxalign_trainer_for_auxalign_model(self) -> None:
         module = self._load_train_entry_module()

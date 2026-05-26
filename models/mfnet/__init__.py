@@ -12,6 +12,7 @@ _MODEL_EXPORTS = {
     "UNetFormerDGA30": (".UNetFormer_MMSAM_dga30", "UNetFormerDGA30"),
     "UNetFormerDGA10Softplus": (".UNetFormer_MMSAM_dga_softplus", "UNetFormerDGA10Softplus"),
     "UNetFormerDGA20Softplus": (".UNetFormer_MMSAM_dga_softplus", "UNetFormerDGA20Softplus"),
+    "UNetFormerAuxAlign": (".UNetFormer_MMSAM_auxalign", "UNetFormerAuxAlign"),
     "UNetFormerPreAlign": (".UNetFormer_MMSAM_prealign", "UNetFormerPreAlign"),
     "UNetFormerPreAlignMMAdapter10": (
         ".UNetFormer_MMSAM_prealign_mmadapter10",
@@ -52,6 +53,7 @@ __all__ = [
     "UNetFormerDGA30",
     "UNetFormerDGA10Softplus",
     "UNetFormerDGA20Softplus",
+    "UNetFormerAuxAlign",
     "UNetFormerPreAlign",
     "UNetFormerPreAlignMMAdapter10",
     "UNetFormerPreAlignAuxAlign",
