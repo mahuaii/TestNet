@@ -7,6 +7,7 @@ from pathlib import Path
 import torch
 from torch.utils.data import DataLoader, Dataset
 
+import engine.trainer as trainer_module
 from engine import GradAccumTrainer, MFNetDGATrainer, Trainer
 from utils import CheckpointManager, IntermediateStatsRecorder, TestNetLogger, StatTracker
 
@@ -864,7 +865,139 @@ class TrainerGradAccumTest(unittest.TestCase):
 
             self.assertEqual(trainer.best_miou, 0.6)
             log_lines = Path(tmpdir, "val.log").read_text(encoding="utf-8").splitlines()
-            self.assertIn("[MIoU_best: 0.6000]", log_lines[-1])
+            self.assertIn("[MIoU_best: 0.6000]", log_lines)
+
+    def test_validate_updates_experiments_tsv_when_miou_improves(self) -> None:
+        calls: list[dict[str, object]] = []
+        original_update_experiments_tsv_from_val_metrics = (
+            trainer_module.update_experiments_tsv_from_val_metrics
+        )
+
+        def fake_update_experiments_tsv_from_val_metrics(**kwargs: object) -> None:
+            calls.append(kwargs)
+            return None
+
+        trainer_module.update_experiments_tsv_from_val_metrics = (
+            fake_update_experiments_tsv_from_val_metrics
+        )
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                evaluator = SequenceMetricsEvaluator(
+                    [{"MIoU": 0.6, "accuracy": 88.0, "F1Score": 0.8}]
+                )
+                trainer = build_trainer(
+                    work_dir=tmpdir,
+                    values=[1.0, 2.0],
+                    batch_size=1,
+                    effective_batch_size=1,
+                    evaluator=evaluator,
+                    inferencer=IdentityInferencer(),
+                )
+                trainer.epoch = 4
+                trainer.val_loader = DataLoader(
+                    ScalarDataset([1.0, 2.0]),
+                    batch_size=1,
+                    shuffle=False,
+                )
+
+                trainer.validate()
+
+                self.assertEqual(
+                    calls,
+                    [
+                        {
+                            "work_dir": tmpdir,
+                            "epoch": 4,
+                            "val_metrics": {"MIoU": 0.6, "accuracy": 88.0, "F1Score": 0.8},
+                        }
+                    ],
+                )
+        finally:
+            trainer_module.update_experiments_tsv_from_val_metrics = (
+                original_update_experiments_tsv_from_val_metrics
+            )
+
+    def test_validate_skips_experiments_tsv_api_when_miou_does_not_improve(self) -> None:
+        calls: list[dict[str, object]] = []
+        original_update_experiments_tsv_from_val_metrics = (
+            trainer_module.update_experiments_tsv_from_val_metrics
+        )
+
+        def fake_update_experiments_tsv_from_val_metrics(**kwargs: object) -> None:
+            calls.append(kwargs)
+            return None
+
+        trainer_module.update_experiments_tsv_from_val_metrics = (
+            fake_update_experiments_tsv_from_val_metrics
+        )
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                evaluator = SequenceMetricsEvaluator(
+                    [{"MIoU": 0.5, "accuracy": 88.0, "F1Score": 0.8}]
+                )
+                trainer = build_trainer(
+                    work_dir=tmpdir,
+                    values=[1.0, 2.0],
+                    batch_size=1,
+                    effective_batch_size=1,
+                    evaluator=evaluator,
+                    inferencer=IdentityInferencer(),
+                )
+                trainer.best_miou = 0.6
+                trainer.val_loader = DataLoader(
+                    ScalarDataset([1.0, 2.0]),
+                    batch_size=1,
+                    shuffle=False,
+                )
+
+                trainer.validate()
+
+                self.assertEqual(calls, [])
+        finally:
+            trainer_module.update_experiments_tsv_from_val_metrics = (
+                original_update_experiments_tsv_from_val_metrics
+            )
+
+    def test_validate_ignores_experiments_tsv_api_return_value(self) -> None:
+        original_update_experiments_tsv_from_val_metrics = (
+            trainer_module.update_experiments_tsv_from_val_metrics
+        )
+
+        def fake_update_experiments_tsv_from_val_metrics(**kwargs: object) -> str:
+            del kwargs
+            return "ignored"
+
+        trainer_module.update_experiments_tsv_from_val_metrics = (
+            fake_update_experiments_tsv_from_val_metrics
+        )
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                evaluator = SequenceMetricsEvaluator(
+                    [{"MIoU": 0.6, "accuracy": 88.0, "F1Score": 0.8}]
+                )
+                trainer = build_trainer(
+                    work_dir=tmpdir,
+                    values=[1.0, 2.0],
+                    batch_size=1,
+                    effective_batch_size=1,
+                    evaluator=evaluator,
+                    inferencer=IdentityInferencer(),
+                )
+                trainer.val_loader = DataLoader(
+                    ScalarDataset([1.0, 2.0]),
+                    batch_size=1,
+                    shuffle=False,
+                )
+
+                trainer.validate()
+
+                self.assertEqual(trainer.best_miou, 0.6)
+                log_lines = Path(tmpdir, "val.log").read_text(encoding="utf-8").splitlines()
+                self.assertNotIn("ignored", log_lines)
+        finally:
+            trainer_module.update_experiments_tsv_from_val_metrics = (
+                original_update_experiments_tsv_from_val_metrics
+            )
 
     def test_validate_keeps_best_miou_when_metric_does_not_improve(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

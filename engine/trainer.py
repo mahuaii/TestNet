@@ -7,6 +7,8 @@ from typing import Any
 
 import torch
 
+from tools.update_experiments_tsv import update_experiments_tsv_from_val_metrics
+
 from .evaluator import Evaluator
 from utils.checkpoint_manager import CheckpointManager
 from utils.logger import Logger
@@ -301,7 +303,14 @@ class Trainer(ABC):
         )
 
         if "MIoU" in val_metrics:
-            self._update_save_best_miou(float(val_metrics["MIoU"]))
+            current_miou = float(val_metrics["MIoU"])
+            if current_miou > self.best_miou:
+                update_experiments_tsv_from_val_metrics(
+                    work_dir=self.cfg["work_dir"],
+                    epoch=self.epoch,
+                    val_metrics=val_metrics,
+                )
+            self._update_save_best_miou(current_miou)
         self.logger.log_val_best_metric("MIoU_best", self.best_miou)
 
     @torch.no_grad()

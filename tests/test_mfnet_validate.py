@@ -125,7 +125,7 @@ class MFNetValidateTest(unittest.TestCase):
             best_state = CheckpointManager.load(str(best_state_path))
             self.assertEqual(float(best_state["best_miou"]), 0.7)
 
-            log_lines = Path(tmpdir, "train.log").read_text(encoding="utf-8").splitlines()
+            log_lines = Path(tmpdir, "val.log").read_text(encoding="utf-8").splitlines()
             self.assertTrue(
                 any(
                     "Total accuracy: 88.0000" in line
