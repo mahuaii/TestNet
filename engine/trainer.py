@@ -7,7 +7,10 @@ from typing import Any
 
 import torch
 
-from tools.update_experiments_tsv import update_experiments_tsv_from_val_metrics
+from tools.update_experiments_tsv import (
+    update_experiments_tsv_best_metrics,
+    update_experiments_tsv_status,
+)
 
 from .evaluator import Evaluator
 from utils.checkpoint_manager import CheckpointManager
@@ -88,9 +91,7 @@ class Trainer(ABC):
         checkpoint_epoch = int(state_dict["epoch"])
         resume_epoch = self._resolve_resume_epoch(path=path, state_dict=state_dict)
         checkpoint_global_step = int(state_dict["global_step"])
-        completed_epoch = (
-            checkpoint_epoch if resume_epoch > checkpoint_epoch else checkpoint_epoch - 1
-        )
+        completed_epoch = checkpoint_epoch if resume_epoch > checkpoint_epoch else checkpoint_epoch - 1
         self.logger.truncate_after_completed_epoch(max(0, completed_epoch))
         self.logger.purge_tensorboard_after_global_step(checkpoint_global_step)
         self.epoch = resume_epoch
@@ -287,6 +288,11 @@ class Trainer(ABC):
                 name=f"epoch_{self.epoch}.pth",
                 resume_epoch=next_epoch,
             )
+        update_experiments_tsv_status(
+            work_dir=self.cfg["work_dir"],
+            epoch=self.epoch,
+            max_epochs=self.max_epochs,
+        )
 
     def after_val(
         self,
@@ -304,11 +310,17 @@ class Trainer(ABC):
 
         if "MIoU" in val_metrics:
             current_miou = float(val_metrics["MIoU"])
-            if current_miou > self.best_miou:
-                update_experiments_tsv_from_val_metrics(
+            if (
+                current_miou > self.best_miou
+                and "accuracy" in val_metrics
+                and "F1Score" in val_metrics
+            ):
+                update_experiments_tsv_best_metrics(
                     work_dir=self.cfg["work_dir"],
                     epoch=self.epoch,
-                    val_metrics=val_metrics,
+                    miou=current_miou,
+                    oa=float(val_metrics["accuracy"]),
+                    f1=float(val_metrics["F1Score"]),
                 )
             self._update_save_best_miou(current_miou)
         self.logger.log_val_best_metric("MIoU_best", self.best_miou)
