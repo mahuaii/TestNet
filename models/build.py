@@ -2,6 +2,29 @@ from __future__ import annotations
 
 from typing import Any
 
+AVAILABLE_MODEL_TYPES: tuple[str, ...] = (
+    "mfnet_unetformer",
+    "testnet_mmadapter10",
+    "testnet_mmadapter20",
+    "testnet_mmadapter21",
+    "testnet_dga10",
+    "testnet_dga20",
+    "testnet_dga20_dgsf10",
+    "testnet_dgsf10",
+    "testnet_dga10_softplus",
+    "testnet_dga20_softplus",
+    "testnet_dga30",
+    "testnet_auxalign",
+    "testnet_prealign",
+    "testnet_prealign_mmadapter10",
+    "testnet_prealign_mmadapter20",
+    "testnet_prealign_mmadapter21",
+    "testnet_prealign_auxalign",
+    "testnet_prealign_dga10",
+    "testnet_prealign_auxalign_dga10",
+    "testnet_prealign_auxalign_dgsf10",
+)
+
 
 def _record_intermediate_stats(cfg: dict[str, Any]) -> bool:
     return bool(cfg.get("record_intermediate_stats", False))
@@ -25,7 +48,7 @@ def build_model(cfg: dict[str, Any]) -> Any:
             sam_checkpoint=str(cfg["sam_checkpoint"]),
         )
         return model
-    if model_type == "mfnet_unetformer_mmadapter10":
+    if model_type == "testnet_mmadapter10":
         from .mfnet import UNetFormerMMAdapter10
 
         model = UNetFormerMMAdapter10(
@@ -34,7 +57,25 @@ def build_model(cfg: dict[str, Any]) -> Any:
             sam_checkpoint=str(cfg["sam_checkpoint"]),
         )
         return model
-    if model_type == "mfnet_unetformer_dga10":
+    if model_type == "testnet_mmadapter20":
+        from .mfnet import UNetFormerMMAdapter20
+
+        model = UNetFormerMMAdapter20(
+            num_classes=int(cfg["num_classes"]),
+            sam_backbone=str(cfg["sam_backbone"]),
+            sam_checkpoint=str(cfg["sam_checkpoint"]),
+        )
+        return model
+    if model_type == "testnet_mmadapter21":
+        from .mfnet import UNetFormerMMAdapter21
+
+        model = UNetFormerMMAdapter21(
+            num_classes=int(cfg["num_classes"]),
+            sam_backbone=str(cfg["sam_backbone"]),
+            sam_checkpoint=str(cfg["sam_checkpoint"]),
+        )
+        return model
+    if model_type == "testnet_dga10":
         from .mfnet import UNetFormerDGA10
 
         model = UNetFormerDGA10(
@@ -44,7 +85,7 @@ def build_model(cfg: dict[str, Any]) -> Any:
             **_intermediate_stats_kwargs(cfg),
         )
         return model
-    if model_type == "mfnet_unetformer_dga20":
+    if model_type == "testnet_dga20":
         from .mfnet import UNetFormerDGA20
 
         model = UNetFormerDGA20(
@@ -54,7 +95,7 @@ def build_model(cfg: dict[str, Any]) -> Any:
             **_intermediate_stats_kwargs(cfg),
         )
         return model
-    if model_type == "mfnet_unetformer_dga20_dgsf10":
+    if model_type == "testnet_dga20_dgsf10":
         from .mfnet import UNetFormerDGA20DGSF10
 
         model = UNetFormerDGA20DGSF10(
@@ -64,7 +105,7 @@ def build_model(cfg: dict[str, Any]) -> Any:
             **_intermediate_stats_kwargs(cfg),
         )
         return model
-    if model_type == "mfnet_unetformer_dgsf10":
+    if model_type == "testnet_dgsf10":
         from .mfnet import UNetFormerDGSF10
 
         model = UNetFormerDGSF10(
@@ -74,7 +115,7 @@ def build_model(cfg: dict[str, Any]) -> Any:
             **_intermediate_stats_kwargs(cfg),
         )
         return model
-    if model_type == "mfnet_unetformer_dga10_softplus":
+    if model_type == "testnet_dga10_softplus":
         from .mfnet import UNetFormerDGA10Softplus
 
         model = UNetFormerDGA10Softplus(
@@ -84,7 +125,7 @@ def build_model(cfg: dict[str, Any]) -> Any:
             **_intermediate_stats_kwargs(cfg),
         )
         return model
-    if model_type == "mfnet_unetformer_dga20_softplus":
+    if model_type == "testnet_dga20_softplus":
         from .mfnet import UNetFormerDGA20Softplus
 
         model = UNetFormerDGA20Softplus(
@@ -94,7 +135,7 @@ def build_model(cfg: dict[str, Any]) -> Any:
             **_intermediate_stats_kwargs(cfg),
         )
         return model
-    if model_type == "mfnet_unetformer_dga30":
+    if model_type == "testnet_dga30":
         from .mfnet import UNetFormerDGA30
 
         model = UNetFormerDGA30(
@@ -103,7 +144,7 @@ def build_model(cfg: dict[str, Any]) -> Any:
             sam_checkpoint=str(cfg["sam_checkpoint"]),
         )
         return model
-    if model_type == "mfnet_unetformer_auxalign":
+    if model_type == "testnet_auxalign":
         from .mfnet import UNetFormerAuxAlign
 
         model = UNetFormerAuxAlign(
@@ -112,7 +153,7 @@ def build_model(cfg: dict[str, Any]) -> Any:
             sam_checkpoint=str(cfg["sam_checkpoint"]),
         )
         return model
-    if model_type == "mfnet_unetformer_prealign":
+    if model_type == "testnet_prealign":
         from .mfnet import UNetFormerPreAlign
 
         model = UNetFormerPreAlign(
@@ -121,7 +162,7 @@ def build_model(cfg: dict[str, Any]) -> Any:
             sam_checkpoint=str(cfg["sam_checkpoint"]),
         )
         return model
-    if model_type == "mfnet_unetformer_prealign_mmadapter10":
+    if model_type == "testnet_prealign_mmadapter10":
         from .mfnet import UNetFormerPreAlignMMAdapter10
 
         model = UNetFormerPreAlignMMAdapter10(
@@ -130,7 +171,25 @@ def build_model(cfg: dict[str, Any]) -> Any:
             sam_checkpoint=str(cfg["sam_checkpoint"]),
         )
         return model
-    if model_type == "mfnet_unetformer_prealign_auxalign":
+    if model_type == "testnet_prealign_mmadapter20":
+        from .mfnet import UNetFormerPreAlignMMAdapter20
+
+        model = UNetFormerPreAlignMMAdapter20(
+            num_classes=int(cfg["num_classes"]),
+            sam_backbone=str(cfg["sam_backbone"]),
+            sam_checkpoint=str(cfg["sam_checkpoint"]),
+        )
+        return model
+    if model_type == "testnet_prealign_mmadapter21":
+        from .mfnet import UNetFormerPreAlignMMAdapter21
+
+        model = UNetFormerPreAlignMMAdapter21(
+            num_classes=int(cfg["num_classes"]),
+            sam_backbone=str(cfg["sam_backbone"]),
+            sam_checkpoint=str(cfg["sam_checkpoint"]),
+        )
+        return model
+    if model_type == "testnet_prealign_auxalign":
         from .mfnet import UNetFormerPreAlignAuxAlign
 
         model = UNetFormerPreAlignAuxAlign(
@@ -139,7 +198,7 @@ def build_model(cfg: dict[str, Any]) -> Any:
             sam_checkpoint=str(cfg["sam_checkpoint"]),
         )
         return model
-    if model_type == "mfnet_unetformer_prealign_dga10":
+    if model_type == "testnet_prealign_dga10":
         from .mfnet import UNetFormerPreAlignDGA10
 
         model = UNetFormerPreAlignDGA10(
@@ -148,7 +207,7 @@ def build_model(cfg: dict[str, Any]) -> Any:
             sam_checkpoint=str(cfg["sam_checkpoint"]),
         )
         return model
-    if model_type == "mfnet_unetformer_prealign_auxalign_dga10":
+    if model_type == "testnet_prealign_auxalign_dga10":
         from .mfnet import UNetFormerPreAlignAuxAlignDGA10
 
         model = UNetFormerPreAlignAuxAlignDGA10(
@@ -157,7 +216,7 @@ def build_model(cfg: dict[str, Any]) -> Any:
             sam_checkpoint=str(cfg["sam_checkpoint"]),
         )
         return model
-    if model_type == "mfnet_unetformer_prealign_auxalign_dgsf10":
+    if model_type == "testnet_prealign_auxalign_dgsf10":
         from .mfnet import UNetFormerPreAlignAuxAlignDGSF10
 
         model = UNetFormerPreAlignAuxAlignDGSF10(
@@ -167,18 +226,5 @@ def build_model(cfg: dict[str, Any]) -> Any:
             **_intermediate_stats_kwargs(cfg),
         )
         return model
-    raise KeyError(
-        "Unsupported model type: "
-        f"{model_type!r}. Supported types: 'mfnet_unetformer', "
-        "'mfnet_unetformer_mmadapter10', "
-        "'mfnet_unetformer_dga10', 'mfnet_unetformer_dga20', "
-        "'mfnet_unetformer_dga20_dgsf10', 'mfnet_unetformer_dgsf10', "
-        "'mfnet_unetformer_dga10_softplus', 'mfnet_unetformer_dga20_softplus', "
-        "'mfnet_unetformer_dga30', "
-        "'mfnet_unetformer_auxalign', "
-        "'mfnet_unetformer_prealign', 'mfnet_unetformer_prealign_mmadapter10', "
-        "'mfnet_unetformer_prealign_auxalign', "
-        "'mfnet_unetformer_prealign_dga10', "
-        "'mfnet_unetformer_prealign_auxalign_dga10', "
-        "'mfnet_unetformer_prealign_auxalign_dgsf10'."
-    )
+    supported_types = ", ".join(repr(model_type) for model_type in AVAILABLE_MODEL_TYPES)
+    raise KeyError(f"Unsupported model type: {model_type!r}. Supported types: {supported_types}.")

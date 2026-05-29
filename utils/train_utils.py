@@ -24,7 +24,11 @@ def safe_path_component(value: object, fallback: str) -> str:
 
 def work_dir_model_suffix(model_name: object) -> str:
     model_component = safe_path_component(model_name, "model")
-    tokens = [token for token in model_component.split("_") if token not in {"mfnet", "unetformer"}]
+    tokens = [
+        token
+        for token in model_component.split("_")
+        if token not in {"mfnet", "testnet", "unetformer"}
+    ]
     return "_".join(tokens) or "base"
 
 

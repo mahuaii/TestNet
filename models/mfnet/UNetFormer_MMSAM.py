@@ -661,3 +661,13 @@ class UNetFormer(nn.Module):
 class UNetFormerMMAdapter10(UNetFormer):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, mm_adapter_block="mmadapter10", **kwargs)
+
+
+class UNetFormerMMAdapter20(UNetFormer):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, mm_adapter_block="mmadapter20", **kwargs)
+
+
+class UNetFormerMMAdapter21(UNetFormer):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, mm_adapter_block="mmadapter21", **kwargs)

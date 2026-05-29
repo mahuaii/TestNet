@@ -35,30 +35,30 @@ from utils import (
 )
 
 DGA_MODEL_TYPES = {
-    "mfnet_unetformer_dga10",
-    "mfnet_unetformer_dga20",
-    "mfnet_unetformer_dga20_dgsf10",
-    "mfnet_unetformer_dga10_softplus",
-    "mfnet_unetformer_dga20_softplus",
-    "mfnet_unetformer_dga30",
-    "mfnet_unetformer_prealign_dga10",
-    "mfnet_unetformer_prealign_auxalign_dga10",
+    "testnet_dga10",
+    "testnet_dga20",
+    "testnet_dga20_dgsf10",
+    "testnet_dga10_softplus",
+    "testnet_dga20_softplus",
+    "testnet_dga30",
+    "testnet_prealign_dga10",
+    "testnet_prealign_auxalign_dga10",
 }
 
 RECORDER_LOGGER_MODEL_TYPES = DGA_MODEL_TYPES | {
-    "mfnet_unetformer_dgsf10",
-    "mfnet_unetformer_prealign_auxalign_dgsf10",
+    "testnet_dgsf10",
+    "testnet_prealign_auxalign_dgsf10",
 }
 
 AUX_ALIGN_MODEL_TYPES = {
-    "mfnet_unetformer_prealign_auxalign",
-    "mfnet_unetformer_prealign_auxalign_dga10",
-    "mfnet_unetformer_prealign_auxalign_dgsf10",
+    "testnet_prealign_auxalign",
+    "testnet_prealign_auxalign_dga10",
+    "testnet_prealign_auxalign_dgsf10",
 }
 
 AUX_ALIGN_DGA_MODEL_TYPES = DGA_MODEL_TYPES & AUX_ALIGN_MODEL_TYPES
 BASELINE_AUX_ALIGN_MODEL_TYPES = {
-    "mfnet_unetformer_auxalign",
+    "testnet_auxalign",
 }
 
 

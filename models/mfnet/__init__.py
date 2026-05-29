@@ -5,6 +5,8 @@ from typing import Any
 _MODEL_EXPORTS = {
     "UNetFormer": (".UNetFormer_MMSAM", "UNetFormer"),
     "UNetFormerMMAdapter10": (".UNetFormer_MMSAM", "UNetFormerMMAdapter10"),
+    "UNetFormerMMAdapter20": (".UNetFormer_MMSAM", "UNetFormerMMAdapter20"),
+    "UNetFormerMMAdapter21": (".UNetFormer_MMSAM", "UNetFormerMMAdapter21"),
     "UNetFormerDGA10": (".UNetFormer_MMSAM_dga10", "UNetFormerDGA10"),
     "UNetFormerDGA20": (".UNetFormer_MMSAM_dga20", "UNetFormerDGA20"),
     "UNetFormerDGA20DGSF10": (".UNetFormer_MMSAM_dga20_dgsf10", "UNetFormerDGA20DGSF10"),
@@ -17,6 +19,14 @@ _MODEL_EXPORTS = {
     "UNetFormerPreAlignMMAdapter10": (
         ".UNetFormer_MMSAM_prealign_mmadapter10",
         "UNetFormerPreAlignMMAdapter10",
+    ),
+    "UNetFormerPreAlignMMAdapter20": (
+        ".UNetFormer_MMSAM_prealign_mmadapter20",
+        "UNetFormerPreAlignMMAdapter20",
+    ),
+    "UNetFormerPreAlignMMAdapter21": (
+        ".UNetFormer_MMSAM_prealign_mmadapter21",
+        "UNetFormerPreAlignMMAdapter21",
     ),
     "UNetFormerPreAlignAuxAlign": (".UNetFormer_MMSAM_prealign_auxalign", "UNetFormerPreAlignAuxAlign"),
     "UNetFormerPreAlignDGA10": (".UNetFormer_MMSAM_prealign_dga10", "UNetFormerPreAlignDGA10"),
@@ -46,6 +56,8 @@ def __getattr__(name: str) -> Any:
 __all__ = [
     "UNetFormer",
     "UNetFormerMMAdapter10",
+    "UNetFormerMMAdapter20",
+    "UNetFormerMMAdapter21",
     "UNetFormerDGA10",
     "UNetFormerDGA20",
     "UNetFormerDGA20DGSF10",
@@ -56,6 +68,8 @@ __all__ = [
     "UNetFormerAuxAlign",
     "UNetFormerPreAlign",
     "UNetFormerPreAlignMMAdapter10",
+    "UNetFormerPreAlignMMAdapter20",
+    "UNetFormerPreAlignMMAdapter21",
     "UNetFormerPreAlignAuxAlign",
     "UNetFormerPreAlignDGA10",
     "UNetFormerPreAlignAuxAlignDGA10",

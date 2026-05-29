@@ -31,20 +31,20 @@ class TrainUtilsTest(unittest.TestCase):
         self.assertEqual(safe_path_component("!!!", "dataset"), "dataset")
 
     def test_work_dir_model_suffix_removes_common_mfnet_tokens(self) -> None:
-        self.assertEqual(work_dir_model_suffix("mfnet_unetformer_prealign_dga10"), "prealign_dga10")
+        self.assertEqual(work_dir_model_suffix("testnet_prealign_dga10"), "prealign_dga10")
         self.assertEqual(
-            work_dir_model_suffix("mfnet_unetformer_prealign_auxalign_dga10"),
+            work_dir_model_suffix("testnet_prealign_auxalign_dga10"),
             "prealign_auxalign_dga10",
         )
         self.assertEqual(
-            work_dir_model_suffix("mfnet_unetformer_prealign_mmadapter10"),
+            work_dir_model_suffix("testnet_prealign_mmadapter10"),
             "prealign_mmadapter10",
         )
         self.assertEqual(work_dir_model_suffix("mfnet_unetformer"), "base")
 
     def test_build_default_work_dir_uses_short_run_id_instead_of_timestamp(self) -> None:
         path = build_default_work_dir(
-            model_name="mfnet_unetformer_prealign_auxalign",
+            model_name="testnet_prealign_auxalign",
             dataset_name="Vaihingen Dataset",
             seed=80,
             lambda_align=0.5,

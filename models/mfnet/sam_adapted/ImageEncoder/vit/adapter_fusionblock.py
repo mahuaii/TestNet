@@ -150,44 +150,6 @@ class AdapterFusionBlock(nn.Module):
     #     return x
 
 
-class MMAdapter10FusionBlock(AdapterFusionBlock):
-    def __init__(self, *args, **kwargs) -> None:
-        dim = kwargs.get("dim")
-        if dim is None and len(args) >= 2:
-            dim = args[1]
-        super().__init__(*args, **kwargs)
-        del self.wx_Adapter
-        del self.wy_Adapter
-        self.MMAdapter_Fusion = nn.Sequential(
-            nn.Linear(2 * int(dim), 64),
-            nn.GELU(),
-            nn.Linear(64, 2),
-            nn.Sigmoid(),
-        )
-
-    def fuse_adapter_messages(
-        self,
-        x_msg: torch.Tensor,
-        y_msg: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        if x_msg.ndim != 4 or y_msg.ndim != 4:
-            raise ValueError(
-                "MMAdapter10FusionBlock expects x_msg and y_msg with shape [B, H, W, C]."
-            )
-        if x_msg.shape != y_msg.shape:
-            raise ValueError(
-                "MMAdapter10FusionBlock expects x_msg and y_msg to have the same shape."
-            )
-
-        z = torch.cat([x_msg, y_msg], dim=-1)
-        gate = self.MMAdapter_Fusion(z)
-        gate_y_to_x = gate[..., 0:1]
-        gate_x_to_y = gate[..., 1:2]
-        x_fuse = x_msg + gate_y_to_x * y_msg
-        y_fuse = y_msg + gate_x_to_y * x_msg
-        return x_fuse, y_fuse
-
-
 class Attention(nn.Module):
     """Multi-head Attention block with relative position embeddings."""
 
@@ -391,3 +353,27 @@ class MLPBlock(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.lin2(self.act(self.lin1(x)))
+
+
+def __getattr__(name: str):
+    if name in {"MMAdapter10FusionBlock", "MMAdapter20FusionBlock", "MMAdapter21FusionBlock"}:
+        from .mmadapter_fusionblock import (
+            MMAdapter10FusionBlock,
+            MMAdapter20FusionBlock,
+            MMAdapter21FusionBlock,
+        )
+
+        return {
+            "MMAdapter10FusionBlock": MMAdapter10FusionBlock,
+            "MMAdapter20FusionBlock": MMAdapter20FusionBlock,
+            "MMAdapter21FusionBlock": MMAdapter21FusionBlock,
+        }[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+__all__ = [
+    "AdapterFusionBlock",
+    "MMAdapter10FusionBlock",
+    "MMAdapter20FusionBlock",
+    "MMAdapter21FusionBlock",
+]

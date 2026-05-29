@@ -85,7 +85,7 @@ class _ListDataset(Dataset):
 class MMAdapter10FusionBlockTest(unittest.TestCase):
     def _make_block(self) -> torch.nn.Module:
         with _fake_mfnet_optional_imports():
-            from models.mfnet.sam_adapted.ImageEncoder.vit.adapter_fusionblock import MMAdapter10FusionBlock
+            from models.mfnet.sam_adapted.ImageEncoder.vit.mmadapter_fusionblock import MMAdapter10FusionBlock
 
             args = types.SimpleNamespace(mid_dim=None)
             return MMAdapter10FusionBlock(
@@ -141,7 +141,7 @@ class MMAdapter10FusionBlockTest(unittest.TestCase):
 
     def test_image_encoder_uses_mmadapter10_block_when_args_select_it(self) -> None:
         with _fake_mfnet_optional_imports():
-            from models.mfnet.sam_adapted.ImageEncoder.vit.adapter_fusionblock import MMAdapter10FusionBlock
+            from models.mfnet.sam_adapted.ImageEncoder.vit.mmadapter_fusionblock import MMAdapter10FusionBlock
             from models.mfnet.sam_adapted.sam.modeling.image_encoder import ImageEncoderViT
 
             args = types.SimpleNamespace(mod="sam_adpt", mid_dim=None, mm_adapter_block="mmadapter10")
@@ -257,6 +257,313 @@ class MMAdapter10FusionBlockTest(unittest.TestCase):
         self.assertIs(UNetFormerPreAlignMMAdapter10.forward, UNetFormerPreAlign.forward)
         self.assertEqual(len(captured_args), 1)
         self.assertEqual(captured_args[0].mm_adapter_block, "mmadapter10")
+
+
+class MMAdapter20FusionBlockTest(unittest.TestCase):
+    def _make_block(self) -> torch.nn.Module:
+        with _fake_mfnet_optional_imports():
+            from models.mfnet.sam_adapted.ImageEncoder.vit.mmadapter_fusionblock import MMAdapter20FusionBlock
+
+            args = types.SimpleNamespace(mid_dim=None)
+            return MMAdapter20FusionBlock(
+                args=args,
+                dim=8,
+                num_heads=2,
+                mlp_ratio=2.0,
+                qkv_bias=True,
+                window_size=0,
+            )
+
+    def test_aux_guided_single_direction_gate_updates_rgb_only(self) -> None:
+        block = self._make_block()
+        x_msg = torch.randn(2, 3, 5, 8)
+        y_msg = torch.randn(2, 3, 5, 8)
+
+        x_fuse, y_fuse = block.fuse_adapter_messages(x_msg, y_msg)
+        gate = torch.sigmoid(block.MMAdapter_Fusion(y_msg))
+
+        self.assertEqual(x_fuse.shape, x_msg.shape)
+        self.assertEqual(y_fuse.shape, y_msg.shape)
+        self.assertEqual(gate.shape, (2, 3, 5, 1))
+        self.assertTrue(torch.allclose(x_fuse, block.alpha * gate * x_msg))
+        self.assertTrue(torch.equal(y_fuse, torch.zeros_like(y_msg)))
+
+    def test_aux_guided_single_direction_gate_rejects_non_spatial_tokens(self) -> None:
+        block = self._make_block()
+
+        with self.assertRaisesRegex(ValueError, r"\[B, H, W, C\]"):
+            block.fuse_adapter_messages(torch.randn(2, 15, 8), torch.randn(2, 15, 8))
+
+    def test_mmadapter20_block_forward_and_trainable_parameters(self) -> None:
+        block = self._make_block()
+        x = torch.randn(2, 3, 5, 8)
+        y = torch.randn(2, 3, 5, 8)
+
+        out_x, out_y = block(x, y)
+        named_parameters = dict(block.named_parameters())
+
+        self.assertEqual(out_x.shape, x.shape)
+        self.assertEqual(out_y.shape, y.shape)
+        self.assertNotIn("wx_Adapter", named_parameters)
+        self.assertNotIn("wy_Adapter", named_parameters)
+        self.assertIn("MMAdapter_alpha", named_parameters)
+        self.assertTrue(torch.allclose(block.alpha.detach(), torch.tensor(1e-3)))
+        self.assertTrue(named_parameters["MMAdapter_alpha"].requires_grad)
+        fusion_parameter_names = [
+            name for name in named_parameters if name.startswith("MMAdapter_Fusion.")
+        ]
+        self.assertEqual(set(fusion_parameter_names), {"MMAdapter_Fusion.weight", "MMAdapter_Fusion.bias"})
+        self.assertTrue(all(named_parameters[name].requires_grad for name in fusion_parameter_names))
+
+    def test_image_encoder_uses_mmadapter20_block_when_args_select_it(self) -> None:
+        with _fake_mfnet_optional_imports():
+            from models.mfnet.sam_adapted.ImageEncoder.vit.mmadapter_fusionblock import MMAdapter20FusionBlock
+            from models.mfnet.sam_adapted.sam.modeling.image_encoder import ImageEncoderViT
+
+            args = types.SimpleNamespace(mod="sam_adpt", mid_dim=None, mm_adapter_block="mmadapter20")
+            encoder = ImageEncoderViT(
+                args=args,
+                img_size=16,
+                patch_size=16,
+                embed_dim=8,
+                depth=1,
+                num_heads=2,
+                out_chans=4,
+                use_abs_pos=False,
+                use_rel_pos=False,
+            )
+
+        self.assertIsInstance(encoder.blocks[0], MMAdapter20FusionBlock)
+
+    def test_unetformer_mmadapter20_passes_mmadapter20_arg_to_sam_builder(self) -> None:
+        with _fake_mfnet_optional_imports():
+            import models.mfnet.UNetFormer_MMSAM as module
+
+            captured_args: list[object] = []
+
+            class FakeSam(torch.nn.Module):
+                def __init__(self) -> None:
+                    super().__init__()
+                    self.image_encoder = torch.nn.Module()
+
+            def fake_build_sam(args: object, checkpoint: str) -> FakeSam:
+                del checkpoint
+                captured_args.append(args)
+                return FakeSam()
+
+            original_parse_args = module.cfg.parse_args
+            original_builder = module.sam_model_registry.get("vit_b")
+            try:
+                module.cfg.parse_args = lambda: types.SimpleNamespace(mod="sam_adpt")
+                module.sam_model_registry["vit_b"] = fake_build_sam
+
+                module.UNetFormerMMAdapter20(
+                    num_classes=6,
+                    sam_backbone="vit_b",
+                    sam_checkpoint="/tmp/sam_vit_b_01ec64.pth",
+                )
+            finally:
+                module.cfg.parse_args = original_parse_args
+                if original_builder is None:
+                    del module.sam_model_registry["vit_b"]
+                else:
+                    module.sam_model_registry["vit_b"] = original_builder
+
+        self.assertEqual(len(captured_args), 1)
+        self.assertEqual(captured_args[0].mm_adapter_block, "mmadapter20")
+
+    def test_unetformer_prealign_mmadapter20_passes_mmadapter20_arg_and_reuses_prealign_forward(self) -> None:
+        with _fake_mfnet_optional_imports():
+            import models.mfnet.UNetFormer_MMSAM as base_module
+            from models.mfnet.UNetFormer_MMSAM_prealign import UNetFormerPreAlign
+            from models.mfnet.UNetFormer_MMSAM_prealign_mmadapter20 import UNetFormerPreAlignMMAdapter20
+
+            captured_args: list[object] = []
+
+            class FakeSam(torch.nn.Module):
+                def __init__(self) -> None:
+                    super().__init__()
+                    self.image_encoder = torch.nn.Module()
+
+            def fake_build_sam(args: object, checkpoint: str) -> FakeSam:
+                del checkpoint
+                captured_args.append(args)
+                return FakeSam()
+
+            original_parse_args = base_module.cfg.parse_args
+            original_builder = base_module.sam_model_registry.get("vit_b")
+            try:
+                base_module.cfg.parse_args = lambda: types.SimpleNamespace(mod="sam_adpt")
+                base_module.sam_model_registry["vit_b"] = fake_build_sam
+
+                UNetFormerPreAlignMMAdapter20(
+                    num_classes=6,
+                    sam_backbone="vit_b",
+                    sam_checkpoint="/tmp/sam_vit_b_01ec64.pth",
+                )
+            finally:
+                base_module.cfg.parse_args = original_parse_args
+                if original_builder is None:
+                    del base_module.sam_model_registry["vit_b"]
+                else:
+                    base_module.sam_model_registry["vit_b"] = original_builder
+
+        self.assertTrue(issubclass(UNetFormerPreAlignMMAdapter20, UNetFormerPreAlign))
+        self.assertNotIn("forward", UNetFormerPreAlignMMAdapter20.__dict__)
+        self.assertIs(UNetFormerPreAlignMMAdapter20.forward, UNetFormerPreAlign.forward)
+        self.assertEqual(len(captured_args), 1)
+        self.assertEqual(captured_args[0].mm_adapter_block, "mmadapter20")
+
+
+class MMAdapter21FusionBlockTest(unittest.TestCase):
+    def _make_block(self) -> torch.nn.Module:
+        with _fake_mfnet_optional_imports():
+            from models.mfnet.sam_adapted.ImageEncoder.vit.mmadapter_fusionblock import MMAdapter21FusionBlock
+
+            args = types.SimpleNamespace(mid_dim=None)
+            return MMAdapter21FusionBlock(
+                args=args,
+                dim=8,
+                num_heads=2,
+                mlp_ratio=2.0,
+                qkv_bias=True,
+                window_size=0,
+            )
+
+    def test_aux_guided_local_gate_updates_rgb_only(self) -> None:
+        block = self._make_block()
+        x_msg = torch.randn(2, 3, 5, 8)
+        y_msg = torch.randn(2, 3, 5, 8)
+
+        x_fuse, y_fuse = block.fuse_adapter_messages(x_msg, y_msg)
+        gate = torch.sigmoid(block.MMAdapter_Fusion(y_msg))
+
+        self.assertEqual(x_fuse.shape, x_msg.shape)
+        self.assertEqual(y_fuse.shape, y_msg.shape)
+        self.assertEqual(gate.shape, (2, 3, 5, 1))
+        self.assertTrue(torch.allclose(x_fuse, block.alpha * gate * x_msg))
+        self.assertTrue(torch.equal(y_fuse, torch.zeros_like(y_msg)))
+
+    def test_mmadapter21_block_forward_and_trainable_parameters(self) -> None:
+        block = self._make_block()
+        x = torch.randn(2, 3, 5, 8)
+        y = torch.randn(2, 3, 5, 8)
+
+        out_x, out_y = block(x, y)
+        named_parameters = dict(block.named_parameters())
+
+        self.assertEqual(out_x.shape, x.shape)
+        self.assertEqual(out_y.shape, y.shape)
+        self.assertNotIn("wx_Adapter", named_parameters)
+        self.assertNotIn("wy_Adapter", named_parameters)
+        self.assertIn("MMAdapter_alpha", named_parameters)
+        self.assertIn("MMAdapter_Fusion.weight", named_parameters)
+        self.assertIn("MMAdapter_Fusion.bias", named_parameters)
+        self.assertIn("MLPy_Adapter.local_conv.weight", named_parameters)
+        self.assertIn("MLPy_Adapter.local_conv.bias", named_parameters)
+        self.assertEqual(block.MLPy_Adapter.local_conv.groups, 2)
+        self.assertEqual(block.MLPy_Adapter.local_conv.kernel_size, (3, 3))
+        self.assertEqual(block.MLPy_Adapter.local_conv.padding, (1, 1))
+        self.assertTrue(named_parameters["MLPy_Adapter.local_conv.weight"].requires_grad)
+
+    def test_image_encoder_uses_mmadapter21_block_when_args_select_it(self) -> None:
+        with _fake_mfnet_optional_imports():
+            from models.mfnet.sam_adapted.ImageEncoder.vit.mmadapter_fusionblock import MMAdapter21FusionBlock
+            from models.mfnet.sam_adapted.sam.modeling.image_encoder import ImageEncoderViT
+
+            args = types.SimpleNamespace(mod="sam_adpt", mid_dim=None, mm_adapter_block="mmadapter21")
+            encoder = ImageEncoderViT(
+                args=args,
+                img_size=16,
+                patch_size=16,
+                embed_dim=8,
+                depth=1,
+                num_heads=2,
+                out_chans=4,
+                use_abs_pos=False,
+                use_rel_pos=False,
+            )
+
+        self.assertIsInstance(encoder.blocks[0], MMAdapter21FusionBlock)
+
+    def test_unetformer_mmadapter21_passes_mmadapter21_arg_to_sam_builder(self) -> None:
+        with _fake_mfnet_optional_imports():
+            import models.mfnet.UNetFormer_MMSAM as module
+
+            captured_args: list[object] = []
+
+            class FakeSam(torch.nn.Module):
+                def __init__(self) -> None:
+                    super().__init__()
+                    self.image_encoder = torch.nn.Module()
+
+            def fake_build_sam(args: object, checkpoint: str) -> FakeSam:
+                del checkpoint
+                captured_args.append(args)
+                return FakeSam()
+
+            original_parse_args = module.cfg.parse_args
+            original_builder = module.sam_model_registry.get("vit_b")
+            try:
+                module.cfg.parse_args = lambda: types.SimpleNamespace(mod="sam_adpt")
+                module.sam_model_registry["vit_b"] = fake_build_sam
+
+                module.UNetFormerMMAdapter21(
+                    num_classes=6,
+                    sam_backbone="vit_b",
+                    sam_checkpoint="/tmp/sam_vit_b_01ec64.pth",
+                )
+            finally:
+                module.cfg.parse_args = original_parse_args
+                if original_builder is None:
+                    del module.sam_model_registry["vit_b"]
+                else:
+                    module.sam_model_registry["vit_b"] = original_builder
+
+        self.assertEqual(len(captured_args), 1)
+        self.assertEqual(captured_args[0].mm_adapter_block, "mmadapter21")
+
+    def test_unetformer_prealign_mmadapter21_passes_mmadapter21_arg_and_reuses_prealign_forward(self) -> None:
+        with _fake_mfnet_optional_imports():
+            import models.mfnet.UNetFormer_MMSAM as base_module
+            from models.mfnet.UNetFormer_MMSAM_prealign import UNetFormerPreAlign
+            from models.mfnet.UNetFormer_MMSAM_prealign_mmadapter21 import UNetFormerPreAlignMMAdapter21
+
+            captured_args: list[object] = []
+
+            class FakeSam(torch.nn.Module):
+                def __init__(self) -> None:
+                    super().__init__()
+                    self.image_encoder = torch.nn.Module()
+
+            def fake_build_sam(args: object, checkpoint: str) -> FakeSam:
+                del checkpoint
+                captured_args.append(args)
+                return FakeSam()
+
+            original_parse_args = base_module.cfg.parse_args
+            original_builder = base_module.sam_model_registry.get("vit_b")
+            try:
+                base_module.cfg.parse_args = lambda: types.SimpleNamespace(mod="sam_adpt")
+                base_module.sam_model_registry["vit_b"] = fake_build_sam
+
+                UNetFormerPreAlignMMAdapter21(
+                    num_classes=6,
+                    sam_backbone="vit_b",
+                    sam_checkpoint="/tmp/sam_vit_b_01ec64.pth",
+                )
+            finally:
+                base_module.cfg.parse_args = original_parse_args
+                if original_builder is None:
+                    del base_module.sam_model_registry["vit_b"]
+                else:
+                    base_module.sam_model_registry["vit_b"] = original_builder
+
+        self.assertTrue(issubclass(UNetFormerPreAlignMMAdapter21, UNetFormerPreAlign))
+        self.assertNotIn("forward", UNetFormerPreAlignMMAdapter21.__dict__)
+        self.assertIs(UNetFormerPreAlignMMAdapter21.forward, UNetFormerPreAlign.forward)
+        self.assertEqual(len(captured_args), 1)
+        self.assertEqual(captured_args[0].mm_adapter_block, "mmadapter21")
 
 
 class _DelegatingMFNetTrainer(MFNetTrainer):
@@ -968,7 +1275,7 @@ class MFNetTrainingTest(unittest.TestCase):
             else:
                 sys.modules["models.mfnet"] = original_mfnet_module
 
-    def test_build_model_dispatches_to_mfnet_unetformer_mmadapter10(self) -> None:
+    def test_build_model_dispatches_to_testnet_mmadapter10(self) -> None:
         build_module = importlib.import_module("models.build")
         captured_kwargs: list[dict[str, object]] = []
 
@@ -985,7 +1292,7 @@ class MFNetTrainingTest(unittest.TestCase):
 
             model = build_module.build_model(
                 {
-                    "type": "mfnet_unetformer_mmadapter10",
+                    "type": "testnet_mmadapter10",
                     "num_classes": 6,
                     "sam_backbone": "vit_b",
                     "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
@@ -993,6 +1300,76 @@ class MFNetTrainingTest(unittest.TestCase):
             )
 
             self.assertIsInstance(model, FakeUNetFormerMMAdapter10)
+            self.assertEqual(
+                captured_kwargs,
+                [{"num_classes": 6, "sam_backbone": "vit_b", "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth"}],
+            )
+        finally:
+            if original_mfnet_module is None:
+                del sys.modules["models.mfnet"]
+            else:
+                sys.modules["models.mfnet"] = original_mfnet_module
+
+    def test_build_model_dispatches_to_testnet_mmadapter20(self) -> None:
+        build_module = importlib.import_module("models.build")
+        captured_kwargs: list[dict[str, object]] = []
+
+        class FakeUNetFormerMMAdapter20:
+            def __init__(self, **kwargs: object) -> None:
+                captured_kwargs.append(kwargs)
+
+        fake_mfnet_module = types.ModuleType("models.mfnet")
+        fake_mfnet_module.UNetFormerMMAdapter20 = FakeUNetFormerMMAdapter20
+        original_mfnet_module = sys.modules.get("models.mfnet")
+
+        try:
+            sys.modules["models.mfnet"] = fake_mfnet_module
+
+            model = build_module.build_model(
+                {
+                    "type": "testnet_mmadapter20",
+                    "num_classes": 6,
+                    "sam_backbone": "vit_b",
+                    "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
+                }
+            )
+
+            self.assertIsInstance(model, FakeUNetFormerMMAdapter20)
+            self.assertEqual(
+                captured_kwargs,
+                [{"num_classes": 6, "sam_backbone": "vit_b", "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth"}],
+            )
+        finally:
+            if original_mfnet_module is None:
+                del sys.modules["models.mfnet"]
+            else:
+                sys.modules["models.mfnet"] = original_mfnet_module
+
+    def test_build_model_dispatches_to_testnet_mmadapter21(self) -> None:
+        build_module = importlib.import_module("models.build")
+        captured_kwargs: list[dict[str, object]] = []
+
+        class FakeUNetFormerMMAdapter21:
+            def __init__(self, **kwargs: object) -> None:
+                captured_kwargs.append(kwargs)
+
+        fake_mfnet_module = types.ModuleType("models.mfnet")
+        fake_mfnet_module.UNetFormerMMAdapter21 = FakeUNetFormerMMAdapter21
+        original_mfnet_module = sys.modules.get("models.mfnet")
+
+        try:
+            sys.modules["models.mfnet"] = fake_mfnet_module
+
+            model = build_module.build_model(
+                {
+                    "type": "testnet_mmadapter21",
+                    "num_classes": 6,
+                    "sam_backbone": "vit_b",
+                    "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
+                }
+            )
+
+            self.assertIsInstance(model, FakeUNetFormerMMAdapter21)
             self.assertEqual(
                 captured_kwargs,
                 [{"num_classes": 6, "sam_backbone": "vit_b", "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth"}],
@@ -1020,7 +1397,7 @@ class MFNetTrainingTest(unittest.TestCase):
 
             model = build_module.build_model(
                 {
-                    "type": "mfnet_unetformer_dga10",
+                    "type": "testnet_dga10",
                     "num_classes": 6,
                     "sam_backbone": "vit_b",
                     "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
@@ -1062,7 +1439,7 @@ class MFNetTrainingTest(unittest.TestCase):
 
             model = build_module.build_model(
                 {
-                    "type": "mfnet_unetformer_dga20",
+                    "type": "testnet_dga20",
                     "num_classes": 6,
                     "sam_backbone": "vit_b",
                     "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
@@ -1104,7 +1481,7 @@ class MFNetTrainingTest(unittest.TestCase):
 
             model = build_module.build_model(
                 {
-                    "type": "mfnet_unetformer_dga20_dgsf10",
+                    "type": "testnet_dga20_dgsf10",
                     "num_classes": 6,
                     "sam_backbone": "vit_b",
                     "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
@@ -1147,7 +1524,7 @@ class MFNetTrainingTest(unittest.TestCase):
 
             model = build_module.build_model(
                 {
-                    "type": "mfnet_unetformer_dgsf10",
+                    "type": "testnet_dgsf10",
                     "num_classes": 6,
                     "sam_backbone": "vit_b",
                     "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
@@ -1192,7 +1569,7 @@ class MFNetTrainingTest(unittest.TestCase):
 
             model = build_module.build_model(
                 {
-                    "type": "mfnet_unetformer_prealign_auxalign_dgsf10",
+                    "type": "testnet_prealign_auxalign_dgsf10",
                     "num_classes": 6,
                     "sam_backbone": "vit_b",
                     "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
@@ -1237,7 +1614,7 @@ class MFNetTrainingTest(unittest.TestCase):
 
             model = build_module.build_model(
                 {
-                    "type": "mfnet_unetformer_dga10",
+                    "type": "testnet_dga10",
                     "num_classes": 6,
                     "sam_backbone": "vit_b",
                     "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
@@ -1270,7 +1647,7 @@ class MFNetTrainingTest(unittest.TestCase):
 
             model = build_module.build_model(
                 {
-                    "type": "mfnet_unetformer_dga20_dgsf10",
+                    "type": "testnet_dga20_dgsf10",
                     "num_classes": 6,
                     "sam_backbone": "vit_b",
                     "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
@@ -1305,7 +1682,7 @@ class MFNetTrainingTest(unittest.TestCase):
 
             model = build_module.build_model(
                 {
-                    "type": "mfnet_unetformer_dga10_softplus",
+                    "type": "testnet_dga10_softplus",
                     "num_classes": 6,
                     "sam_backbone": "vit_b",
                     "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
@@ -1358,7 +1735,7 @@ class MFNetTrainingTest(unittest.TestCase):
 
             model = build_module.build_model(
                 {
-                    "type": "mfnet_unetformer_dga30",
+                    "type": "testnet_dga30",
                     "num_classes": 6,
                     "sam_backbone": "vit_b",
                     "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
@@ -1393,7 +1770,7 @@ class MFNetTrainingTest(unittest.TestCase):
 
             model = build_module.build_model(
                 {
-                    "type": "mfnet_unetformer_prealign",
+                    "type": "testnet_prealign",
                     "num_classes": 6,
                     "sam_backbone": "vit_b",
                     "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
@@ -1428,7 +1805,7 @@ class MFNetTrainingTest(unittest.TestCase):
 
             model = build_module.build_model(
                 {
-                    "type": "mfnet_unetformer_prealign_mmadapter10",
+                    "type": "testnet_prealign_mmadapter10",
                     "num_classes": 6,
                     "sam_backbone": "vit_b",
                     "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
@@ -1436,6 +1813,76 @@ class MFNetTrainingTest(unittest.TestCase):
             )
 
             self.assertIsInstance(model, FakeUNetFormerPreAlignMMAdapter10)
+            self.assertEqual(
+                captured_kwargs,
+                [{"num_classes": 6, "sam_backbone": "vit_b", "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth"}],
+            )
+        finally:
+            if original_mfnet_module is None:
+                del sys.modules["models.mfnet"]
+            else:
+                sys.modules["models.mfnet"] = original_mfnet_module
+
+    def test_build_model_dispatches_to_mfnet_prealign_mmadapter20(self) -> None:
+        build_module = importlib.import_module("models.build")
+        captured_kwargs: list[dict[str, object]] = []
+
+        class FakeUNetFormerPreAlignMMAdapter20:
+            def __init__(self, **kwargs: object) -> None:
+                captured_kwargs.append(kwargs)
+
+        fake_mfnet_module = types.ModuleType("models.mfnet")
+        fake_mfnet_module.UNetFormerPreAlignMMAdapter20 = FakeUNetFormerPreAlignMMAdapter20
+        original_mfnet_module = sys.modules.get("models.mfnet")
+
+        try:
+            sys.modules["models.mfnet"] = fake_mfnet_module
+
+            model = build_module.build_model(
+                {
+                    "type": "testnet_prealign_mmadapter20",
+                    "num_classes": 6,
+                    "sam_backbone": "vit_b",
+                    "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
+                }
+            )
+
+            self.assertIsInstance(model, FakeUNetFormerPreAlignMMAdapter20)
+            self.assertEqual(
+                captured_kwargs,
+                [{"num_classes": 6, "sam_backbone": "vit_b", "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth"}],
+            )
+        finally:
+            if original_mfnet_module is None:
+                del sys.modules["models.mfnet"]
+            else:
+                sys.modules["models.mfnet"] = original_mfnet_module
+
+    def test_build_model_dispatches_to_mfnet_prealign_mmadapter21(self) -> None:
+        build_module = importlib.import_module("models.build")
+        captured_kwargs: list[dict[str, object]] = []
+
+        class FakeUNetFormerPreAlignMMAdapter21:
+            def __init__(self, **kwargs: object) -> None:
+                captured_kwargs.append(kwargs)
+
+        fake_mfnet_module = types.ModuleType("models.mfnet")
+        fake_mfnet_module.UNetFormerPreAlignMMAdapter21 = FakeUNetFormerPreAlignMMAdapter21
+        original_mfnet_module = sys.modules.get("models.mfnet")
+
+        try:
+            sys.modules["models.mfnet"] = fake_mfnet_module
+
+            model = build_module.build_model(
+                {
+                    "type": "testnet_prealign_mmadapter21",
+                    "num_classes": 6,
+                    "sam_backbone": "vit_b",
+                    "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
+                }
+            )
+
+            self.assertIsInstance(model, FakeUNetFormerPreAlignMMAdapter21)
             self.assertEqual(
                 captured_kwargs,
                 [{"num_classes": 6, "sam_backbone": "vit_b", "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth"}],
@@ -1463,7 +1910,7 @@ class MFNetTrainingTest(unittest.TestCase):
 
             model = build_module.build_model(
                 {
-                    "type": "mfnet_unetformer_auxalign",
+                    "type": "testnet_auxalign",
                     "num_classes": 6,
                     "sam_backbone": "vit_b",
                     "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
@@ -1498,7 +1945,7 @@ class MFNetTrainingTest(unittest.TestCase):
 
             model = build_module.build_model(
                 {
-                    "type": "mfnet_unetformer_prealign_auxalign",
+                    "type": "testnet_prealign_auxalign",
                     "num_classes": 6,
                     "sam_backbone": "vit_b",
                     "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
@@ -1533,7 +1980,7 @@ class MFNetTrainingTest(unittest.TestCase):
 
             model = build_module.build_model(
                 {
-                    "type": "mfnet_unetformer_prealign_dga10",
+                    "type": "testnet_prealign_dga10",
                     "num_classes": 6,
                     "sam_backbone": "vit_b",
                     "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
@@ -1568,7 +2015,7 @@ class MFNetTrainingTest(unittest.TestCase):
 
             model = build_module.build_model(
                 {
-                    "type": "mfnet_unetformer_prealign_auxalign_dga10",
+                    "type": "testnet_prealign_auxalign_dga10",
                     "num_classes": 6,
                     "sam_backbone": "vit_b",
                     "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
@@ -3653,10 +4100,10 @@ class MFNetTrainingTest(unittest.TestCase):
         self.assertIsNone(args.model_type)
         self.assertIsNone(args.seed)
 
-        with patch.object(sys, "argv", ["train.py", "--model-type", "mfnet_unetformer_dga10", "--seed", "123"]):
+        with patch.object(sys, "argv", ["train.py", "--model-type", "testnet_dga10", "--seed", "123"]):
             args = module.parse_args()
 
-        self.assertEqual(args.model_type, "mfnet_unetformer_dga10")
+        self.assertEqual(args.model_type, "testnet_dga10")
         self.assertEqual(args.seed, 123)
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -3674,7 +4121,7 @@ class MFNetTrainingTest(unittest.TestCase):
             )
 
             dga_work_dir = module.build_default_work_dir(
-                model_name="mfnet_unetformer_dga20",
+                model_name="testnet_dga20",
                 dataset_name="vaihingen",
                 seed=80,
                 root_dir=tmpdir,
@@ -3685,7 +4132,7 @@ class MFNetTrainingTest(unittest.TestCase):
             )
 
             lambda_work_dir = module.build_default_work_dir(
-                model_name="mfnet_unetformer_prealign_auxalign",
+                model_name="testnet_prealign_auxalign",
                 dataset_name="vaihingen",
                 seed=80,
                 lambda_align=0.01,
@@ -3824,7 +4271,7 @@ class MFNetTrainingTest(unittest.TestCase):
                     "resume_dir": None,
                     "resume_ckpt": None,
                     "load_from": None,
-                    "model_type": "mfnet_unetformer_dga10",
+                    "model_type": "testnet_dga10",
                 },
             )()
 
@@ -3835,12 +4282,12 @@ class MFNetTrainingTest(unittest.TestCase):
                 default_work_dir=work_dir,
             )
 
-            self.assertEqual(result["default_work_dir_calls"][0]["model_name"], "mfnet_unetformer_dga10")
+            self.assertEqual(result["default_work_dir_calls"][0]["model_name"], "testnet_dga10")
             self.assertEqual(result["default_work_dir_calls"][0]["seed"], 80)
-            self.assertEqual(result["model_cfg"][0]["type"], "mfnet_unetformer_dga10")
+            self.assertEqual(result["model_cfg"][0]["type"], "testnet_dga10")
             self.assertEqual(result["trainer_classes"], ["MFNetDGATrainer"])
             saved_cfg = json.loads((work_dir / config_path.name).read_text(encoding="utf-8"))
-            self.assertEqual(saved_cfg["model"]["type"], "mfnet_unetformer_dga10")
+            self.assertEqual(saved_cfg["model"]["type"], "testnet_dga10")
             self.assertEqual(config_path.read_text(encoding="utf-8"), config_text)
 
     def test_train_entry_seed_overrides_config_for_new_experiment(self) -> None:
@@ -3913,7 +4360,7 @@ class MFNetTrainingTest(unittest.TestCase):
                     "resume_dir": None,
                     "resume_ckpt": None,
                     "load_from": None,
-                    "model_type": "mfnet_unetformer_dga10",
+                    "model_type": "testnet_dga10",
                     "seed": 123,
                 },
             )()
@@ -3932,7 +4379,7 @@ class MFNetTrainingTest(unittest.TestCase):
             saved_cfg = json.loads(saved_config_path.read_text(encoding="utf-8"))
             self.assertNotIn("extends", saved_cfg)
             self.assertEqual(saved_cfg["seed"], 123)
-            self.assertEqual(saved_cfg["model"]["type"], "mfnet_unetformer_dga10")
+            self.assertEqual(saved_cfg["model"]["type"], "testnet_dga10")
             self.assertEqual(saved_cfg["model"]["num_classes"], 6)
             self.assertEqual(saved_cfg["dataset"]["train_ids"], ["3"])
             self.assertEqual(saved_cfg["dataset"]["val_ids"], ["5"])
@@ -3947,7 +4394,7 @@ class MFNetTrainingTest(unittest.TestCase):
             config_path.write_text('{"train": {"max_epochs": 1}}\n', encoding="utf-8")
             work_dir = Path(tmpdir) / "auto_work"
             cfg = self._make_train_entry_config(root_dir=str(work_dir))
-            cfg["model"]["type"] = "mfnet_unetformer_dga10"  # type: ignore[index]
+            cfg["model"]["type"] = "testnet_dga10"  # type: ignore[index]
             args = type(
                 "Args",
                 (),
@@ -3978,7 +4425,7 @@ class MFNetTrainingTest(unittest.TestCase):
             config_path.write_text('{"train": {"max_epochs": 1}}\n', encoding="utf-8")
             work_dir = Path(tmpdir) / "auto_work"
             cfg = self._make_train_entry_config(root_dir=str(work_dir))
-            cfg["model"]["type"] = "mfnet_unetformer_dga20"  # type: ignore[index]
+            cfg["model"]["type"] = "testnet_dga20"  # type: ignore[index]
             args = type(
                 "Args",
                 (),
@@ -4009,7 +4456,7 @@ class MFNetTrainingTest(unittest.TestCase):
             config_path.write_text('{"train": {"max_epochs": 1}}\n', encoding="utf-8")
             work_dir = Path(tmpdir) / "auto_work"
             cfg = self._make_train_entry_config(root_dir=str(work_dir))
-            cfg["model"]["type"] = "mfnet_unetformer_dga20_dgsf10"  # type: ignore[index]
+            cfg["model"]["type"] = "testnet_dga20_dgsf10"  # type: ignore[index]
             args = type(
                 "Args",
                 (),
@@ -4040,7 +4487,7 @@ class MFNetTrainingTest(unittest.TestCase):
             config_path.write_text('{"train": {"max_epochs": 1}}\n', encoding="utf-8")
             work_dir = Path(tmpdir) / "auto_work"
             cfg = self._make_train_entry_config(root_dir=str(work_dir))
-            cfg["model"]["type"] = "mfnet_unetformer_dgsf10"  # type: ignore[index]
+            cfg["model"]["type"] = "testnet_dgsf10"  # type: ignore[index]
             args = type(
                 "Args",
                 (),
@@ -4071,7 +4518,7 @@ class MFNetTrainingTest(unittest.TestCase):
             config_path.write_text('{"train": {"max_epochs": 1}}\n', encoding="utf-8")
             work_dir = Path(tmpdir) / "auto_work"
             cfg = self._make_train_entry_config(root_dir=str(work_dir))
-            cfg["model"]["type"] = "mfnet_unetformer_dga30"  # type: ignore[index]
+            cfg["model"]["type"] = "testnet_dga30"  # type: ignore[index]
             args = type(
                 "Args",
                 (),
@@ -4102,7 +4549,7 @@ class MFNetTrainingTest(unittest.TestCase):
             config_path.write_text('{"train": {"max_epochs": 1}}\n', encoding="utf-8")
             work_dir = Path(tmpdir) / "auto_work"
             cfg = self._make_train_entry_config(root_dir=str(work_dir))
-            cfg["model"]["type"] = "mfnet_unetformer_auxalign"  # type: ignore[index]
+            cfg["model"]["type"] = "testnet_auxalign"  # type: ignore[index]
             cfg["train"]["lambda_align"] = 0.5  # type: ignore[index]
             args = type(
                 "Args",
@@ -4136,7 +4583,7 @@ class MFNetTrainingTest(unittest.TestCase):
             config_path.write_text('{"train": {"max_epochs": 1}}\n', encoding="utf-8")
             work_dir = Path(tmpdir) / "auto_work"
             cfg = self._make_train_entry_config(root_dir=str(work_dir))
-            cfg["model"]["type"] = "mfnet_unetformer_prealign_auxalign"  # type: ignore[index]
+            cfg["model"]["type"] = "testnet_prealign_auxalign"  # type: ignore[index]
             cfg["train"]["lambda_align"] = 0.5  # type: ignore[index]
             args = type(
                 "Args",
@@ -4169,7 +4616,7 @@ class MFNetTrainingTest(unittest.TestCase):
             config_path.write_text('{"train": {"max_epochs": 1}}\n', encoding="utf-8")
             work_dir = Path(tmpdir) / "auto_work"
             cfg = self._make_train_entry_config(root_dir=str(work_dir))
-            cfg["model"]["type"] = "mfnet_unetformer_prealign_auxalign_dgsf10"  # type: ignore[index]
+            cfg["model"]["type"] = "testnet_prealign_auxalign_dgsf10"  # type: ignore[index]
             cfg["train"]["lambda_align"] = 0.5  # type: ignore[index]
             args = type(
                 "Args",
@@ -4203,7 +4650,7 @@ class MFNetTrainingTest(unittest.TestCase):
             config_path.write_text('{"train": {"max_epochs": 1}}\n', encoding="utf-8")
             work_dir = Path(tmpdir) / "auto_work"
             cfg = self._make_train_entry_config(root_dir=str(work_dir))
-            cfg["model"]["type"] = "mfnet_unetformer_prealign_auxalign_dga10"  # type: ignore[index]
+            cfg["model"]["type"] = "testnet_prealign_auxalign_dga10"  # type: ignore[index]
             cfg["train"]["lambda_align"] = 0.5  # type: ignore[index]
             args = type(
                 "Args",
@@ -4326,7 +4773,7 @@ class MFNetTrainingTest(unittest.TestCase):
                     "resume_dir": str(resume_dir),
                     "resume_ckpt": None,
                     "load_from": None,
-                    "model_type": "mfnet_unetformer_dga10",
+                    "model_type": "testnet_dga10",
                 },
             )()
 
