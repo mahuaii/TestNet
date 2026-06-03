@@ -11,6 +11,7 @@ AVAILABLE_MODEL_TYPES: tuple[str, ...] = (
     "testnet_dga20",
     "testnet_dga20_dgsf10",
     "testnet_dgsf10",
+    "testnet_dgfm",
     "testnet_dga10_softplus",
     "testnet_dga20_softplus",
     "testnet_dga30",
@@ -19,6 +20,7 @@ AVAILABLE_MODEL_TYPES: tuple[str, ...] = (
     "testnet_prealign_mmadapter10",
     "testnet_prealign_mmadapter20",
     "testnet_prealign_mmadapter21",
+    "testnet_prealign_dgfm",
     "testnet_prealign_auxalign",
     "testnet_prealign_dga10",
     "testnet_prealign_auxalign_dga10",
@@ -115,6 +117,16 @@ def build_model(cfg: dict[str, Any]) -> Any:
             **_intermediate_stats_kwargs(cfg),
         )
         return model
+    if model_type == "testnet_dgfm":
+        from .mfnet import UNetFormerDGFM
+
+        model = UNetFormerDGFM(
+            num_classes=int(cfg["num_classes"]),
+            sam_backbone=str(cfg["sam_backbone"]),
+            sam_checkpoint=str(cfg["sam_checkpoint"]),
+            **_intermediate_stats_kwargs(cfg),
+        )
+        return model
     if model_type == "testnet_dga10_softplus":
         from .mfnet import UNetFormerDGA10Softplus
 
@@ -187,6 +199,16 @@ def build_model(cfg: dict[str, Any]) -> Any:
             num_classes=int(cfg["num_classes"]),
             sam_backbone=str(cfg["sam_backbone"]),
             sam_checkpoint=str(cfg["sam_checkpoint"]),
+        )
+        return model
+    if model_type == "testnet_prealign_dgfm":
+        from .mfnet import UNetFormerPreAlignDGFM
+
+        model = UNetFormerPreAlignDGFM(
+            num_classes=int(cfg["num_classes"]),
+            sam_backbone=str(cfg["sam_backbone"]),
+            sam_checkpoint=str(cfg["sam_checkpoint"]),
+            **_intermediate_stats_kwargs(cfg),
         )
         return model
     if model_type == "testnet_prealign_auxalign":
