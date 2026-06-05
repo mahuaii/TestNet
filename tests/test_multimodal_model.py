@@ -1597,6 +1597,141 @@ class MFNetTrainingTest(unittest.TestCase):
             else:
                 sys.modules["models.mfnet"] = original_mfnet_module
 
+    def test_build_model_dispatches_to_mfnet_dgfm01(self) -> None:
+        build_module = importlib.import_module("models.build")
+        captured_kwargs: list[dict[str, object]] = []
+
+        class FakeUNetFormerDGFM01:
+            def __init__(self, **kwargs: object) -> None:
+                captured_kwargs.append(kwargs)
+
+        fake_mfnet_module = types.ModuleType("models.mfnet")
+        fake_mfnet_module.UNetFormerDGFM01 = FakeUNetFormerDGFM01
+        original_mfnet_module = sys.modules.get("models.mfnet")
+
+        try:
+            sys.modules["models.mfnet"] = fake_mfnet_module
+
+            model = build_module.build_model(
+                {
+                    "type": "testnet_dgfm01",
+                    "num_classes": 6,
+                    "sam_backbone": "vit_b",
+                    "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
+                    "record_intermediate_stats": True,
+                    "record_intermediate_modules": ["dgfm01"],
+                }
+            )
+
+            self.assertIsInstance(model, FakeUNetFormerDGFM01)
+            self.assertEqual(
+                captured_kwargs,
+                [
+                    {
+                        "num_classes": 6,
+                        "sam_backbone": "vit_b",
+                        "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
+                        "record_intermediate_stats": True,
+                        "record_intermediate_modules": ["dgfm01"],
+                    }
+                ],
+            )
+        finally:
+            if original_mfnet_module is None:
+                del sys.modules["models.mfnet"]
+            else:
+                sys.modules["models.mfnet"] = original_mfnet_module
+
+    def test_build_model_dispatches_to_mfnet_dgfm01_upernet(self) -> None:
+        build_module = importlib.import_module("models.build")
+        captured_kwargs: list[dict[str, object]] = []
+
+        class FakeUNetFormerDGFM01UperNet:
+            def __init__(self, **kwargs: object) -> None:
+                captured_kwargs.append(kwargs)
+
+        fake_mfnet_module = types.ModuleType("models.mfnet")
+        fake_mfnet_module.UNetFormerDGFM01UperNet = FakeUNetFormerDGFM01UperNet
+        original_mfnet_module = sys.modules.get("models.mfnet")
+
+        try:
+            sys.modules["models.mfnet"] = fake_mfnet_module
+
+            model = build_module.build_model(
+                {
+                    "type": "testnet_dgfm01_upernet",
+                    "num_classes": 6,
+                    "sam_backbone": "vit_b",
+                    "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
+                    "record_intermediate_stats": True,
+                    "record_intermediate_modules": ["dgfm01_upernet"],
+                }
+            )
+
+            self.assertIsInstance(model, FakeUNetFormerDGFM01UperNet)
+            self.assertEqual(
+                captured_kwargs,
+                [
+                    {
+                        "num_classes": 6,
+                        "sam_backbone": "vit_b",
+                        "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
+                        "record_intermediate_stats": True,
+                        "record_intermediate_modules": ["dgfm01_upernet"],
+                    }
+                ],
+            )
+        finally:
+            if original_mfnet_module is None:
+                del sys.modules["models.mfnet"]
+            else:
+                sys.modules["models.mfnet"] = original_mfnet_module
+
+    def test_build_model_dispatches_to_mfnet_sgcf(self) -> None:
+        build_module = importlib.import_module("models.build")
+        captured_kwargs: list[dict[str, object]] = []
+
+        class FakeUNetFormerSGCF:
+            def __init__(self, **kwargs: object) -> None:
+                captured_kwargs.append(kwargs)
+
+        fake_mfnet_module = types.ModuleType("models.mfnet")
+        fake_mfnet_module.UNetFormerSGCF = FakeUNetFormerSGCF
+        original_mfnet_module = sys.modules.get("models.mfnet")
+
+        try:
+            sys.modules["models.mfnet"] = fake_mfnet_module
+
+            model = build_module.build_model(
+                {
+                    "type": "testnet_sgcf",
+                    "num_classes": 6,
+                    "sam_backbone": "vit_b",
+                    "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
+                    "record_intermediate_stats": True,
+                    "record_intermediate_modules": ["sgcf"],
+                }
+            )
+
+            self.assertIsInstance(model, FakeUNetFormerSGCF)
+            self.assertEqual(
+                captured_kwargs,
+                [
+                    {
+                        "num_classes": 6,
+                        "sam_backbone": "vit_b",
+                        "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
+                        "record_intermediate_stats": True,
+                        "record_intermediate_modules": ["sgcf"],
+                    }
+                ],
+            )
+        finally:
+            if original_mfnet_module is None:
+                del sys.modules["models.mfnet"]
+            else:
+                sys.modules["models.mfnet"] = original_mfnet_module
+
     def test_build_model_dispatches_to_mfnet_prealign_auxalign_dgsf10(self) -> None:
         build_module = importlib.import_module("models.build")
         captured_kwargs: list[dict[str, object]] = []
@@ -1931,51 +2066,6 @@ class MFNetTrainingTest(unittest.TestCase):
             self.assertEqual(
                 captured_kwargs,
                 [{"num_classes": 6, "sam_backbone": "vit_b", "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth"}],
-            )
-        finally:
-            if original_mfnet_module is None:
-                del sys.modules["models.mfnet"]
-            else:
-                sys.modules["models.mfnet"] = original_mfnet_module
-
-    def test_build_model_dispatches_to_mfnet_prealign_dgfm(self) -> None:
-        build_module = importlib.import_module("models.build")
-        captured_kwargs: list[dict[str, object]] = []
-
-        class FakeUNetFormerPreAlignDGFM:
-            def __init__(self, **kwargs: object) -> None:
-                captured_kwargs.append(kwargs)
-
-        fake_mfnet_module = types.ModuleType("models.mfnet")
-        fake_mfnet_module.UNetFormerPreAlignDGFM = FakeUNetFormerPreAlignDGFM
-        original_mfnet_module = sys.modules.get("models.mfnet")
-
-        try:
-            sys.modules["models.mfnet"] = fake_mfnet_module
-
-            model = build_module.build_model(
-                {
-                    "type": "testnet_prealign_dgfm",
-                    "num_classes": 6,
-                    "sam_backbone": "vit_b",
-                    "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
-                    "record_intermediate_stats": True,
-                    "record_intermediate_modules": ["dgfm"],
-                }
-            )
-
-            self.assertIsInstance(model, FakeUNetFormerPreAlignDGFM)
-            self.assertEqual(
-                captured_kwargs,
-                [
-                    {
-                        "num_classes": 6,
-                        "sam_backbone": "vit_b",
-                        "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
-                        "record_intermediate_stats": True,
-                        "record_intermediate_modules": ["dgfm"],
-                    }
-                ],
             )
         finally:
             if original_mfnet_module is None:
@@ -3100,21 +3190,142 @@ class MFNetTrainingTest(unittest.TestCase):
         self.assertEqual(decoder.output_size, (8, 8))
         self.assertEqual(tuple(output.shape), (2, 6, 8, 8))
 
-    def test_unetformer_prealign_dgfm_uses_aux_prealign_before_dgfm_taps(self) -> None:
+    def test_unetformer_sgcf_uses_dgfm_style_taps_and_raw_dsm(self) -> None:
         with _fake_mfnet_optional_imports():
-            from models.mfnet.UNetFormer_MMSAM_prealign_dgfm import UNetFormerPreAlignDGFM
+            from models.mfnet.UNetFormer_MMSAM_sgcf import UNetFormerSGCF
 
         events: list[str] = []
 
-        class FakeAuxPreAlign(torch.nn.Module):
+        class FakePatchEmbed(torch.nn.Module):
             def __init__(self) -> None:
                 super().__init__()
-                self.input_shape: tuple[int, ...] | None = None
+                self.input_shapes: list[tuple[int, ...]] = []
 
-            def forward(self, y: torch.Tensor) -> torch.Tensor:
-                events.append("aux_prealign")
-                self.input_shape = tuple(y.shape)
-                return y.repeat(1, 3, 1, 1)
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                self.input_shapes.append(tuple(x.shape))
+                x = torch.nn.functional.avg_pool2d(x, kernel_size=4)
+                x = x.mean(dim=1, keepdim=True).repeat(1, 4, 1, 1)
+                return x.permute(0, 2, 3, 1)
+
+        class FakeBlock(torch.nn.Module):
+            def __init__(self, name: str, window_size: int, rgb_offset: float, aux_offset: float) -> None:
+                super().__init__()
+                self.name = name
+                self.window_size = window_size
+                self.rgb_offset = rgb_offset
+                self.aux_offset = aux_offset
+
+            def forward(self, x: torch.Tensor, y: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+                events.append(self.name)
+                return x + self.rgb_offset, y + self.aux_offset
+
+        class ForbiddenNeck(torch.nn.Module):
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                del x
+                raise AssertionError("SGCF decoder features must be captured before encoder.neck")
+
+        class FakeImageEncoder(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.embed_dim = 4
+                self.patch_embed = FakePatchEmbed()
+                self.pos_embed = None
+                self.blocks = torch.nn.ModuleList(
+                    [
+                        FakeBlock("block0", window_size=0, rgb_offset=1.0, aux_offset=10.0),
+                        FakeBlock("block1", window_size=14, rgb_offset=2.0, aux_offset=20.0),
+                        FakeBlock("block2", window_size=0, rgb_offset=3.0, aux_offset=30.0),
+                        FakeBlock("block3", window_size=0, rgb_offset=4.0, aux_offset=40.0),
+                        FakeBlock("block4", window_size=0, rgb_offset=5.0, aux_offset=50.0),
+                        FakeBlock("block5", window_size=14, rgb_offset=6.0, aux_offset=60.0),
+                    ]
+                )
+                self.neck = ForbiddenNeck()
+
+        class SpySGCF(torch.nn.Module):
+            def __init__(self, name: str, base_value: float) -> None:
+                super().__init__()
+                self.name = name
+                self.calls: list[tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = []
+                self.outputs = tuple(torch.full((2, 4, 2, 2), base_value + float(index)) for index in range(4))
+
+            def forward(self, rgb: torch.Tensor, aux: torch.Tensor, dsm: torch.Tensor) -> tuple[torch.Tensor, ...]:
+                events.append(self.name)
+                self.calls.append((rgb.detach().clone(), aux.detach().clone(), dsm.detach().clone()))
+                return self.outputs
+
+        class SpyDecoder(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.inputs: tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor] | None = None
+                self.output_size: tuple[int, int] | None = None
+
+            def forward(
+                self,
+                res1: torch.Tensor,
+                res2: torch.Tensor,
+                res3: torch.Tensor,
+                res4: torch.Tensor,
+                h: int,
+                w: int,
+            ) -> torch.Tensor:
+                events.append("decoder")
+                self.inputs = (res1, res2, res3, res4)
+                self.output_size = (h, w)
+                return torch.zeros(res1.shape[0], 6, h, w)
+
+        model = UNetFormerSGCF.__new__(UNetFormerSGCF)
+        torch.nn.Module.__init__(model)
+        model.image_encoder = FakeImageEncoder()
+        model.sgcf_indexes = [0, 2, 3, 5]
+        model.sgcf_blocks = torch.nn.ModuleList(
+            [
+                SpySGCF("sgcf0", base_value=10.0),
+                SpySGCF("sgcf1", base_value=20.0),
+                SpySGCF("sgcf2", base_value=30.0),
+                SpySGCF("sgcf3", base_value=40.0),
+            ]
+        )
+        model.decoder = SpyDecoder()
+        raw_dsm = torch.ones(2, 8, 8)
+
+        output = model(torch.zeros(2, 3, 8, 8), raw_dsm)
+
+        decoder = model.decoder
+        assert isinstance(decoder, SpyDecoder)
+        self.assertFalse(hasattr(model, "fusion1"))
+        self.assertEqual(model.image_encoder.patch_embed.input_shapes[0], (2, 3, 8, 8))
+        self.assertEqual(model.image_encoder.patch_embed.input_shapes[1], (2, 3, 8, 8))
+        self.assertEqual(
+            events,
+            [
+                "block0",
+                "sgcf0",
+                "block1",
+                "block2",
+                "sgcf1",
+                "block3",
+                "sgcf2",
+                "block4",
+                "block5",
+                "sgcf3",
+                "decoder",
+            ],
+        )
+        self.assertIsNotNone(decoder.inputs)
+        for tap_index, sgcf in enumerate(model.sgcf_blocks):
+            assert isinstance(sgcf, SpySGCF)
+            self.assertEqual(len(sgcf.calls), 1)
+            self.assertIs(decoder.inputs[tap_index], sgcf.outputs[tap_index])
+            self.assertTrue(torch.equal(sgcf.calls[0][2], raw_dsm.unsqueeze(1)))
+        self.assertEqual(decoder.output_size, (8, 8))
+        self.assertEqual(tuple(output.shape), (2, 6, 8, 8))
+
+    def test_unetformer_dgfm01_applies_external_norm_projection_scale_and_decoder(self) -> None:
+        with _fake_mfnet_optional_imports():
+            from models.mfnet.UNetFormer_MMSAM_dgfm01 import UNetFormerDGFM01
+
+        events: list[str] = []
 
         class FakePatchEmbed(torch.nn.Module):
             def __init__(self) -> None:
@@ -3155,19 +3366,53 @@ class MFNetTrainingTest(unittest.TestCase):
                         FakeBlock("block5", window_size=14, rgb_offset=6.0, aux_offset=60.0),
                     ]
                 )
-                self.neck = torch.nn.Identity()
 
-        class SpyDGFM(torch.nn.Module):
+        class SpyNorm(torch.nn.Module):
+            def __init__(self, name: str) -> None:
+                super().__init__()
+                self.name = name
+                self.input_shapes: list[tuple[int, ...]] = []
+
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                events.append(self.name)
+                self.input_shapes.append(tuple(x.shape))
+                return x
+
+        class SpyDGFM01(torch.nn.Module):
             def __init__(self, name: str, base_value: float) -> None:
                 super().__init__()
                 self.name = name
+                self.calls: list[tuple[torch.Tensor, torch.Tensor]] = []
+                self.output = torch.full((2, 4, 2, 2), base_value)
+
+            def forward(self, rgb: torch.Tensor, aux: torch.Tensor) -> torch.Tensor:
+                events.append(self.name)
+                self.calls.append((rgb.detach().clone(), aux.detach().clone()))
+                return self.output
+
+        class SpyProj(torch.nn.Module):
+            def __init__(self, name: str) -> None:
+                super().__init__()
+                self.name = name
+                self.input_shapes: list[tuple[int, ...]] = []
+
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                events.append(self.name)
+                self.input_shapes.append(tuple(x.shape))
+                return x
+
+        class SpyScaleAdapter(torch.nn.Module):
+            def __init__(self, name: str, base_value: float) -> None:
+                super().__init__()
+                self.name = name
+                self.calls: list[torch.Tensor] = []
                 self.outputs = tuple(
                     torch.full((2, 4, 2, 2), base_value + float(index)) for index in range(4)
                 )
 
-            def forward(self, rgb: torch.Tensor, aux: torch.Tensor) -> tuple[torch.Tensor, ...]:
-                del rgb, aux
+            def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, ...]:
                 events.append(self.name)
+                self.calls.append(x.detach().clone())
                 return self.outputs
 
         class SpyDecoder(torch.nn.Module):
@@ -3190,18 +3435,24 @@ class MFNetTrainingTest(unittest.TestCase):
                 self.output_size = (h, w)
                 return torch.zeros(res1.shape[0], 6, h, w)
 
-        model = UNetFormerPreAlignDGFM.__new__(UNetFormerPreAlignDGFM)
+        model = UNetFormerDGFM01.__new__(UNetFormerDGFM01)
         torch.nn.Module.__init__(model)
-        model.aux_prealign = FakeAuxPreAlign()
         model.image_encoder = FakeImageEncoder()
-        model.dgfm_indexes = [0, 2, 3, 5]
-        model.dgfm_blocks = torch.nn.ModuleList(
-            [
-                SpyDGFM("dgfm0", base_value=10.0),
-                SpyDGFM("dgfm1", base_value=20.0),
-                SpyDGFM("dgfm2", base_value=30.0),
-                SpyDGFM("dgfm3", base_value=40.0),
-            ]
+        model.dgfm01_indexes = [0, 2, 3, 5]
+        model.dgfm01_input_norms = torch.nn.ModuleList(
+            [SpyNorm(f"input_norm{index}") for index in range(4)]
+        )
+        model.dgfm01_blocks = torch.nn.ModuleList(
+            [SpyDGFM01(f"dgfm01_{index}", base_value=10.0 * (index + 1)) for index in range(4)]
+        )
+        model.dgfm01_output_norms = torch.nn.ModuleList(
+            [SpyNorm(f"output_norm{index}") for index in range(4)]
+        )
+        model.dgfm01_output_projs = torch.nn.ModuleList(
+            [SpyProj(f"output_proj{index}") for index in range(4)]
+        )
+        model.dgfm01_scale_adapters = torch.nn.ModuleList(
+            [SpyScaleAdapter(f"scale_adapter{index}", base_value=100.0 * (index + 1)) for index in range(4)]
         )
         model.decoder = SpyDecoder()
 
@@ -3209,14 +3460,164 @@ class MFNetTrainingTest(unittest.TestCase):
 
         decoder = model.decoder
         assert isinstance(decoder, SpyDecoder)
-        self.assertEqual(model.aux_prealign.input_shape, (2, 1, 8, 8))
+        self.assertFalse(hasattr(model, "fusion1"))
+        self.assertEqual(model.image_encoder.patch_embed.input_shapes[0], (2, 3, 8, 8))
         self.assertEqual(model.image_encoder.patch_embed.input_shapes[1], (2, 3, 8, 8))
-        self.assertEqual(events[0], "aux_prealign")
         self.assertEqual(events[-1], "decoder")
+        self.assertEqual(
+            events[:9],
+            [
+                "block0",
+                "input_norm0",
+                "input_norm0",
+                "dgfm01_0",
+                "output_norm0",
+                "output_proj0",
+                "scale_adapter0",
+                "block1",
+                "block2",
+            ],
+        )
+        self.assertIn("scale_adapter3", events)
         self.assertIsNotNone(decoder.inputs)
-        for tap_index, dgfm in enumerate(model.dgfm_blocks):
-            assert isinstance(dgfm, SpyDGFM)
-            self.assertIs(decoder.inputs[tap_index], dgfm.outputs[tap_index])
+        for tap_index, scale_adapter in enumerate(model.dgfm01_scale_adapters):
+            assert isinstance(scale_adapter, SpyScaleAdapter)
+            self.assertEqual(len(scale_adapter.calls), 1)
+            self.assertIs(decoder.inputs[tap_index], scale_adapter.outputs[tap_index])
+        self.assertEqual(decoder.output_size, (8, 8))
+        self.assertEqual(tuple(output.shape), (2, 6, 8, 8))
+
+    def test_unetformer_dgfm01_upernet_applies_external_norm_projection_and_list_decoder(self) -> None:
+        with _fake_mfnet_optional_imports():
+            from models.mfnet.UNetFormer_MMSAM_dgfm01_upernet import UNetFormerDGFM01UperNet
+
+        events: list[str] = []
+
+        class FakePatchEmbed(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.input_shapes: list[tuple[int, ...]] = []
+
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                self.input_shapes.append(tuple(x.shape))
+                x = torch.nn.functional.avg_pool2d(x, kernel_size=4)
+                x = x.mean(dim=1, keepdim=True).repeat(1, 4, 1, 1)
+                return x.permute(0, 2, 3, 1)
+
+        class FakeBlock(torch.nn.Module):
+            def __init__(self, name: str, window_size: int, rgb_offset: float, aux_offset: float) -> None:
+                super().__init__()
+                self.name = name
+                self.window_size = window_size
+                self.rgb_offset = rgb_offset
+                self.aux_offset = aux_offset
+
+            def forward(self, x: torch.Tensor, y: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+                events.append(self.name)
+                return x + self.rgb_offset, y + self.aux_offset
+
+        class FakeImageEncoder(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.embed_dim = 4
+                self.patch_embed = FakePatchEmbed()
+                self.pos_embed = None
+                self.blocks = torch.nn.ModuleList(
+                    [
+                        FakeBlock("block0", window_size=0, rgb_offset=1.0, aux_offset=10.0),
+                        FakeBlock("block1", window_size=14, rgb_offset=2.0, aux_offset=20.0),
+                        FakeBlock("block2", window_size=0, rgb_offset=3.0, aux_offset=30.0),
+                        FakeBlock("block3", window_size=0, rgb_offset=4.0, aux_offset=40.0),
+                        FakeBlock("block4", window_size=0, rgb_offset=5.0, aux_offset=50.0),
+                        FakeBlock("block5", window_size=14, rgb_offset=6.0, aux_offset=60.0),
+                    ]
+                )
+
+        class SpyNorm(torch.nn.Module):
+            def __init__(self, name: str) -> None:
+                super().__init__()
+                self.name = name
+
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                events.append(self.name)
+                return x
+
+        class SpyDGFM01(torch.nn.Module):
+            def __init__(self, name: str, base_value: float) -> None:
+                super().__init__()
+                self.name = name
+                self.output = torch.full((2, 4, 2, 2), base_value)
+
+            def forward(self, rgb: torch.Tensor, aux: torch.Tensor) -> torch.Tensor:
+                del rgb, aux
+                events.append(self.name)
+                return self.output
+
+        class SpyProj(torch.nn.Module):
+            def __init__(self, name: str, base_value: float) -> None:
+                super().__init__()
+                self.name = name
+                self.output = torch.full((2, 4, 2, 2), base_value)
+
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                del x
+                events.append(self.name)
+                return self.output
+
+        class SpyUperDecoder(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.features: tuple[torch.Tensor, ...] | None = None
+                self.output_size: tuple[int, int] | None = None
+
+            def forward(self, features: tuple[torch.Tensor, ...], h: int, w: int) -> torch.Tensor:
+                events.append("uper_decoder")
+                self.features = tuple(features)
+                self.output_size = (h, w)
+                return torch.zeros(features[0].shape[0], 6, h, w)
+
+        model = UNetFormerDGFM01UperNet.__new__(UNetFormerDGFM01UperNet)
+        torch.nn.Module.__init__(model)
+        model.image_encoder = FakeImageEncoder()
+        model.dgfm01_upernet_indexes = [0, 2, 3, 5]
+        model.dgfm01_upernet_input_norms = torch.nn.ModuleList(
+            [SpyNorm(f"input_norm{index}") for index in range(4)]
+        )
+        model.dgfm01_upernet_blocks = torch.nn.ModuleList(
+            [SpyDGFM01(f"dgfm01_upernet_{index}", base_value=10.0 * (index + 1)) for index in range(4)]
+        )
+        model.dgfm01_upernet_output_norms = torch.nn.ModuleList(
+            [SpyNorm(f"output_norm{index}") for index in range(4)]
+        )
+        model.dgfm01_upernet_output_projs = torch.nn.ModuleList(
+            [SpyProj(f"output_proj{index}", base_value=100.0 * (index + 1)) for index in range(4)]
+        )
+        model.decoder = SpyUperDecoder()
+
+        output = model(torch.zeros(2, 3, 8, 8), torch.ones(2, 8, 8))
+
+        decoder = model.decoder
+        assert isinstance(decoder, SpyUperDecoder)
+        self.assertFalse(hasattr(model, "fusion1"))
+        self.assertFalse(hasattr(model, "dgfm01_upernet_scale_adapters"))
+        self.assertEqual(events[-1], "uper_decoder")
+        self.assertEqual(
+            events[:8],
+            [
+                "block0",
+                "input_norm0",
+                "input_norm0",
+                "dgfm01_upernet_0",
+                "output_norm0",
+                "output_proj0",
+                "block1",
+                "block2",
+            ],
+        )
+        self.assertIsNotNone(decoder.features)
+        for tap_index, proj in enumerate(model.dgfm01_upernet_output_projs):
+            assert isinstance(proj, SpyProj)
+            self.assertIs(decoder.features[tap_index], proj.output)
         self.assertEqual(decoder.output_size, (8, 8))
         self.assertEqual(tuple(output.shape), (2, 6, 8, 8))
 
@@ -3640,6 +4041,72 @@ class MFNetTrainingTest(unittest.TestCase):
         for block in model.dga_blocks:
             self.assertFalse(hasattr(block, "intermediate_stats"))
         self.assertIs(model.dgsf10.intermediate_stats, model.intermediate_stats)
+
+    def test_unetformer_dgfm01_records_dgfm01_intermediate_stats_when_requested(self) -> None:
+        with _fake_mfnet_optional_imports():
+            from models.mfnet.UNetFormer_MMSAM_dgfm01 import UNetFormerDGFM01
+
+            def fake_unetformer_init(self: torch.nn.Module, *args: object, **kwargs: object) -> None:
+                del args, kwargs
+                torch.nn.Module.__init__(self)
+                self.image_encoder = types.SimpleNamespace(
+                    embed_dim=8,
+                    blocks=[
+                        types.SimpleNamespace(window_size=0),
+                        types.SimpleNamespace(window_size=14),
+                        types.SimpleNamespace(window_size=0),
+                        types.SimpleNamespace(window_size=0),
+                        types.SimpleNamespace(window_size=14),
+                        types.SimpleNamespace(window_size=14),
+                    ],
+                )
+
+            with patch("models.mfnet.UNetFormer_MMSAM_dgfm01.UNetFormer.__init__", new=fake_unetformer_init):
+                model = UNetFormerDGFM01(
+                    record_intermediate_stats=True,
+                    record_intermediate_modules=["dgfm01"],
+                )
+
+        self.assertIsNotNone(model.intermediate_stats)
+        for index, block in enumerate(model.dgfm01_blocks):
+            self.assertIs(block.intermediate_stats, model.intermediate_stats)
+            self.assertEqual(block.intermediate_stats_prefix, f"dgfm01/block_{index}")
+
+    def test_unetformer_dgfm01_upernet_records_dgfm01_upernet_stats_when_requested(self) -> None:
+        with _fake_mfnet_optional_imports():
+            from models.mfnet.UNetFormer_MMSAM_dgfm01_upernet import UNetFormerDGFM01UperNet
+
+            def fake_unetformer_init(self: torch.nn.Module, *args: object, **kwargs: object) -> None:
+                del args, kwargs
+                torch.nn.Module.__init__(self)
+                self.image_encoder = types.SimpleNamespace(
+                    embed_dim=8,
+                    blocks=[
+                        types.SimpleNamespace(window_size=0),
+                        types.SimpleNamespace(window_size=14),
+                        types.SimpleNamespace(window_size=0),
+                        types.SimpleNamespace(window_size=0),
+                        types.SimpleNamespace(window_size=14),
+                        types.SimpleNamespace(window_size=14),
+                    ],
+                )
+                self.decoder = torch.nn.Identity()
+
+            with patch(
+                "models.mfnet.UNetFormer_MMSAM_dgfm01_upernet.UNetFormer.__init__",
+                new=fake_unetformer_init,
+            ):
+                model = UNetFormerDGFM01UperNet(
+                    sam_backbone="vit_b",
+                    sam_checkpoint="/tmp/sam.pth",
+                    record_intermediate_stats=True,
+                    record_intermediate_modules=["dgfm01_upernet"],
+                )
+
+        self.assertIsNotNone(model.intermediate_stats)
+        for index, block in enumerate(model.dgfm01_upernet_blocks):
+            self.assertIs(block.intermediate_stats, model.intermediate_stats)
+            self.assertEqual(block.intermediate_stats_prefix, f"dgfm01_upernet/block_{index}")
 
     def test_unetformer_dga20_ignores_unavailable_intermediate_stats_modules(self) -> None:
         with _fake_mfnet_optional_imports():
@@ -4877,7 +5344,12 @@ class MFNetTrainingTest(unittest.TestCase):
 
     def test_train_entry_uses_base_trainer_and_recorder_logger_for_dgfm_models(self) -> None:
         module = self._load_train_entry_module()
-        for model_type in ["testnet_dgfm", "testnet_prealign_dgfm"]:
+        for model_type in [
+            "testnet_dgfm",
+            "testnet_dgfm01",
+            "testnet_dgfm01_upernet",
+            "testnet_sgcf",
+        ]:
             with self.subTest(model_type=model_type):
                 with tempfile.TemporaryDirectory() as tmpdir:
                     config_path = Path(tmpdir) / "external_config.jsonc"

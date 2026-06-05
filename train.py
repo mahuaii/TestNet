@@ -48,7 +48,9 @@ DGA_MODEL_TYPES = {
 RECORDER_LOGGER_MODEL_TYPES = DGA_MODEL_TYPES | {
     "testnet_dgsf10",
     "testnet_dgfm",
-    "testnet_prealign_dgfm",
+    "testnet_dgfm01",
+    "testnet_dgfm01_upernet",
+    "testnet_sgcf",
     "testnet_prealign_auxalign_dgsf10",
 }
 

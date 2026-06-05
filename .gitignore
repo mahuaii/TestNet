@@ -28,6 +28,7 @@ _Datasets
 .agents
 .pytest_cache/
 .DS_Store
+.hermes_cron
 
 backup/
 docs/

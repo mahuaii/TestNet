@@ -12,6 +12,9 @@ AVAILABLE_MODEL_TYPES: tuple[str, ...] = (
     "testnet_dga20_dgsf10",
     "testnet_dgsf10",
     "testnet_dgfm",
+    "testnet_dgfm01",
+    "testnet_dgfm01_upernet",
+    "testnet_sgcf",
     "testnet_dga10_softplus",
     "testnet_dga20_softplus",
     "testnet_dga30",
@@ -20,7 +23,6 @@ AVAILABLE_MODEL_TYPES: tuple[str, ...] = (
     "testnet_prealign_mmadapter10",
     "testnet_prealign_mmadapter20",
     "testnet_prealign_mmadapter21",
-    "testnet_prealign_dgfm",
     "testnet_prealign_auxalign",
     "testnet_prealign_dga10",
     "testnet_prealign_auxalign_dga10",
@@ -127,6 +129,36 @@ def build_model(cfg: dict[str, Any]) -> Any:
             **_intermediate_stats_kwargs(cfg),
         )
         return model
+    if model_type == "testnet_dgfm01":
+        from .mfnet import UNetFormerDGFM01
+
+        model = UNetFormerDGFM01(
+            num_classes=int(cfg["num_classes"]),
+            sam_backbone=str(cfg["sam_backbone"]),
+            sam_checkpoint=str(cfg["sam_checkpoint"]),
+            **_intermediate_stats_kwargs(cfg),
+        )
+        return model
+    if model_type == "testnet_dgfm01_upernet":
+        from .mfnet import UNetFormerDGFM01UperNet
+
+        model = UNetFormerDGFM01UperNet(
+            num_classes=int(cfg["num_classes"]),
+            sam_backbone=str(cfg["sam_backbone"]),
+            sam_checkpoint=str(cfg["sam_checkpoint"]),
+            **_intermediate_stats_kwargs(cfg),
+        )
+        return model
+    if model_type == "testnet_sgcf":
+        from .mfnet import UNetFormerSGCF
+
+        model = UNetFormerSGCF(
+            num_classes=int(cfg["num_classes"]),
+            sam_backbone=str(cfg["sam_backbone"]),
+            sam_checkpoint=str(cfg["sam_checkpoint"]),
+            **_intermediate_stats_kwargs(cfg),
+        )
+        return model
     if model_type == "testnet_dga10_softplus":
         from .mfnet import UNetFormerDGA10Softplus
 
@@ -199,16 +231,6 @@ def build_model(cfg: dict[str, Any]) -> Any:
             num_classes=int(cfg["num_classes"]),
             sam_backbone=str(cfg["sam_backbone"]),
             sam_checkpoint=str(cfg["sam_checkpoint"]),
-        )
-        return model
-    if model_type == "testnet_prealign_dgfm":
-        from .mfnet import UNetFormerPreAlignDGFM
-
-        model = UNetFormerPreAlignDGFM(
-            num_classes=int(cfg["num_classes"]),
-            sam_backbone=str(cfg["sam_backbone"]),
-            sam_checkpoint=str(cfg["sam_checkpoint"]),
-            **_intermediate_stats_kwargs(cfg),
         )
         return model
     if model_type == "testnet_prealign_auxalign":
