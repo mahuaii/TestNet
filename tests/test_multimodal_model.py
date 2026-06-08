@@ -13,6 +13,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import call, patch
 
+import numpy as np
 from PIL import Image
 import torch
 from torch.utils.data import DataLoader, Dataset
@@ -25,6 +26,14 @@ from data.isprs_dataset import (
 from data import build_isprs_dataset
 from engine import MFNetTrainer, SlidingWindowInferencer
 from utils import DataUtils, IntermediateStatsRecorder, TestNetRecorderLogger, TestNetLogger
+
+DSM_PREPROCESSING_DISABLED = {
+    "enabled": False,
+    "type": "similarity_enhancement",
+    "window_size": 7,
+    "sigma": 0.15,
+    "lambda_weight": 0.3,
+}
 
 
 @contextmanager
@@ -912,6 +921,72 @@ class MFNetTrainingTest(unittest.TestCase):
         self.assertEqual(float(normalized[0, 0]), 0.0)
         self.assertEqual(float(normalized[-1, -1]), 1.0)
 
+    def test_enhance_dsm_similarity_returns_zero_for_constant_dsm(self) -> None:
+        dsm = np.full((5, 6), 42.0, dtype=np.float32)
+
+        enhanced = DataUtils.enhance_dsm_similarity(dsm)
+
+        self.assertEqual(enhanced.shape, dsm.shape)
+        self.assertEqual(enhanced.dtype, np.float32)
+        self.assertTrue(np.isfinite(enhanced).all())
+        self.assertTrue(np.array_equal(enhanced, np.zeros_like(dsm, dtype=np.float32)))
+
+    def test_enhance_dsm_similarity_preserves_single_channel_contract(self) -> None:
+        dsm = np.arange(8 * 9, dtype=np.float32).reshape(8, 9)
+
+        enhanced = DataUtils.enhance_dsm_similarity(dsm)
+
+        self.assertEqual(enhanced.shape, (8, 9))
+        self.assertEqual(enhanced.dtype, np.float32)
+        self.assertTrue(np.isfinite(enhanced).all())
+        self.assertGreaterEqual(float(enhanced.min()), 0.0)
+        self.assertLessEqual(float(enhanced.max()), 1.0)
+
+    def test_enhance_dsm_similarity_matches_reference_loop(self) -> None:
+        dsm = np.array(
+            [
+                [1.0, 2.0, 4.0, 8.0],
+                [3.0, 5.0, 7.0, 9.0],
+                [2.0, 6.0, 10.0, 12.0],
+                [4.0, 8.0, 11.0, 13.0],
+            ],
+            dtype=np.float32,
+        )
+        window_size = 3
+        sigma = 0.2
+        lambda_weight = 0.3
+
+        enhanced = DataUtils.enhance_dsm_similarity(
+            dsm,
+            window_size=window_size,
+            sigma=sigma,
+            lambda_weight=lambda_weight,
+        )
+
+        normalized = (dsm - float(dsm.min())) / (float(dsm.max()) - float(dsm.min()))
+        padded = np.pad(normalized, pad_width=window_size // 2, mode="reflect")
+        expected = np.zeros_like(normalized, dtype=np.float32)
+        for row in range(normalized.shape[0]):
+            for col in range(normalized.shape[1]):
+                window = padded[row : row + window_size, col : col + window_size]
+                weights = np.exp(-((window - normalized[row, col]) ** 2) / (2.0 * sigma**2))
+                similarity = float(np.mean(weights))
+                expected[row, col] = (
+                    normalized[row, col] + lambda_weight * normalized[row, col] * similarity
+                ) / (1.0 + lambda_weight)
+
+        np.testing.assert_allclose(enhanced, expected, rtol=1e-6, atol=1e-6)
+
+    def test_enhance_dsm_similarity_rejects_invalid_parameters(self) -> None:
+        dsm = np.arange(4 * 4, dtype=np.float32).reshape(4, 4)
+
+        with self.assertRaisesRegex(ValueError, "positive odd integer"):
+            DataUtils.enhance_dsm_similarity(dsm, window_size=0)
+        with self.assertRaisesRegex(ValueError, "positive odd integer"):
+            DataUtils.enhance_dsm_similarity(dsm, window_size=4)
+        with self.assertRaisesRegex(ValueError, "sigma to be positive"):
+            DataUtils.enhance_dsm_similarity(dsm, sigma=0.0)
+
     def test_train_one_epoch_uses_micro_batch_steps_without_grad_accum_state(self) -> None:
         sample = {
             "inputs": {
@@ -963,6 +1038,7 @@ class MFNetTrainingTest(unittest.TestCase):
                 preset=VAIHINGEN_PRESET,
                 root_dir=str(root),
                 ids=["1"],
+                dsm_preprocessing=DSM_PREPROCESSING_DISABLED,
                 patch_size=(16, 16),
                 samples_per_epoch=1,
                 cache=True,
@@ -977,6 +1053,9 @@ class MFNetTrainingTest(unittest.TestCase):
             self.assertEqual(sample["inputs"]["dsm"].shape, (16, 16))
             self.assertEqual(sample["target"].shape, (16, 16))
             self.assertTrue(set(torch.unique(sample["target"]).tolist()).issubset({0, 1}))
+            raw_dsm = torch.arange(32 * 32, dtype=torch.int16).reshape(32, 32).numpy()
+            expected_dsm = DataUtils.normalize_dsm(raw_dsm)[8:24, 8:24]
+            np.testing.assert_allclose(sample["inputs"]["dsm"].numpy(), expected_dsm, rtol=1e-6, atol=1e-6)
 
     def test_vaihingen_dataset_augments_cropped_patch_not_full_tile(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -988,6 +1067,7 @@ class MFNetTrainingTest(unittest.TestCase):
                 preset=VAIHINGEN_PRESET,
                 root_dir=str(root),
                 ids=["1"],
+                dsm_preprocessing=DSM_PREPROCESSING_DISABLED,
                 patch_size=(16, 16),
                 samples_per_epoch=1,
                 cache=True,
@@ -1010,6 +1090,7 @@ class MFNetTrainingTest(unittest.TestCase):
                 preset=VAIHINGEN_PRESET,
                 root_dir=str(root),
                 ids=["1"],
+                dsm_preprocessing=DSM_PREPROCESSING_DISABLED,
                 patch_size=(16, 16),
                 samples_per_epoch=1,
                 cache=True,
@@ -1024,6 +1105,64 @@ class MFNetTrainingTest(unittest.TestCase):
             self.assertEqual(sample["target"].shape, (32, 32))
             self.assertEqual(sample["meta"]["tile_id"], "1")
             self.assertEqual(set(torch.unique(sample["target"]).tolist()), {1})
+
+    def test_vaihingen_dataset_applies_enabled_dsm_preprocessing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            self._write_vaihingen_sample(root)
+            dsm_preprocessing = {
+                "enabled": True,
+                "type": "similarity_enhancement",
+                "window_size": 3,
+                "sigma": 0.2,
+                "lambda_weight": 0.4,
+            }
+            dataset = ISPRSDataset(
+                preset=VAIHINGEN_PRESET,
+                root_dir=str(root),
+                ids=["1"],
+                dsm_preprocessing=dsm_preprocessing,
+                patch_size=(16, 16),
+                samples_per_epoch=1,
+                cache=True,
+                augmentation=False,
+                split="val",
+            )
+
+            sample = dataset.get_tile(0)
+
+            raw_dsm = torch.arange(32 * 32, dtype=torch.int16).reshape(32, 32).numpy()
+            expected_dsm = DataUtils.enhance_dsm_similarity(
+                raw_dsm,
+                window_size=3,
+                sigma=0.2,
+                lambda_weight=0.4,
+            )
+            np.testing.assert_allclose(sample["inputs"]["dsm"].numpy(), expected_dsm, rtol=1e-6, atol=1e-6)
+
+    def test_vaihingen_dataset_rejects_unknown_dsm_preprocessing_type(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            self._write_vaihingen_sample(root)
+
+            with self.assertRaisesRegex(ValueError, "Unsupported DSM preprocessing type"):
+                ISPRSDataset(
+                    preset=VAIHINGEN_PRESET,
+                    root_dir=str(root),
+                    ids=["1"],
+                    dsm_preprocessing={
+                        "enabled": True,
+                        "type": "unknown",
+                        "window_size": 3,
+                        "sigma": 0.2,
+                        "lambda_weight": 0.4,
+                    },
+                    patch_size=(16, 16),
+                    samples_per_epoch=1,
+                    cache=True,
+                    augmentation=False,
+                    split="val",
+                )
 
     def test_whole_tile_sliding_window_matches_original_mfnet_path(self) -> None:
         rgb = torch.arange(3 * 5 * 5, dtype=torch.float32).reshape(3, 5, 5)
@@ -1182,6 +1321,7 @@ class MFNetTrainingTest(unittest.TestCase):
                 preset=POTSDAM_PRESET,
                 root_dir=str(root),
                 ids=["6_10"],
+                dsm_preprocessing=DSM_PREPROCESSING_DISABLED,
                 patch_size=(16, 16),
                 samples_per_epoch=1,
                 cache=True,
@@ -1205,6 +1345,7 @@ class MFNetTrainingTest(unittest.TestCase):
                 preset=VAIHINGEN_PRESET,
                 root_dir=str(root),
                 ids=["1"],
+                dsm_preprocessing=DSM_PREPROCESSING_DISABLED,
                 patch_size=(16, 16),
                 samples_per_epoch=1,
                 cache=True,
@@ -1228,6 +1369,7 @@ class MFNetTrainingTest(unittest.TestCase):
                 "potsdam",
                 root_dir=str(root),
                 ids=["6_10"],
+                dsm_preprocessing=DSM_PREPROCESSING_DISABLED,
                 patch_size=(16, 16),
                 samples_per_epoch=1,
                 cache=True,
@@ -4744,6 +4886,7 @@ class MFNetTrainingTest(unittest.TestCase):
                 "val_samples_per_epoch": 1,
                 "cache": True,
                 "augmentation": True,
+                "dsm_preprocessing": dict(DSM_PREPROCESSING_DISABLED),
             },
             "dataloader": {"num_workers": 0},
             "optimizer": {
@@ -5040,6 +5183,11 @@ class MFNetTrainingTest(unittest.TestCase):
             self.assertEqual(dataset_calls[1]["split"], "val")
             self.assertEqual(dataset_calls[0]["ids"], ["1"])
             self.assertEqual(dataset_calls[1]["ids"], ["5"])
+            expected_dsm_preprocessing = self._make_train_entry_config(root_dir=str(work_dir))["dataset"][
+                "dsm_preprocessing"
+            ]
+            self.assertEqual(dataset_calls[0]["dsm_preprocessing"], expected_dsm_preprocessing)
+            self.assertEqual(dataset_calls[1]["dsm_preprocessing"], expected_dsm_preprocessing)
             self.assertEqual(result["load_config_paths"], [str(config_path)])
             self.assertEqual(len(result["default_work_dir_calls"]), 1)
             self.assertEqual(
@@ -5083,6 +5231,36 @@ class MFNetTrainingTest(unittest.TestCase):
             self.assertEqual(saved_cfg["dataset"]["name"], "vaihingen")
             self.assertEqual(config_path.read_text(encoding="utf-8"), config_text)
             self.assertFalse((work_dir / "train_config.jsonc").exists())
+
+    def test_train_entry_requires_dsm_preprocessing_config(self) -> None:
+        module = self._load_train_entry_module()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "external_config.jsonc"
+            config_path.write_text('{"train": {"max_epochs": 1}}\n', encoding="utf-8")
+            work_dir = Path(tmpdir) / "auto_work"
+            cfg = self._make_train_entry_config(root_dir=str(work_dir))
+            del cfg["dataset"]["dsm_preprocessing"]  # type: ignore[index]
+            args = type(
+                "Args",
+                (),
+                {
+                    "config": str(config_path),
+                    "device": "cpu",
+                    "resume_dir": None,
+                    "resume_ckpt": None,
+                    "load_from": None,
+                    "model_type": None,
+                    "seed": None,
+                },
+            )()
+
+            with self.assertRaisesRegex(KeyError, "dsm_preprocessing"):
+                self._run_train_entry(
+                    module=module,
+                    args=args,
+                    cfg=cfg,
+                    default_work_dir=work_dir,
+                )
 
     def test_train_entry_model_type_overrides_config_for_new_experiment(self) -> None:
         module = self._load_train_entry_module()

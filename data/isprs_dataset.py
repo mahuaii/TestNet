@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 import random
 from pathlib import Path
@@ -73,6 +73,7 @@ class ISPRSDataset(Dataset):
         preset: ISPRSPreset,
         root_dir: str,
         ids: Sequence[str],
+        dsm_preprocessing: Mapping[str, object],
         patch_size: Sequence[int] = (256, 256),
         samples_per_epoch: int | None = None,
         cache: bool = True,
@@ -90,6 +91,7 @@ class ISPRSDataset(Dataset):
         self.cache = bool(cache)
         self.augmentation = bool(augmentation)
         self.split = str(split)
+        self.dsm_preprocessing = self._parse_dsm_preprocessing(dsm_preprocessing)
 
         self.rgb_files = [
             self.root_dir / preset.rgb_subdir / preset.rgb_pattern.format(tile_id=tile_id)
@@ -197,14 +199,46 @@ class ISPRSDataset(Dataset):
 
     def _load_dsm_tile(self, tile_index: int) -> np.ndarray:
         if tile_index not in self.dsm_cache:
-            dsm = DataUtils.normalize_dsm(imageio.imread(self.dsm_files[tile_index]))
+            dsm = self._preprocess_dsm(imageio.imread(self.dsm_files[tile_index]))
             if self.cache:
                 self.dsm_cache[tile_index] = dsm
         if self.cache:
             dsm = self.dsm_cache[tile_index]
         else:
-            dsm = DataUtils.normalize_dsm(imageio.imread(self.dsm_files[tile_index]))
+            dsm = self._preprocess_dsm(imageio.imread(self.dsm_files[tile_index]))
         return dsm
+
+    @staticmethod
+    def _parse_dsm_preprocessing(dsm_preprocessing: Mapping[str, object]) -> dict[str, object]:
+        if not isinstance(dsm_preprocessing, Mapping):
+            raise TypeError(
+                "Expected dsm_preprocessing to be a mapping, "
+                f"got {type(dsm_preprocessing).__name__}."
+            )
+
+        enabled = dsm_preprocessing["enabled"]
+        if not isinstance(enabled, bool):
+            raise TypeError(
+                "Expected dsm_preprocessing.enabled to be a bool, "
+                f"got {type(enabled).__name__}."
+            )
+
+        preprocessing_type = dsm_preprocessing["type"]
+        if preprocessing_type != "similarity_enhancement":
+            raise ValueError(f"Unsupported DSM preprocessing type: {preprocessing_type!r}")
+
+        return dict(dsm_preprocessing)
+
+    def _preprocess_dsm(self, dsm: np.ndarray) -> np.ndarray:
+        if not self.dsm_preprocessing["enabled"]:
+            return DataUtils.normalize_dsm(dsm)
+
+        return DataUtils.enhance_dsm_similarity(
+            dsm,
+            window_size=self.dsm_preprocessing["window_size"],
+            sigma=self.dsm_preprocessing["sigma"],
+            lambda_weight=self.dsm_preprocessing["lambda_weight"],
+        )
 
     def _load_eval_target_tile(self, tile_index: int) -> np.ndarray:
         return self._load_label_tile(

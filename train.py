@@ -128,6 +128,7 @@ def main() -> None:
         samples_per_epoch=dataset_cfg["train_samples_per_epoch"],
         cache=dataset_cfg.get("cache", True),
         augmentation=dataset_cfg.get("augmentation", True),
+        dsm_preprocessing=dataset_cfg["dsm_preprocessing"],
         split="train",
     )
     train_generator = torch.Generator()
@@ -151,6 +152,7 @@ def main() -> None:
             samples_per_epoch=dataset_cfg.get("val_samples_per_epoch", len(dataset_cfg["val_ids"])),
             cache=dataset_cfg.get("cache", True),
             augmentation=False,
+            dsm_preprocessing=dataset_cfg["dsm_preprocessing"],
             split="val",
         )
         val_loader = DataLoader(

@@ -3,6 +3,7 @@ from __future__ import annotations
 import random
 
 import numpy as np
+from numpy.lib.stride_tricks import sliding_window_view
 import torch
 from torch.autograd import Variable
 import torch.nn.functional as F
@@ -30,6 +31,44 @@ class DataUtils:
         dsm_min = float(np.min(dsm))
         dsm_max = float(np.max(dsm))
         return (dsm - dsm_min) / (dsm_max - dsm_min)
+
+    @staticmethod
+    def enhance_dsm_similarity(
+        dsm: np.ndarray,
+        window_size: int = 7,
+        sigma: float = 0.15,
+        lambda_weight: float = 0.3,
+        eps: float = 1e-6,
+    ) -> np.ndarray:
+        if not isinstance(window_size, int) or isinstance(window_size, bool):
+            raise ValueError(f"Expected window_size to be an integer, got {type(window_size).__name__}.")
+        if window_size <= 0 or window_size % 2 == 0:
+            raise ValueError(f"Expected window_size to be a positive odd integer, got {window_size}.")
+        sigma = float(sigma)
+        lambda_weight = float(lambda_weight)
+        eps = float(eps)
+        if sigma <= 0:
+            raise ValueError(f"Expected sigma to be positive, got {sigma}.")
+
+        dsm = np.asarray(dsm, dtype=np.float32)
+        if dsm.ndim != 2:
+            raise ValueError(f"Expected DSM with shape [H, W], got {tuple(dsm.shape)}.")
+
+        dsm_min = float(np.min(dsm))
+        dsm_max = float(np.max(dsm))
+        denominator = dsm_max - dsm_min
+        if denominator <= eps:
+            return np.zeros_like(dsm, dtype=np.float32)
+
+        normalized = (dsm - dsm_min) / denominator
+        pad_width = window_size // 2
+        padded = np.pad(normalized, pad_width=pad_width, mode="reflect")
+        windows = sliding_window_view(padded, (window_size, window_size))
+        centered_diff = windows - normalized[:, :, np.newaxis, np.newaxis]
+        similarity = np.exp(-(centered_diff**2) / (2.0 * sigma**2))
+        similarity_map = np.mean(similarity, axis=(-2, -1))
+        enhanced = (normalized + lambda_weight * normalized * similarity_map) / (1.0 + lambda_weight)
+        return np.clip(enhanced, 0.0, 1.0).astype(np.float32, copy=False)
 
     @staticmethod
     def augment_triplet(
