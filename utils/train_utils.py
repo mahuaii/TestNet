@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import json
-import random
 import re
 import uuid
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import torch
 
 from .testnet_logger import TestNetLogger
@@ -35,7 +33,6 @@ def work_dir_model_suffix(model_name: object) -> str:
 def build_default_work_dir(
     model_name: object,
     dataset_name: object,
-    seed: object,
     lambda_align: object | None = None,
     root_dir: str | Path = "work_dirs",
 ) -> Path:
@@ -43,24 +40,12 @@ def build_default_work_dir(
     name_parts = [
         safe_path_component(dataset_name, "dataset"),
         work_dir_model_suffix(model_name),
-        safe_path_component(seed, "seed"),
     ]
     if lambda_align is not None:
         name_parts.append(safe_path_component(f"lambda-{lambda_align}", "lambda"))
     name_parts.append(run_id)
     experiment_name = "_".join(name_parts)
     return Path(root_dir) / experiment_name
-
-
-def set_reproducibility(seed: int) -> None:
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = False
-    torch.backends.cudnn.benchmark = True
-
 
 def count_model_params(model: torch.nn.Module) -> tuple[int, int, int, int]:
     all_params = sum(param.nelement() for param in model.parameters())
@@ -101,12 +86,10 @@ def log_run_summary(
     model: torch.nn.Module,
     work_dir: Path,
     experiment_name: str,
-    seed: int,
 ) -> None:
     all_params, image_encoder_params, adapter_params, other_params = count_model_params(model)
     logger.log_message(f"Experiment: {experiment_name}")
     logger.log_message(f"Workdir: {work_dir}")
-    logger.log_message(f"Seed: {seed}")
     logger.log_message(f"All Params:   {all_params}")
     logger.log_message(f"ImgEncoder:   {image_encoder_params}")
     logger.log_message(f"Adapter: {adapter_params}")

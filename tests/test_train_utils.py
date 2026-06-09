@@ -46,14 +46,13 @@ class TrainUtilsTest(unittest.TestCase):
         path = build_default_work_dir(
             model_name="testnet_prealign_auxalign",
             dataset_name="Vaihingen Dataset",
-            seed=80,
             lambda_align=0.5,
             root_dir="runs",
         )
 
         self.assertEqual(path.parent.name, "runs")
         parts = path.name.split("_")
-        self.assertEqual(parts[0:5], ["vaihingen", "dataset", "prealign", "auxalign", "80"])
+        self.assertEqual(parts[0:4], ["vaihingen", "dataset", "prealign", "auxalign"])
         self.assertEqual(parts[-2], "lambda-0.5")
         self.assertRegex(path.name, r"_lambda-0.5_[0-9a-f]{5}$")
 

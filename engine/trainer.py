@@ -126,8 +126,6 @@ class Trainer(ABC):
             self._load_model_weights(load_from)
         if resume_from:
             self._load_training_state(resume_from)
-            if self.cfg.get("log_seed_after_resume") and "seed" in self.cfg:
-                self.logger.log_message(f"Seed: {int(self.cfg['seed'])}")
 
         # 训练循环
         with self.logger:

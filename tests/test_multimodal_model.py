@@ -4869,7 +4869,6 @@ class MFNetTrainingTest(unittest.TestCase):
 
     def _make_train_entry_config(self, root_dir: str) -> dict[str, object]:
         return {
-            "seed": 80,
             "model": {
                 "type": "mfnet_unetformer",
                 "num_classes": 6,
@@ -4997,7 +4996,6 @@ class MFNetTrainingTest(unittest.TestCase):
             def fake_build_default_work_dir(
                 model_name: object,
                 dataset_name: object,
-                seed: object,
                 lambda_align: object | None = None,
                 root_dir: str | Path = "work_dirs",
             ) -> Path:
@@ -5005,7 +5003,6 @@ class MFNetTrainingTest(unittest.TestCase):
                     {
                         "model_name": model_name,
                         "dataset_name": dataset_name,
-                        "seed": seed,
                         "lambda_align": lambda_align,
                         "root_dir": root_dir,
                     }
@@ -5072,49 +5069,44 @@ class MFNetTrainingTest(unittest.TestCase):
         self.assertIsNone(args.resume_dir)
         self.assertIsNone(args.resume_ckpt)
         self.assertIsNone(args.model_type)
-        self.assertIsNone(args.seed)
 
-        with patch.object(sys, "argv", ["train.py", "--model-type", "testnet_dga10", "--seed", "123"]):
+        with patch.object(sys, "argv", ["train.py", "--model-type", "testnet_dga10"]):
             args = module.parse_args()
 
         self.assertEqual(args.model_type, "testnet_dga10")
-        self.assertEqual(args.seed, 123)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             work_dir = module.build_default_work_dir(
                 model_name="MFNet UNetFormer",
                 dataset_name="Potsdam/RGB",
-                seed=123,
                 root_dir=tmpdir,
             )
 
             self.assertEqual(work_dir.parent, Path(tmpdir))
             self.assertRegex(
                 work_dir.name,
-                re.compile(r"^potsdam_rgb_base_123_[0-9a-f]{5}$"),
+                re.compile(r"^potsdam_rgb_base_[0-9a-f]{5}$"),
             )
 
             dga_work_dir = module.build_default_work_dir(
                 model_name="testnet_dga20",
                 dataset_name="vaihingen",
-                seed=80,
                 root_dir=tmpdir,
             )
             self.assertRegex(
                 dga_work_dir.name,
-                re.compile(r"^vaihingen_dga20_80_[0-9a-f]{5}$"),
+                re.compile(r"^vaihingen_dga20_[0-9a-f]{5}$"),
             )
 
             lambda_work_dir = module.build_default_work_dir(
                 model_name="testnet_prealign_auxalign",
                 dataset_name="vaihingen",
-                seed=80,
                 lambda_align=0.01,
                 root_dir=tmpdir,
             )
             self.assertRegex(
                 lambda_work_dir.name,
-                re.compile(r"^vaihingen_prealign_auxalign_80_lambda-0.01_[0-9a-f]{5}$"),
+                re.compile(r"^vaihingen_prealign_auxalign_lambda-0.01_[0-9a-f]{5}$"),
             )
 
     def test_optimizer_param_groups_exclude_gate_scalars_from_weight_decay(self) -> None:
@@ -5195,7 +5187,6 @@ class MFNetTrainingTest(unittest.TestCase):
                 {
                     "model_name": "mfnet_unetformer",
                     "dataset_name": "vaihingen",
-                    "seed": 80,
                     "lambda_align": None,
                     "root_dir": "work_dirs",
                 },
@@ -5250,7 +5241,6 @@ class MFNetTrainingTest(unittest.TestCase):
                     "resume_ckpt": None,
                     "load_from": None,
                     "model_type": None,
-                    "seed": None,
                 },
             )()
 
@@ -5292,47 +5282,10 @@ class MFNetTrainingTest(unittest.TestCase):
             )
 
             self.assertEqual(result["default_work_dir_calls"][0]["model_name"], "testnet_dga10")
-            self.assertEqual(result["default_work_dir_calls"][0]["seed"], 80)
             self.assertEqual(result["model_cfg"][0]["type"], "testnet_dga10")
             self.assertEqual(result["trainer_classes"], ["MFNetDGATrainer"])
             saved_cfg = json.loads((work_dir / config_path.name).read_text(encoding="utf-8"))
             self.assertEqual(saved_cfg["model"]["type"], "testnet_dga10")
-            self.assertEqual(config_path.read_text(encoding="utf-8"), config_text)
-
-    def test_train_entry_seed_overrides_config_for_new_experiment(self) -> None:
-        module = self._load_train_entry_module()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            config_dir = Path(tmpdir) / "config"
-            config_dir.mkdir()
-            config_path = config_dir / "external_config.jsonc"
-            config_text = '{"seed": 80}\n'
-            config_path.write_text(config_text, encoding="utf-8")
-            work_dir = Path(tmpdir) / "auto_work"
-            args = type(
-                "Args",
-                (),
-                {
-                    "config": str(config_path),
-                    "device": "cpu",
-                    "resume_dir": None,
-                    "resume_ckpt": None,
-                    "load_from": None,
-                    "seed": 123,
-                },
-            )()
-
-            result = self._run_train_entry(
-                module=module,
-                args=args,
-                cfg=self._make_train_entry_config(root_dir=str(work_dir)),
-                default_work_dir=work_dir,
-            )
-
-            trainer_kwargs = result["trainer_kwargs"][0]
-            self.assertEqual(result["default_work_dir_calls"][0]["seed"], 123)
-            self.assertEqual(trainer_kwargs["cfg"]["seed"], 123)
-            saved_cfg = json.loads((work_dir / config_path.name).read_text(encoding="utf-8"))
-            self.assertEqual(saved_cfg["seed"], 123)
             self.assertEqual(config_path.read_text(encoding="utf-8"), config_text)
 
     def test_train_entry_saves_merged_config_using_child_config_name(self) -> None:
@@ -5349,7 +5302,6 @@ class MFNetTrainingTest(unittest.TestCase):
             child_config_text = """
             {
               "extends": "base_config.jsonc",
-              "seed": 80,
               "dataset": {
                 "train_ids": ["3"]
               },
@@ -5370,7 +5322,6 @@ class MFNetTrainingTest(unittest.TestCase):
                     "resume_ckpt": None,
                     "load_from": None,
                     "model_type": "testnet_dga10",
-                    "seed": 123,
                 },
             )()
 
@@ -5387,7 +5338,6 @@ class MFNetTrainingTest(unittest.TestCase):
             self.assertTrue(saved_config_path.is_file())
             saved_cfg = json.loads(saved_config_path.read_text(encoding="utf-8"))
             self.assertNotIn("extends", saved_cfg)
-            self.assertEqual(saved_cfg["seed"], 123)
             self.assertEqual(saved_cfg["model"]["type"], "testnet_dga10")
             self.assertEqual(saved_cfg["model"]["num_classes"], 6)
             self.assertEqual(saved_cfg["dataset"]["train_ids"], ["3"])
@@ -5835,43 +5785,6 @@ class MFNetTrainingTest(unittest.TestCase):
             self.assertEqual(resume_config_path.read_text(encoding="utf-8"), resume_config_text)
             self.assertEqual(external_config_path.read_text(encoding="utf-8"), external_config_text)
             self.assertFalse((resume_dir / external_config_path.name).exists())
-
-    def test_train_entry_rejects_seed_override_with_resume_dir(self) -> None:
-        module = self._load_train_entry_module()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            resume_dir = Path(tmpdir) / "resume_work"
-            resume_dir.mkdir()
-            resume_config_path = resume_dir / "resume_config.json"
-            resume_config_text = '{"train": {"max_epochs": 9}}\n'
-            resume_config_path.write_text(resume_config_text, encoding="utf-8")
-            external_config_path = Path(tmpdir) / "external_config.jsonc"
-            external_config_text = '{"train": {"max_epochs": 1}}\n'
-            external_config_path.write_text(external_config_text, encoding="utf-8")
-            args = type(
-                "Args",
-                (),
-                {
-                    "config": str(external_config_path),
-                    "device": "cpu",
-                    "resume_dir": str(resume_dir),
-                    "resume_ckpt": None,
-                    "load_from": None,
-                    "seed": 123,
-                },
-            )()
-
-            with self.assertRaisesRegex(ValueError, "--seed cannot be used with --resume-dir"):
-                self._run_train_entry(
-                    module=module,
-                    args=args,
-                    cfg=self._make_train_entry_config(root_dir=str(resume_dir)),
-                    default_work_dir=None,
-                )
-
-            self.assertEqual(resume_config_path.read_text(encoding="utf-8"), resume_config_text)
-            self.assertEqual(external_config_path.read_text(encoding="utf-8"), external_config_text)
-            self.assertFalse((resume_dir / external_config_path.name).exists())
-
 
 if __name__ == "__main__":
     unittest.main()

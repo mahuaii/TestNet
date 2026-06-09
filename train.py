@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-import secrets
 import sys
 from typing import Any
 
@@ -32,7 +31,6 @@ from utils import (
     load_config,
     log_run_summary,
     save_effective_config,
-    set_reproducibility,
 )
 
 DGA_MODEL_TYPES = {
@@ -75,19 +73,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--resume-ckpt", default=None)
     parser.add_argument("--load-from", default=None)
     parser.add_argument("--model-type", default=None)
-    parser.add_argument("--seed", type=int, default=None)
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     model_type_override = getattr(args, "model_type", None)
-    seed_override = getattr(args, "seed", None)
     if args.resume_dir is not None:
         if model_type_override is not None:
             raise ValueError("--model-type cannot be used with --resume-dir; resume uses saved config")
-        if seed_override is not None:
-            raise ValueError("--seed cannot be used with --resume-dir; resume uses saved config")
         work_dir = Path(args.resume_dir)
         config_path = sorted([*work_dir.glob("*.jsonc"), *work_dir.glob("*.json")])[0]
         cfg = load_config(str(config_path))
@@ -97,15 +91,12 @@ def main() -> None:
         cfg = load_config(args.config)
         if model_type_override is not None:
             cfg["model"]["type"] = model_type_override
-        if seed_override is not None:
-            cfg["seed"] = seed_override
         dataset_cfg = cfg["dataset"]
         dataset_name = str(dataset_cfg.get("name", "vaihingen")).strip().lower()
         model_name = cfg["model"].get("type", "model")
         work_dir = build_default_work_dir(
             model_name=model_name,
             dataset_name=dataset_name,
-            seed=cfg["seed"],
             lambda_align=cfg["train"].get("lambda_align"),
         )
         work_dir.mkdir(parents=True, exist_ok=True)
@@ -116,9 +107,6 @@ def main() -> None:
     dataset_cfg = cfg["dataset"]
     dataset_name = str(dataset_cfg.get("name", "vaihingen")).strip().lower()
     experiment_name = work_dir.name or "mfnet"
-    cfg["seed"] = secrets.randbelow(2**32)
-    seed = int(cfg["seed"])
-    set_reproducibility(seed)
 
     model = build_model(cfg["model"])
 
@@ -133,15 +121,12 @@ def main() -> None:
         dsm_preprocessing=dataset_cfg["dsm_preprocessing"],
         split="train",
     )
-    train_generator = torch.Generator()
-    train_generator.manual_seed(seed)
     train_loader = DataLoader(
         train_dataset,
         batch_size=cfg["train"]["batch_size"],
         shuffle=True,
         num_workers=cfg["dataloader"].get("num_workers", 0),
         pin_memory=True,
-        generator=train_generator,
     )
 
     val_loader: Any = []
@@ -210,8 +195,6 @@ def main() -> None:
             "experiment_name": experiment_name,
             "resume_from": resume_from,
             "load_from": load_from,
-            "seed": seed,
-            "log_seed_after_resume": args.resume_dir is not None,
             "sam_checkpoint": cfg["model"].get("sam_checkpoint"),
             "num_classes": cfg["model"]["num_classes"],
             "class_weights": cfg.get("class_weights"),
@@ -226,7 +209,6 @@ def main() -> None:
             model=model,
             work_dir=work_dir,
             experiment_name=experiment_name,
-            seed=seed,
         )
         if model_type in AUX_ALIGN_MODEL_TYPES or model_type in BASELINE_AUX_ALIGN_MODEL_TYPES:
             logger.log_message(f"Lambda align: {float(cfg['train'].get('lambda_align', 0.01)):.6f}")

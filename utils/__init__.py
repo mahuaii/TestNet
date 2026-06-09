@@ -16,7 +16,6 @@ from .train_utils import (
     log_run_summary,
     safe_path_component,
     save_effective_config,
-    set_reproducibility,
     work_dir_model_suffix,
 )
 
@@ -38,6 +37,5 @@ __all__ = [
     "log_run_summary",
     "safe_path_component",
     "save_effective_config",
-    "set_reproducibility",
     "work_dir_model_suffix",
 ]

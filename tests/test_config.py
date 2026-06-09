@@ -42,7 +42,7 @@ class ConfigTest(unittest.TestCase):
             parent_path.write_text(
                 """
                 {
-                  "seed": 80,
+                  "run_id": "base",
                   "model": {
                     "type": "mfnet_unetformer",
                     "num_classes": 6
@@ -63,7 +63,7 @@ class ConfigTest(unittest.TestCase):
                 """
                 {
                   "extends": "base.jsonc",
-                  "seed": 123,
+                  "run_id": "child",
                   "dataset": {
                     "train_ids": ["3"]
                   },
@@ -79,7 +79,7 @@ class ConfigTest(unittest.TestCase):
             cfg = load_config(str(child_path))
 
             self.assertNotIn("extends", cfg)
-            self.assertEqual(cfg["seed"], 123)
+            self.assertEqual(cfg["run_id"], "child")
             self.assertEqual(cfg["model"]["type"], "mfnet_unetformer")
             self.assertEqual(cfg["model"]["num_classes"], 6)
             self.assertEqual(cfg["dataset"]["train_ids"], ["3"])
@@ -96,12 +96,12 @@ class ConfigTest(unittest.TestCase):
             child_dir.mkdir(parents=True)
             parent_path = base_dir / "base.jsonc"
             child_path = child_dir / "child.jsonc"
-            parent_path.write_text('{"seed": 80, "train": {"max_epochs": 1}}\n', encoding="utf-8")
+            parent_path.write_text('{"run_id": "base", "train": {"max_epochs": 1}}\n', encoding="utf-8")
             child_path.write_text('{"extends": "../base.jsonc", "train": {"batch_size": 2}}\n', encoding="utf-8")
 
             cfg = load_config(str(child_path))
 
-            self.assertEqual(cfg["seed"], 80)
+            self.assertEqual(cfg["run_id"], "base")
             self.assertEqual(cfg["train"]["max_epochs"], 1)
             self.assertEqual(cfg["train"]["batch_size"], 2)
 
@@ -111,13 +111,13 @@ class ConfigTest(unittest.TestCase):
             grandparent_path = root / "grandparent.jsonc"
             parent_path = root / "parent.jsonc"
             child_path = root / "child.jsonc"
-            grandparent_path.write_text('{"seed": 80, "train": {"max_epochs": 50}}\n', encoding="utf-8")
+            grandparent_path.write_text('{"run_id": "base", "train": {"max_epochs": 50}}\n', encoding="utf-8")
             parent_path.write_text('{"extends": "grandparent.jsonc", "train": {"batch_size": 2}}\n', encoding="utf-8")
-            child_path.write_text('{"extends": "parent.jsonc", "seed": 123}\n', encoding="utf-8")
+            child_path.write_text('{"extends": "parent.jsonc", "run_id": "child"}\n', encoding="utf-8")
 
             cfg = load_config(str(child_path))
 
-            self.assertEqual(cfg["seed"], 123)
+            self.assertEqual(cfg["run_id"], "child")
             self.assertEqual(cfg["train"]["max_epochs"], 50)
             self.assertEqual(cfg["train"]["batch_size"], 2)
 
