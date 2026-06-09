@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import secrets
 import sys
 from typing import Any
 
@@ -115,6 +116,7 @@ def main() -> None:
     dataset_cfg = cfg["dataset"]
     dataset_name = str(dataset_cfg.get("name", "vaihingen")).strip().lower()
     experiment_name = work_dir.name or "mfnet"
+    cfg["seed"] = secrets.randbelow(2**32)
     seed = int(cfg["seed"])
     set_reproducibility(seed)
 
