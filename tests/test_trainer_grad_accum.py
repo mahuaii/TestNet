@@ -112,6 +112,7 @@ class BeforeEpochTrainer(RegressionTrainer):
         self.before_epoch_calls = 0
 
     def before_epoch(self) -> None:
+        super().before_epoch()
         self.before_epoch_calls += 1
 
 
@@ -1000,7 +1001,7 @@ class TrainerGradAccumTest(unittest.TestCase):
                 original_update_experiments_tsv_best_metrics
             )
 
-    def test_after_epoch_updates_experiments_tsv_status(self) -> None:
+    def test_before_epoch_updates_experiments_tsv_status(self) -> None:
         calls: list[dict[str, object]] = []
         original_update_experiments_tsv_status = trainer_module.update_experiments_tsv_status
 
@@ -1020,11 +1021,42 @@ class TrainerGradAccumTest(unittest.TestCase):
                 )
                 trainer.epoch = 32
 
-                trainer.after_epoch(train_metrics={"loss": 1.0}, train_time_seconds=0.0)
+                trainer.before_epoch()
 
                 self.assertEqual(
                     calls,
                     [{"work_dir": tmpdir, "epoch": 32, "max_epochs": 48}],
+                )
+        finally:
+            trainer_module.update_experiments_tsv_status = original_update_experiments_tsv_status
+
+    def test_train_updates_experiments_tsv_status_with_current_epoch(self) -> None:
+        calls: list[dict[str, object]] = []
+        original_update_experiments_tsv_status = trainer_module.update_experiments_tsv_status
+
+        def fake_update_experiments_tsv_status(**kwargs: object) -> bool:
+            calls.append(kwargs)
+            return True
+
+        trainer_module.update_experiments_tsv_status = fake_update_experiments_tsv_status
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                trainer = build_trainer(
+                    work_dir=tmpdir,
+                    values=[1.0, 2.0],
+                    batch_size=1,
+                    effective_batch_size=1,
+                    max_epochs=2,
+                )
+
+                trainer.train()
+
+                self.assertEqual(
+                    calls,
+                    [
+                        {"work_dir": tmpdir, "epoch": 1, "max_epochs": 2},
+                        {"work_dir": tmpdir, "epoch": 2, "max_epochs": 2},
+                    ],
                 )
         finally:
             trainer_module.update_experiments_tsv_status = original_update_experiments_tsv_status

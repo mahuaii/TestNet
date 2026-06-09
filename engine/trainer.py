@@ -156,7 +156,11 @@ class Trainer(ABC):
         - 预留 epoch 开始前的 hook
         - 由子类决定是否执行 scheduler.step()、计时初始化等 epoch 级行为
         """
-        return None
+        update_experiments_tsv_status(
+            work_dir=self.cfg["work_dir"],
+            epoch=self.epoch,
+            max_epochs=self.max_epochs,
+        )
 
     def train_one_epoch(self) -> dict[str, float]:
         """
@@ -288,11 +292,6 @@ class Trainer(ABC):
                 name=f"epoch_{self.epoch}.pth",
                 resume_epoch=next_epoch,
             )
-        update_experiments_tsv_status(
-            work_dir=self.cfg["work_dir"],
-            epoch=self.epoch,
-            max_epochs=self.max_epochs,
-        )
 
     def after_val(
         self,

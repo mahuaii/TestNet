@@ -23,6 +23,7 @@ class MFNetTrainer(Trainer):
 
     @override
     def before_epoch(self) -> None:
+        super().before_epoch()
         if self.scheduler is not None:
             self.scheduler.step()
 
