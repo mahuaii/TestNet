@@ -1874,6 +1874,51 @@ class MFNetTrainingTest(unittest.TestCase):
             else:
                 sys.modules["models.mfnet"] = original_mfnet_module
 
+    def test_build_model_dispatches_to_mfnet_spmf10(self) -> None:
+        build_module = importlib.import_module("models.build")
+        captured_kwargs: list[dict[str, object]] = []
+
+        class FakeUNetFormerSPMF10:
+            def __init__(self, **kwargs: object) -> None:
+                captured_kwargs.append(kwargs)
+
+        fake_mfnet_module = types.ModuleType("models.mfnet")
+        fake_mfnet_module.UNetFormerSPMF10 = FakeUNetFormerSPMF10
+        original_mfnet_module = sys.modules.get("models.mfnet")
+
+        try:
+            sys.modules["models.mfnet"] = fake_mfnet_module
+
+            model = build_module.build_model(
+                {
+                    "type": "testnet_spmf10",
+                    "num_classes": 6,
+                    "sam_backbone": "vit_b",
+                    "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
+                    "record_intermediate_stats": True,
+                    "record_intermediate_modules": ["spmf10"],
+                }
+            )
+
+            self.assertIsInstance(model, FakeUNetFormerSPMF10)
+            self.assertEqual(
+                captured_kwargs,
+                [
+                    {
+                        "num_classes": 6,
+                        "sam_backbone": "vit_b",
+                        "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
+                        "record_intermediate_stats": True,
+                        "record_intermediate_modules": ["spmf10"],
+                    }
+                ],
+            )
+        finally:
+            if original_mfnet_module is None:
+                del sys.modules["models.mfnet"]
+            else:
+                sys.modules["models.mfnet"] = original_mfnet_module
+
     def test_build_model_dispatches_to_mfnet_prealign_auxalign_dgsf10(self) -> None:
         build_module = importlib.import_module("models.build")
         captured_kwargs: list[dict[str, object]] = []
@@ -3460,6 +3505,209 @@ class MFNetTrainingTest(unittest.TestCase):
             self.assertEqual(len(sgcf.calls), 1)
             self.assertIs(decoder.inputs[tap_index], sgcf.outputs[tap_index])
             self.assertTrue(torch.equal(sgcf.calls[0][2], raw_dsm.unsqueeze(1)))
+        self.assertEqual(decoder.output_size, (8, 8))
+        self.assertEqual(tuple(output.shape), (2, 6, 8, 8))
+
+    def test_unetformer_spmf10_uses_sam_taps_structure_branch_and_spmf10(self) -> None:
+        with _fake_mfnet_optional_imports():
+            from models.mfnet.UNetFormer_MMSAM_spmf10 import UNetFormerSPMF10
+
+        events: list[str] = []
+
+        class FakePatchEmbed(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.input_shapes: list[tuple[int, ...]] = []
+
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                self.input_shapes.append(tuple(x.shape))
+                x = torch.nn.functional.avg_pool2d(x, kernel_size=4)
+                x = x.mean(dim=1, keepdim=True).repeat(1, 4, 1, 1)
+                return x.permute(0, 2, 3, 1)
+
+        class FakeBlock(torch.nn.Module):
+            def __init__(self, name: str, window_size: int, rgb_offset: float, dsm_offset: float) -> None:
+                super().__init__()
+                self.name = name
+                self.window_size = window_size
+                self.rgb_offset = rgb_offset
+                self.dsm_offset = dsm_offset
+                self.output_dsm: torch.Tensor | None = None
+
+            def forward(self, x: torch.Tensor, y: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+                events.append(self.name)
+                self.output_dsm = y.detach().clone() + self.dsm_offset
+                return x + self.rgb_offset, y + self.dsm_offset
+
+        class FakeNeck(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.calls: list[torch.Tensor] = []
+
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                events.append("neck")
+                self.calls.append(x.detach().clone())
+                return x + 100.0
+
+        class FakeImageEncoder(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.embed_dim = 4
+                self.patch_embed = FakePatchEmbed()
+                self.pos_embed = None
+                self.blocks = torch.nn.ModuleList(
+                    [
+                        FakeBlock("block0", window_size=0, rgb_offset=1.0, dsm_offset=10.0),
+                        FakeBlock("block1", window_size=14, rgb_offset=2.0, dsm_offset=20.0),
+                        FakeBlock("block2", window_size=0, rgb_offset=3.0, dsm_offset=30.0),
+                        FakeBlock("block3", window_size=0, rgb_offset=4.0, dsm_offset=40.0),
+                        FakeBlock("block4", window_size=0, rgb_offset=5.0, dsm_offset=50.0),
+                        FakeBlock("block5", window_size=14, rgb_offset=6.0, dsm_offset=60.0),
+                    ]
+                )
+                self.neck = FakeNeck()
+
+        class SpyFPN(torch.nn.Module):
+            def __init__(self, name: str, output: torch.Tensor) -> None:
+                super().__init__()
+                self.name = name
+                self.output = output
+                self.calls: list[torch.Tensor] = []
+
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                events.append(self.name)
+                self.calls.append(x.detach().clone())
+                return self.output
+
+        class SpyStructureBranch(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.dsm: torch.Tensor | None = None
+                self.taps: tuple[torch.Tensor, ...] | None = None
+                self.outputs = tuple(torch.full((2, 4, 2, 2), 200.0 + float(index)) for index in range(4))
+
+            def forward(
+                self,
+                dsm: torch.Tensor,
+                dsm_taps: tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
+            ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+                events.append("structure")
+                self.dsm = dsm.detach().clone()
+                self.taps = tuple(tap.detach().clone() for tap in dsm_taps)
+                return self.outputs
+
+        class SpySPMF10(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.rgb_feats: tuple[torch.Tensor, ...] | None = None
+                self.dsm_feats: tuple[torch.Tensor, ...] | None = None
+                self.structure_feats: tuple[torch.Tensor, ...] | None = None
+                self.outputs = tuple(torch.full((2, 4, 2, 2), 300.0 + float(index)) for index in range(4))
+
+            def forward(
+                self,
+                rgb_feats: tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
+                dsm_feats: tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
+                structure_feats: tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
+            ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+                events.append("spmf10")
+                self.rgb_feats = rgb_feats
+                self.dsm_feats = dsm_feats
+                self.structure_feats = structure_feats
+                return self.outputs
+
+        class SpyDecoder(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.inputs: tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor] | None = None
+                self.output_size: tuple[int, int] | None = None
+
+            def forward(
+                self,
+                res1: torch.Tensor,
+                res2: torch.Tensor,
+                res3: torch.Tensor,
+                res4: torch.Tensor,
+                h: int,
+                w: int,
+            ) -> torch.Tensor:
+                events.append("decoder")
+                self.inputs = (res1, res2, res3, res4)
+                self.output_size = (h, w)
+                return torch.zeros(res1.shape[0], 6, h, w)
+
+        model = UNetFormerSPMF10.__new__(UNetFormerSPMF10)
+        torch.nn.Module.__init__(model)
+        model.image_encoder = FakeImageEncoder()
+        model.spmf10_indexes = [0, 2, 3, 4]
+        fpn_outputs = tuple(torch.full((2, 4, 2, 2), 100.0 + float(index)) for index in range(8))
+        model.fpn1x = SpyFPN("fpn1x", fpn_outputs[0])
+        model.fpn2x = SpyFPN("fpn2x", fpn_outputs[1])
+        model.fpn3x = SpyFPN("fpn3x", fpn_outputs[2])
+        model.fpn4x = SpyFPN("fpn4x", fpn_outputs[3])
+        model.fpn1y = SpyFPN("fpn1y", fpn_outputs[4])
+        model.fpn2y = SpyFPN("fpn2y", fpn_outputs[5])
+        model.fpn3y = SpyFPN("fpn3y", fpn_outputs[6])
+        model.fpn4y = SpyFPN("fpn4y", fpn_outputs[7])
+        model.structure_branch10 = SpyStructureBranch()
+        model.spmf10 = SpySPMF10()
+        model.decoder = SpyDecoder()
+        raw_dsm = torch.ones(2, 8, 8)
+
+        output = model(torch.zeros(2, 3, 8, 8), raw_dsm)
+
+        structure_branch = model.structure_branch10
+        spmf10 = model.spmf10
+        decoder = model.decoder
+        assert isinstance(structure_branch, SpyStructureBranch)
+        assert isinstance(spmf10, SpySPMF10)
+        assert isinstance(decoder, SpyDecoder)
+        self.assertEqual(model.image_encoder.patch_embed.input_shapes[0], (2, 3, 8, 8))
+        self.assertEqual(model.image_encoder.patch_embed.input_shapes[1], (2, 3, 8, 8))
+        self.assertEqual(
+            events,
+            [
+                "block0",
+                "block1",
+                "block2",
+                "block3",
+                "block4",
+                "block5",
+                "neck",
+                "neck",
+                "fpn1x",
+                "fpn2x",
+                "fpn3x",
+                "fpn4x",
+                "fpn1y",
+                "fpn2y",
+                "fpn3y",
+                "fpn4y",
+                "structure",
+                "spmf10",
+                "decoder",
+            ],
+        )
+        self.assertIsNotNone(structure_branch.dsm)
+        self.assertTrue(torch.equal(structure_branch.dsm, raw_dsm.unsqueeze(1)))
+        self.assertIsNotNone(structure_branch.taps)
+        for tap_index, block_index in enumerate(model.spmf10_indexes):
+            block = model.image_encoder.blocks[block_index]
+            assert isinstance(block, FakeBlock)
+            self.assertIsNotNone(block.output_dsm)
+            self.assertTrue(torch.equal(structure_branch.taps[tap_index], block.output_dsm.permute(0, 3, 1, 2)))
+        self.assertIsNotNone(spmf10.rgb_feats)
+        self.assertIsNotNone(spmf10.dsm_feats)
+        self.assertIsNotNone(spmf10.structure_feats)
+        for actual, expected in zip(spmf10.rgb_feats, fpn_outputs[:4]):
+            self.assertIs(actual, expected)
+        for actual, expected in zip(spmf10.dsm_feats, fpn_outputs[4:]):
+            self.assertIs(actual, expected)
+        for actual, expected in zip(spmf10.structure_feats, structure_branch.outputs):
+            self.assertIs(actual, expected)
+        self.assertIsNotNone(decoder.inputs)
+        for actual, expected in zip(decoder.inputs, spmf10.outputs):
+            self.assertIs(actual, expected)
         self.assertEqual(decoder.output_size, (8, 8))
         self.assertEqual(tuple(output.shape), (2, 6, 8, 8))
 

@@ -7,6 +7,13 @@ from .dgfm import DGFM, DGFMScaleAdapter
 from .dgfm01 import DGFM01
 from .dgsf10 import DGSF10, DepthGuidedScaleFusion10
 from .sgcf import SGCF, SGCFBlock, SGCFScaleAdapter, MultiScaleSGCF, SobelDSMEdge
+from .spmf10 import (
+    DSMStructureBranch10,
+    MultiScaleSPMF10,
+    MultiScaleStructurePriorModulatedFusion10,
+    SPMFBlock10,
+    StructurePriorModulatedFusionBlock10,
+)
 from .upernet import PPM, UperNetHead
 
 __all__ = [
@@ -26,6 +33,11 @@ __all__ = [
     "SGCFScaleAdapter",
     "MultiScaleSGCF",
     "SobelDSMEdge",
+    "DSMStructureBranch10",
+    "SPMFBlock10",
+    "MultiScaleSPMF10",
+    "StructurePriorModulatedFusionBlock10",
+    "MultiScaleStructurePriorModulatedFusion10",
     "PPM",
     "UperNetHead",
 ]
