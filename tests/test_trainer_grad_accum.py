@@ -140,6 +140,14 @@ class CaptureEvaluator:
         return {"num_outputs": float(len(outputs))}
 
 
+class InterruptingEvaluator:
+    def evaluate(
+        self, outputs: list[dict[str, torch.Tensor | float]], **kwargs: object
+    ) -> dict[str, float]:
+        del outputs, kwargs
+        raise RuntimeError("validation interrupted")
+
+
 class SequenceMetricsEvaluator:
     def __init__(self, metrics_sequence: list[dict[str, float]]) -> None:
         self.metrics_sequence = metrics_sequence
@@ -625,6 +633,7 @@ class TrainerGradAccumTest(unittest.TestCase):
             state_dict = CheckpointManager.load(path=str(step_path))
             self.assertEqual(state_dict["epoch"], 1)
             self.assertEqual(state_dict["resume_epoch"], 1)
+            self.assertFalse(state_dict["validation_pending"])
 
             resumed._load_training_state(str(step_path))
 
@@ -655,6 +664,7 @@ class TrainerGradAccumTest(unittest.TestCase):
             state_dict = CheckpointManager.load(path=str(latest_path))
             self.assertEqual(state_dict["epoch"], 1)
             self.assertEqual(state_dict["resume_epoch"], 2)
+            self.assertFalse(state_dict["validation_pending"])
 
             resumed._load_training_state(str(latest_path))
 
@@ -680,6 +690,88 @@ class TrainerGradAccumTest(unittest.TestCase):
             self.assertEqual(float(latest_state["best_miou"]), 0.7)
             self.assertEqual(named_state["resume_epoch"], 1)
             self.assertEqual(latest_state["resume_epoch"], 2)
+            self.assertFalse(named_state["validation_pending"])
+            self.assertFalse(latest_state["validation_pending"])
+
+    def test_interrupted_validation_keeps_epoch_checkpoints_pending(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trainer = build_trainer(
+                work_dir=tmpdir,
+                values=[1.0, 2.0],
+                batch_size=1,
+                effective_batch_size=1,
+                evaluator=InterruptingEvaluator(),
+                inferencer=IdentityInferencer(),
+            )
+            trainer.val_loader = DataLoader(
+                ScalarDataset([1.0]),
+                batch_size=1,
+                shuffle=False,
+            )
+            trainer.cfg["val_epoch_interval"] = 1
+            trainer.cfg["save_epoch_interval"] = 1
+
+            with self.assertRaisesRegex(RuntimeError, "validation interrupted"):
+                trainer.train()
+
+            for checkpoint_name in ("latest.pth", "epoch_1.pth"):
+                state_dict = CheckpointManager.load(Path(tmpdir) / checkpoint_name)
+                self.assertEqual(state_dict["epoch"], 1)
+                self.assertEqual(state_dict["resume_epoch"], 2)
+                self.assertTrue(state_dict["validation_pending"])
+
+    def test_resume_runs_pending_validation_before_next_epoch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            interrupted = build_trainer(
+                work_dir=tmpdir,
+                values=[1.0, 2.0],
+                batch_size=1,
+                effective_batch_size=1,
+                max_epochs=2,
+                evaluator=InterruptingEvaluator(),
+                inferencer=IdentityInferencer(),
+            )
+            interrupted.val_loader = DataLoader(
+                ScalarDataset([1.0]),
+                batch_size=1,
+                shuffle=False,
+            )
+            interrupted.cfg["val_epoch_interval"] = 1
+            interrupted.cfg["save_epoch_interval"] = 1
+
+            with self.assertRaisesRegex(RuntimeError, "validation interrupted"):
+                interrupted.train()
+
+            evaluator = CaptureEvaluator()
+            resumed = build_trainer(
+                work_dir=tmpdir,
+                values=[1.0, 2.0],
+                batch_size=1,
+                effective_batch_size=1,
+                max_epochs=2,
+                evaluator=evaluator,
+                inferencer=IdentityInferencer(),
+                trainer_cls=BeforeEpochTrainer,
+            )
+            resumed.val_loader = DataLoader(
+                ScalarDataset([1.0]),
+                batch_size=1,
+                shuffle=False,
+            )
+            resumed.cfg["resume_from"] = str(Path(tmpdir) / "latest.pth")
+            resumed.cfg["val_epoch_interval"] = 100
+            resumed.cfg["save_epoch_interval"] = 1
+
+            resumed.train()
+
+            assert isinstance(resumed, BeforeEpochTrainer)
+            self.assertIsNotNone(evaluator.last_outputs)
+            self.assertEqual(resumed.before_epoch_calls, 1)
+            self.assertEqual(resumed.global_step, 4)
+
+            epoch_one_state = CheckpointManager.load(Path(tmpdir) / "epoch_1.pth")
+            self.assertFalse(epoch_one_state["validation_pending"])
+            self.assertEqual(epoch_one_state["resume_epoch"], 2)
 
     def test_load_training_state_defaults_best_miou_for_legacy_checkpoints(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

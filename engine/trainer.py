@@ -65,6 +65,7 @@ class Trainer(ABC):
         self.epoch = 1
         self.global_step = 0
         self.best_miou = 0.0
+        self.pending_validation_epoch: int | None = None
         self.max_epochs = cfg["max_epochs"]
         self.timer = AnchorTimer()
         self.total_steps_per_epoch = max(1, len(self.train_loader))
@@ -97,6 +98,11 @@ class Trainer(ABC):
         self.epoch = resume_epoch
         self.global_step = checkpoint_global_step
         self.best_miou = float(state_dict.get("best_miou", 0.0))
+        self.pending_validation_epoch = (
+            checkpoint_epoch
+            if bool(state_dict.get("validation_pending", False))
+            else None
+        )
 
     @staticmethod
     def _resolve_resume_epoch(path: str, state_dict: dict[str, Any]) -> int:
@@ -129,6 +135,13 @@ class Trainer(ABC):
 
         # 训练循环
         with self.logger:
+            if self.pending_validation_epoch is not None:
+                self._validate_and_finalize_epoch(
+                    validation_epoch=self.pending_validation_epoch,
+                    resume_epoch=self.epoch,
+                )
+                self.pending_validation_epoch = None
+
             for epoch in range(self.epoch, self.max_epochs + 1):
                 self.epoch = epoch
                 self.before_epoch()
@@ -140,14 +153,21 @@ class Trainer(ABC):
 
                 train_time_seconds = self.timer.elapsed("epoch")
 
+                val_epoch_interval = int(self.cfg.get("val_epoch_interval", 0))
+                validation_pending = (
+                    val_epoch_interval > 0 and epoch % val_epoch_interval == 0
+                )
                 self.after_epoch(
                     train_metrics,
                     train_time_seconds=train_time_seconds,
+                    validation_pending=validation_pending,
                 )
 
-                val_epoch_interval = int(self.cfg.get("val_epoch_interval", 0))
-                if val_epoch_interval > 0 and epoch % val_epoch_interval == 0:
-                    self.validate()
+                if validation_pending:
+                    self._validate_and_finalize_epoch(
+                        validation_epoch=epoch,
+                        resume_epoch=epoch + 1,
+                    )
 
     def before_epoch(self):
         """
@@ -271,6 +291,7 @@ class Trainer(ABC):
         self,
         train_metrics: dict[str, float],
         train_time_seconds: float,
+        validation_pending: bool = False,
     ):
         """
         - 输出训练 epoch 级日志
@@ -282,14 +303,46 @@ class Trainer(ABC):
             lr=self.lr,
         )
 
-        next_epoch = self.epoch + 1
-        self._save_training_state(name="latest.pth", resume_epoch=next_epoch)
+        self._save_epoch_checkpoints(
+            resume_epoch=self.epoch + 1,
+            validation_pending=validation_pending,
+        )
+
+    def _save_epoch_checkpoints(
+        self,
+        *,
+        resume_epoch: int,
+        validation_pending: bool,
+    ) -> None:
+        self._save_training_state(
+            name="latest.pth",
+            resume_epoch=resume_epoch,
+            validation_pending=validation_pending,
+        )
         save_epoch_interval = int(self.cfg["save_epoch_interval"])
         if save_epoch_interval > 0 and self.epoch % save_epoch_interval == 0:
             self._save_training_state(
                 name=f"epoch_{self.epoch}.pth",
-                resume_epoch=next_epoch,
+                resume_epoch=resume_epoch,
+                validation_pending=validation_pending,
             )
+
+    def _validate_and_finalize_epoch(
+        self,
+        *,
+        validation_epoch: int,
+        resume_epoch: int,
+    ) -> None:
+        current_epoch = self.epoch
+        self.epoch = validation_epoch
+        try:
+            self.validate()
+            self._save_epoch_checkpoints(
+                resume_epoch=resume_epoch,
+                validation_pending=False,
+            )
+        finally:
+            self.epoch = current_epoch
 
     def after_val(
         self,
@@ -354,7 +407,12 @@ class Trainer(ABC):
         self.optimizer.zero_grad()
         self.global_step += 1
 
-    def _save_training_state(self, name: str, resume_epoch: int | None = None) -> None:
+    def _save_training_state(
+        self,
+        name: str,
+        resume_epoch: int | None = None,
+        validation_pending: bool = False,
+    ) -> None:
         path = CheckpointManager.save_training_state(
             path=Path(self.cfg["work_dir"]) / name,
             model=self.model,
@@ -364,6 +422,7 @@ class Trainer(ABC):
             global_step=self.global_step,
             best_miou=self.best_miou,
             resume_epoch=resume_epoch,
+            validation_pending=validation_pending,
         )
         self.logger.log_checkpoint_saved(path)
 
