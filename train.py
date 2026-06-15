@@ -120,6 +120,7 @@ def main() -> None:
         augmentation=dataset_cfg.get("augmentation", True),
         dsm_preprocessing=dataset_cfg["dsm_preprocessing"],
         split="train",
+        tile_sampling_weights=dataset_cfg.get("train_tile_sampling_weights"),
     )
     train_loader = DataLoader(
         train_dataset,

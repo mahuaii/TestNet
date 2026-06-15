@@ -631,10 +631,10 @@ class MFNetTrainingTest(unittest.TestCase):
         return model
 
     def _write_vaihingen_sample(self, root: Path, tile_id: str = "1") -> None:
-        (root / "rgb").mkdir()
-        (root / "dsm").mkdir()
-        (root / "labels").mkdir()
-        (root / "labels_eroded").mkdir()
+        (root / "rgb").mkdir(exist_ok=True)
+        (root / "dsm").mkdir(exist_ok=True)
+        (root / "labels").mkdir(exist_ok=True)
+        (root / "labels_eroded").mkdir(exist_ok=True)
 
         rgb = torch.zeros(32, 32, 3, dtype=torch.uint8).numpy()
         rgb[:, :, 0] = 255
@@ -1080,6 +1080,73 @@ class MFNetTrainingTest(unittest.TestCase):
             self.assertEqual(sample["inputs"]["rgb"].shape, (3, 16, 16))
             self.assertEqual(sample["inputs"]["dsm"].shape, (16, 16))
             self.assertEqual(sample["target"].shape, (16, 16))
+
+    def test_training_dataset_uses_configured_tile_sampling_weights(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            self._write_vaihingen_sample(root, tile_id="1")
+            self._write_vaihingen_sample(root, tile_id="3")
+            dataset = ISPRSDataset(
+                preset=VAIHINGEN_PRESET,
+                root_dir=str(root),
+                ids=["1", "3"],
+                dsm_preprocessing=DSM_PREPROCESSING_DISABLED,
+                patch_size=(16, 16),
+                samples_per_epoch=1,
+                cache=True,
+                augmentation=False,
+                split="train",
+                tile_sampling_weights=[1.0, 4.0],
+            )
+
+            with patch("data.isprs_dataset.random.choices", return_value=[1]) as choices:
+                tile_index = dataset._resolve_tile_index(0)
+
+            self.assertEqual(tile_index, 1)
+            choices.assert_called_once_with(range(2), weights=(1.0, 4.0), k=1)
+
+    def test_training_dataset_without_weights_keeps_uniform_sampling(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            self._write_vaihingen_sample(root)
+            dataset = ISPRSDataset(
+                preset=VAIHINGEN_PRESET,
+                root_dir=str(root),
+                ids=["1"],
+                dsm_preprocessing=DSM_PREPROCESSING_DISABLED,
+                patch_size=(16, 16),
+                samples_per_epoch=1,
+                cache=True,
+                augmentation=False,
+                split="train",
+            )
+
+            with patch("data.isprs_dataset.random.randrange", return_value=0) as randrange:
+                tile_index = dataset._resolve_tile_index(0)
+
+            self.assertEqual(tile_index, 0)
+            randrange.assert_called_once_with(1)
+
+    def test_dataset_rejects_invalid_tile_sampling_weights(self) -> None:
+        invalid_cases = [
+            ([1.0, 2.0], ValueError, "length must match"),
+            ([-1.0], ValueError, "non-negative"),
+            ([float("inf")], ValueError, "finite"),
+            ([float("nan")], ValueError, "finite"),
+            ([0.0], ValueError, "at least one positive"),
+            (["1.0"], TypeError, "must be a number"),
+        ]
+
+        for weights, error_type, message in invalid_cases:
+            with self.subTest(weights=weights):
+                with self.assertRaisesRegex(error_type, message):
+                    ISPRSDataset(
+                        preset=VAIHINGEN_PRESET,
+                        root_dir="/unused",
+                        ids=["1"],
+                        dsm_preprocessing=DSM_PREPROCESSING_DISABLED,
+                        tile_sampling_weights=weights,
+                    )
 
     def test_vaihingen_dataset_get_tile_returns_uncropped_full_tile(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -5173,6 +5240,7 @@ class MFNetTrainingTest(unittest.TestCase):
                 "root_dir": root_dir,
                 "patch_size": [32, 32],
                 "train_ids": ["1"],
+                "train_tile_sampling_weights": [2.5],
                 "val_ids": ["5"],
                 "train_samples_per_epoch": 4,
                 "val_samples_per_epoch": 1,
@@ -5468,6 +5536,8 @@ class MFNetTrainingTest(unittest.TestCase):
             self.assertEqual(dataset_calls[1]["split"], "val")
             self.assertEqual(dataset_calls[0]["ids"], ["1"])
             self.assertEqual(dataset_calls[1]["ids"], ["5"])
+            self.assertEqual(dataset_calls[0]["tile_sampling_weights"], [2.5])
+            self.assertNotIn("tile_sampling_weights", dataset_calls[1])
             expected_dsm_preprocessing = self._make_train_entry_config(root_dir=str(work_dir))["dataset"][
                 "dsm_preprocessing"
             ]

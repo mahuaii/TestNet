@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+import math
+from numbers import Real
 import random
 from pathlib import Path
 
@@ -79,6 +81,7 @@ class ISPRSDataset(Dataset):
         cache: bool = True,
         augmentation: bool = True,
         split: str = "train",
+        tile_sampling_weights: Sequence[float] | None = None,
     ) -> None:
         if not ids:
             raise ValueError(f"{preset.name} dataset requires at least one tile id")
@@ -92,6 +95,7 @@ class ISPRSDataset(Dataset):
         self.augmentation = bool(augmentation)
         self.split = str(split)
         self.dsm_preprocessing = self._parse_dsm_preprocessing(dsm_preprocessing)
+        self.tile_sampling_weights = self._parse_tile_sampling_weights(tile_sampling_weights)
 
         self.rgb_files = [
             self.root_dir / preset.rgb_subdir / preset.rgb_pattern.format(tile_id=tile_id)
@@ -240,6 +244,40 @@ class ISPRSDataset(Dataset):
             lambda_weight=self.dsm_preprocessing["lambda_weight"],
         )
 
+    def _parse_tile_sampling_weights(
+        self,
+        tile_sampling_weights: Sequence[float] | None,
+    ) -> tuple[float, ...] | None:
+        if tile_sampling_weights is None:
+            return None
+        if isinstance(tile_sampling_weights, (str, bytes)) or not isinstance(
+            tile_sampling_weights, Sequence
+        ):
+            raise TypeError("tile_sampling_weights must be a sequence of numbers")
+        if len(tile_sampling_weights) != len(self.ids):
+            raise ValueError(
+                "tile_sampling_weights length must match ids length: "
+                f"got {len(tile_sampling_weights)} weights for {len(self.ids)} tile ids"
+            )
+
+        weights: list[float] = []
+        for index, weight in enumerate(tile_sampling_weights):
+            if isinstance(weight, bool) or not isinstance(weight, Real):
+                raise TypeError(
+                    f"tile_sampling_weights[{index}] must be a number, "
+                    f"got {type(weight).__name__}"
+                )
+            numeric_weight = float(weight)
+            if not math.isfinite(numeric_weight):
+                raise ValueError(f"tile_sampling_weights[{index}] must be finite")
+            if numeric_weight < 0:
+                raise ValueError(f"tile_sampling_weights[{index}] must be non-negative")
+            weights.append(numeric_weight)
+
+        if not any(weight > 0 for weight in weights):
+            raise ValueError("tile_sampling_weights must contain at least one positive weight")
+        return tuple(weights)
+
     def _load_eval_target_tile(self, tile_index: int) -> np.ndarray:
         return self._load_label_tile(
             tile_index=tile_index,
@@ -271,6 +309,12 @@ class ISPRSDataset(Dataset):
 
     def _resolve_tile_index(self, index: int) -> int:
         if self.split == "train":
+            if self.tile_sampling_weights is not None:
+                return random.choices(
+                    range(len(self.ids)),
+                    weights=self.tile_sampling_weights,
+                    k=1,
+                )[0]
             return random.randrange(len(self.ids))
         return index % len(self.ids)
 
