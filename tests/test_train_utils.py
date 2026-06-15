@@ -16,6 +16,10 @@ class GateModel(torch.nn.Module):
     def __init__(self) -> None:
         super().__init__()
         self.backbone = torch.nn.Linear(2, 2)
+        self.norm = torch.nn.BatchNorm1d(2)
+        self.Adapter = torch.nn.Linear(2, 2)
+        self.frozen = torch.nn.Linear(2, 2)
+        self.frozen.requires_grad_(False)
         self.alpha = torch.nn.Parameter(torch.ones(1))
         self.block = torch.nn.Module()
         self.block.beta = torch.nn.Parameter(torch.ones(1))
@@ -56,26 +60,62 @@ class TrainUtilsTest(unittest.TestCase):
         self.assertEqual(parts[-2], "lambda-0.5")
         self.assertRegex(path.name, r"_lambda-0.5_[0-9a-f]{5}$")
 
-    def test_build_optimizer_param_groups_exempts_gate_parameter_names(self) -> None:
+    def test_build_optimizer_param_groups_applies_lr_and_weight_decay_rules(self) -> None:
         model = GateModel()
 
-        param_groups = build_optimizer_param_groups(model, weight_decay=0.123)
+        param_groups = build_optimizer_param_groups(
+            model,
+            weight_decay=0.123,
+            base_lr=0.01,
+            adapter_lr=0.001,
+        )
 
-        self.assertEqual(len(param_groups), 2)
-        decay_group = next(group for group in param_groups if group["weight_decay"] == 0.123)
-        no_decay_group = next(group for group in param_groups if group["weight_decay"] == 0.0)
-        decay_param_ids = {id(param) for param in decay_group["params"]}
-        no_decay_param_ids = {id(param) for param in no_decay_group["params"]}
+        self.assertEqual(len(param_groups), 4)
+        regular_decay = next(
+            group for group in param_groups if group["lr"] == 0.01 and group["weight_decay"] == 0.123
+        )
+        regular_no_decay = next(
+            group for group in param_groups if group["lr"] == 0.01 and group["weight_decay"] == 0.0
+        )
+        adapter_decay = next(
+            group for group in param_groups if group["lr"] == 0.001 and group["weight_decay"] == 0.123
+        )
+        adapter_no_decay = next(
+            group for group in param_groups if group["lr"] == 0.001 and group["weight_decay"] == 0.0
+        )
+        regular_decay_ids = {id(param) for param in regular_decay["params"]}
+        regular_no_decay_ids = {id(param) for param in regular_no_decay["params"]}
+        adapter_decay_ids = {id(param) for param in adapter_decay["params"]}
+        adapter_no_decay_ids = {id(param) for param in adapter_no_decay["params"]}
         named_params = dict(model.named_parameters())
 
-        self.assertIn(id(named_params["backbone.weight"]), decay_param_ids)
-        self.assertIn(id(named_params["backbone.bias"]), decay_param_ids)
-        self.assertIn(id(named_params["alpha"]), no_decay_param_ids)
-        self.assertIn(id(named_params["block.beta"]), no_decay_param_ids)
-        self.assertIn(id(named_params["block.gamma"]), no_decay_param_ids)
-        self.assertIn(id(named_params["block.lambda"]), no_decay_param_ids)
-        self.assertIn(id(named_params["block.lambda_param"]), decay_param_ids)
-        self.assertIn(id(named_params["block.lambda_"]), decay_param_ids)
+        self.assertIn(id(named_params["backbone.weight"]), regular_decay_ids)
+        self.assertIn(id(named_params["backbone.bias"]), regular_no_decay_ids)
+        self.assertIn(id(named_params["norm.weight"]), regular_no_decay_ids)
+        self.assertIn(id(named_params["norm.bias"]), regular_no_decay_ids)
+        self.assertIn(id(named_params["Adapter.weight"]), adapter_decay_ids)
+        self.assertIn(id(named_params["Adapter.bias"]), adapter_no_decay_ids)
+        self.assertIn(id(named_params["alpha"]), regular_no_decay_ids)
+        self.assertIn(id(named_params["block.beta"]), regular_no_decay_ids)
+        self.assertIn(id(named_params["block.gamma"]), regular_no_decay_ids)
+        self.assertIn(id(named_params["block.lambda"]), regular_no_decay_ids)
+        self.assertIn(id(named_params["block.lambda_param"]), regular_no_decay_ids)
+        self.assertIn(id(named_params["block.lambda_"]), regular_no_decay_ids)
+        grouped_ids = {
+            id(param)
+            for group in param_groups
+            for param in group["params"]
+        }
+        self.assertNotIn(id(named_params["frozen.weight"]), grouped_ids)
+        self.assertNotIn(id(named_params["frozen.bias"]), grouped_ids)
+
+    def test_build_optimizer_param_groups_rejects_invalid_lr_values(self) -> None:
+        model = GateModel()
+
+        with self.assertRaisesRegex(ValueError, "base_lr must be positive"):
+            build_optimizer_param_groups(model, weight_decay=0.1, base_lr=0.0)
+        with self.assertRaisesRegex(ValueError, "adapter_lr must be positive"):
+            build_optimizer_param_groups(model, weight_decay=0.1, adapter_lr=0.0)
 
 
 if __name__ == "__main__":

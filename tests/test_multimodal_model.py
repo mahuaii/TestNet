@@ -27,15 +27,6 @@ from data import build_isprs_dataset
 from engine import MFNetTrainer, SlidingWindowInferencer
 from utils import DataUtils, IntermediateStatsRecorder, TestNetRecorderLogger, TestNetLogger
 
-DSM_PREPROCESSING_DISABLED = {
-    "enabled": False,
-    "type": "similarity_enhancement",
-    "window_size": 7,
-    "sigma": 0.15,
-    "lambda_weight": 0.3,
-}
-
-
 @contextmanager
 def _fake_mfnet_optional_imports() -> object:
     fake_timm_module = types.ModuleType("timm")
@@ -1038,7 +1029,7 @@ class MFNetTrainingTest(unittest.TestCase):
                 preset=VAIHINGEN_PRESET,
                 root_dir=str(root),
                 ids=["1"],
-                dsm_preprocessing=DSM_PREPROCESSING_DISABLED,
+                dsm_preprocessing=None,
                 patch_size=(16, 16),
                 samples_per_epoch=1,
                 cache=True,
@@ -1067,7 +1058,7 @@ class MFNetTrainingTest(unittest.TestCase):
                 preset=VAIHINGEN_PRESET,
                 root_dir=str(root),
                 ids=["1"],
-                dsm_preprocessing=DSM_PREPROCESSING_DISABLED,
+                dsm_preprocessing=None,
                 patch_size=(16, 16),
                 samples_per_epoch=1,
                 cache=True,
@@ -1090,7 +1081,7 @@ class MFNetTrainingTest(unittest.TestCase):
                 preset=VAIHINGEN_PRESET,
                 root_dir=str(root),
                 ids=["1", "3"],
-                dsm_preprocessing=DSM_PREPROCESSING_DISABLED,
+                dsm_preprocessing=None,
                 patch_size=(16, 16),
                 samples_per_epoch=1,
                 cache=True,
@@ -1113,7 +1104,7 @@ class MFNetTrainingTest(unittest.TestCase):
                 preset=VAIHINGEN_PRESET,
                 root_dir=str(root),
                 ids=["1"],
-                dsm_preprocessing=DSM_PREPROCESSING_DISABLED,
+                dsm_preprocessing=None,
                 patch_size=(16, 16),
                 samples_per_epoch=1,
                 cache=True,
@@ -1135,7 +1126,7 @@ class MFNetTrainingTest(unittest.TestCase):
                 preset=VAIHINGEN_PRESET,
                 root_dir=str(root),
                 ids=["1"],
-                dsm_preprocessing=DSM_PREPROCESSING_DISABLED,
+                dsm_preprocessing=None,
                 patch_size=(16, 16),
                 samples_per_epoch=1,
                 cache=True,
@@ -1162,7 +1153,7 @@ class MFNetTrainingTest(unittest.TestCase):
                 preset=VAIHINGEN_PRESET,
                 root_dir=str(root),
                 ids=["1"],
-                dsm_preprocessing=DSM_PREPROCESSING_DISABLED,
+                dsm_preprocessing=None,
                 patch_size=(4, 4),
                 samples_per_epoch=1,
                 cache=True,
@@ -1201,7 +1192,7 @@ class MFNetTrainingTest(unittest.TestCase):
                 preset=VAIHINGEN_PRESET,
                 root_dir=str(root),
                 ids=["1"],
-                dsm_preprocessing=DSM_PREPROCESSING_DISABLED,
+                dsm_preprocessing=None,
                 patch_size=(4, 4),
                 samples_per_epoch=1,
                 cache=True,
@@ -1246,7 +1237,7 @@ class MFNetTrainingTest(unittest.TestCase):
                         preset=VAIHINGEN_PRESET,
                         root_dir="/unused",
                         ids=["1"],
-                        dsm_preprocessing=DSM_PREPROCESSING_DISABLED,
+                        dsm_preprocessing=None,
                         tile_sampling_weights=weights,
                     )
 
@@ -1259,7 +1250,7 @@ class MFNetTrainingTest(unittest.TestCase):
                 preset=VAIHINGEN_PRESET,
                 root_dir=str(root),
                 ids=["1"],
-                dsm_preprocessing=DSM_PREPROCESSING_DISABLED,
+                dsm_preprocessing=None,
                 patch_size=(16, 16),
                 samples_per_epoch=1,
                 cache=True,
@@ -1309,6 +1300,28 @@ class MFNetTrainingTest(unittest.TestCase):
             )
             np.testing.assert_allclose(sample["inputs"]["dsm"].numpy(), expected_dsm, rtol=1e-6, atol=1e-6)
 
+    def test_vaihingen_dataset_accepts_null_dsm_preprocessing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            self._write_vaihingen_sample(root)
+            dataset = ISPRSDataset(
+                preset=VAIHINGEN_PRESET,
+                root_dir=str(root),
+                ids=["1"],
+                dsm_preprocessing=None,
+                patch_size=(16, 16),
+                samples_per_epoch=1,
+                cache=True,
+                augmentation=False,
+                split="val",
+            )
+
+            sample = dataset.get_tile(0)
+
+            raw_dsm = torch.arange(32 * 32, dtype=torch.int16).reshape(32, 32).numpy()
+            expected_dsm = DataUtils.normalize_dsm(raw_dsm)
+            np.testing.assert_allclose(sample["inputs"]["dsm"].numpy(), expected_dsm, rtol=1e-6, atol=1e-6)
+
     def test_vaihingen_dataset_rejects_unknown_dsm_preprocessing_type(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -1332,6 +1345,34 @@ class MFNetTrainingTest(unittest.TestCase):
                     augmentation=False,
                     split="val",
                 )
+
+    def test_vaihingen_dataset_accepts_disabled_dsm_preprocessing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            self._write_vaihingen_sample(root)
+            dataset = ISPRSDataset(
+                preset=VAIHINGEN_PRESET,
+                root_dir=str(root),
+                ids=["1"],
+                dsm_preprocessing={
+                    "enabled": False,
+                    "type": "similarity_enhancement",
+                    "window_size": 3,
+                    "sigma": 0.2,
+                    "lambda_weight": 0.4,
+                },
+                patch_size=(16, 16),
+                samples_per_epoch=1,
+                cache=True,
+                augmentation=False,
+                split="val",
+            )
+
+            sample = dataset.get_tile(0)
+
+            raw_dsm = torch.arange(32 * 32, dtype=torch.int16).reshape(32, 32).numpy()
+            expected_dsm = DataUtils.normalize_dsm(raw_dsm)
+            np.testing.assert_allclose(sample["inputs"]["dsm"].numpy(), expected_dsm, rtol=1e-6, atol=1e-6)
 
     def test_whole_tile_sliding_window_matches_original_mfnet_path(self) -> None:
         rgb = torch.arange(3 * 5 * 5, dtype=torch.float32).reshape(3, 5, 5)
@@ -1490,7 +1531,7 @@ class MFNetTrainingTest(unittest.TestCase):
                 preset=POTSDAM_PRESET,
                 root_dir=str(root),
                 ids=["6_10"],
-                dsm_preprocessing=DSM_PREPROCESSING_DISABLED,
+                dsm_preprocessing=None,
                 patch_size=(16, 16),
                 samples_per_epoch=1,
                 cache=True,
@@ -1514,7 +1555,7 @@ class MFNetTrainingTest(unittest.TestCase):
                 preset=VAIHINGEN_PRESET,
                 root_dir=str(root),
                 ids=["1"],
-                dsm_preprocessing=DSM_PREPROCESSING_DISABLED,
+                dsm_preprocessing=None,
                 patch_size=(16, 16),
                 samples_per_epoch=1,
                 cache=True,
@@ -1538,7 +1579,7 @@ class MFNetTrainingTest(unittest.TestCase):
                 "potsdam",
                 root_dir=str(root),
                 ids=["6_10"],
-                dsm_preprocessing=DSM_PREPROCESSING_DISABLED,
+                dsm_preprocessing=None,
                 patch_size=(16, 16),
                 samples_per_epoch=1,
                 cache=True,
@@ -5348,13 +5389,14 @@ class MFNetTrainingTest(unittest.TestCase):
                 "val_samples_per_epoch": 1,
                 "cache": True,
                 "augmentation": True,
-                "dsm_preprocessing": dict(DSM_PREPROCESSING_DISABLED),
+                "dsm_preprocessing": None,
                 "patch_sampling": {"enabled": False},
             },
             "dataloader": {"num_workers": 0},
             "optimizer": {
                 "type": "SGD",
                 "lr": 0.01,
+                "adapter_lr": 0.001,
                 "momentum": 0.9,
                 "weight_decay": 0.0005,
             },
@@ -5579,11 +5621,12 @@ class MFNetTrainingTest(unittest.TestCase):
         class FakeGateModel(torch.nn.Module):
             def __init__(self) -> None:
                 super().__init__()
-                self.weight = torch.nn.Parameter(torch.ones(1))
+                self.weight = torch.nn.Parameter(torch.ones(2, 2))
+                self.bias = torch.nn.Parameter(torch.ones(2))
                 self.alpha = torch.nn.Parameter(torch.ones(1))
                 self.beta = torch.nn.Parameter(torch.ones(1))
                 self.gamma = torch.nn.Parameter(torch.ones(1))
-                self.lora_alpha = torch.nn.Parameter(torch.ones(1))
+                self.lora_alpha = torch.nn.Parameter(torch.ones(2, 2))
                 self.register_parameter("lambda", torch.nn.Parameter(torch.ones(1)))
 
         model = FakeGateModel()
@@ -5596,6 +5639,7 @@ class MFNetTrainingTest(unittest.TestCase):
         no_decay_param_ids = {id(param) for param in no_decay_group["params"]}
 
         self.assertIn(id(model.weight), decay_param_ids)
+        self.assertIn(id(model.bias), no_decay_param_ids)
         self.assertIn(id(model.lora_alpha), decay_param_ids)
         self.assertIn(id(model.alpha), no_decay_param_ids)
         self.assertIn(id(model.beta), no_decay_param_ids)

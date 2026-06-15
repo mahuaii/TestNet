@@ -75,7 +75,7 @@ class ISPRSDataset(Dataset):
         preset: ISPRSPreset,
         root_dir: str,
         ids: Sequence[str],
-        dsm_preprocessing: Mapping[str, object],
+        dsm_preprocessing: Mapping[str, object] | None,
         patch_size: Sequence[int] = (256, 256),
         samples_per_epoch: int | None = None,
         cache: bool = True,
@@ -215,7 +215,11 @@ class ISPRSDataset(Dataset):
         return dsm
 
     @staticmethod
-    def _parse_dsm_preprocessing(dsm_preprocessing: Mapping[str, object]) -> dict[str, object]:
+    def _parse_dsm_preprocessing(
+        dsm_preprocessing: Mapping[str, object] | None,
+    ) -> dict[str, object]:
+        if dsm_preprocessing is None:
+            return {"enabled": False}
         if not isinstance(dsm_preprocessing, Mapping):
             raise TypeError(
                 "Expected dsm_preprocessing to be a mapping, "

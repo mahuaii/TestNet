@@ -64,20 +64,40 @@ def is_gate_weight_decay_exempt_param(name: str) -> bool:
     return name.rsplit(".", maxsplit=1)[-1] in GATE_WEIGHT_DECAY_EXEMPT_PARAM_NAMES
 
 
-def build_optimizer_param_groups(model: torch.nn.Module, weight_decay: float) -> list[dict[str, object]]:
-    decay_params: list[torch.nn.Parameter] = []
-    no_decay_params: list[torch.nn.Parameter] = []
+def build_optimizer_param_groups(
+    model: torch.nn.Module,
+    weight_decay: float,
+    *,
+    base_lr: float | None = None,
+    adapter_lr: float | None = None,
+) -> list[dict[str, object]]:
+    if base_lr is not None and base_lr <= 0:
+        raise ValueError(f"base_lr must be positive, got {base_lr}.")
+    if adapter_lr is not None and adapter_lr <= 0:
+        raise ValueError(f"adapter_lr must be positive, got {adapter_lr}.")
+
+    grouped_params: dict[tuple[bool, bool], list[torch.nn.Parameter]] = {}
     for name, param in model.named_parameters():
-        if is_gate_weight_decay_exempt_param(name):
-            no_decay_params.append(param)
-        else:
-            decay_params.append(param)
+        if not param.requires_grad:
+            continue
+        is_adapter = "Adapter" in name
+        no_decay = param.ndim <= 1 or is_gate_weight_decay_exempt_param(name)
+        key = (is_adapter, no_decay)
+        grouped_params.setdefault(key, []).append(param)
 
     param_groups: list[dict[str, object]] = []
-    if decay_params:
-        param_groups.append({"params": decay_params, "weight_decay": weight_decay})
-    if no_decay_params:
-        param_groups.append({"params": no_decay_params, "weight_decay": 0.0})
+    for is_adapter, no_decay in ((False, False), (False, True), (True, False), (True, True)):
+        params = grouped_params.get((is_adapter, no_decay))
+        if not params:
+            continue
+        group: dict[str, object] = {
+            "params": params,
+            "weight_decay": 0.0 if no_decay else weight_decay,
+        }
+        group_lr = adapter_lr if is_adapter and adapter_lr is not None else base_lr
+        if group_lr is not None:
+            group["lr"] = group_lr
+        param_groups.append(group)
     return param_groups
 
 

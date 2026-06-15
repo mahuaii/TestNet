@@ -158,11 +158,19 @@ def main() -> None:
             pin_memory=True,
         )
 
-    weight_decay = cfg["optimizer"].get("weight_decay", 5e-4)
+    optimizer_cfg = cfg["optimizer"]
+    base_lr = float(optimizer_cfg["lr"])
+    weight_decay = float(optimizer_cfg.get("weight_decay", 5e-4))
+    adapter_lr = float(optimizer_cfg.get("adapter_lr", base_lr))
     optimizer = torch.optim.SGD(
-        build_optimizer_param_groups(model, weight_decay=weight_decay),
-        lr=cfg["optimizer"]["lr"],
-        momentum=cfg["optimizer"].get("momentum", 0.9),
+        build_optimizer_param_groups(
+            model,
+            weight_decay=weight_decay,
+            base_lr=base_lr,
+            adapter_lr=adapter_lr,
+        ),
+        lr=base_lr,
+        momentum=optimizer_cfg.get("momentum", 0.9),
     )
 
     scheduler = None
