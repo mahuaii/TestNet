@@ -121,6 +121,7 @@ def main() -> None:
         dsm_preprocessing=dataset_cfg["dsm_preprocessing"],
         split="train",
         tile_sampling_weights=dataset_cfg.get("train_tile_sampling_weights"),
+        patch_sampling=dataset_cfg.get("patch_sampling"),
     )
     train_loader = DataLoader(
         train_dataset,

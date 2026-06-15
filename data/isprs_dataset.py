@@ -82,6 +82,7 @@ class ISPRSDataset(Dataset):
         augmentation: bool = True,
         split: str = "train",
         tile_sampling_weights: Sequence[float] | None = None,
+        patch_sampling: Mapping[str, object] | None = None,
     ) -> None:
         if not ids:
             raise ValueError(f"{preset.name} dataset requires at least one tile id")
@@ -96,6 +97,7 @@ class ISPRSDataset(Dataset):
         self.split = str(split)
         self.dsm_preprocessing = self._parse_dsm_preprocessing(dsm_preprocessing)
         self.tile_sampling_weights = self._parse_tile_sampling_weights(tile_sampling_weights)
+        self.patch_sampling = self._parse_patch_sampling(patch_sampling)
 
         self.rgb_files = [
             self.root_dir / preset.rgb_subdir / preset.rgb_pattern.format(tile_id=tile_id)
@@ -278,6 +280,50 @@ class ISPRSDataset(Dataset):
             raise ValueError("tile_sampling_weights must contain at least one positive weight")
         return tuple(weights)
 
+    @staticmethod
+    def _parse_patch_sampling(patch_sampling: Mapping[str, object] | None) -> dict[str, object]:
+        defaults: dict[str, object] = {
+            "enabled": False,
+            "uniform_probability": 0.5,
+            "car_probability": 0.3,
+            "boundary_probability": 0.2,
+            "num_candidates": 10,
+            "car_class_id": 4,
+            "min_car_pixels": 16,
+            "ignore_index": 255,
+        }
+        if patch_sampling is None:
+            return defaults
+        if not isinstance(patch_sampling, Mapping):
+            raise TypeError("patch_sampling must be a mapping")
+
+        config = {**defaults, **patch_sampling}
+        if not isinstance(config["enabled"], bool):
+            raise TypeError("patch_sampling.enabled must be a bool")
+
+        probabilities = []
+        for key in ("uniform_probability", "car_probability", "boundary_probability"):
+            value = config[key]
+            if isinstance(value, bool) or not isinstance(value, Real):
+                raise TypeError(f"patch_sampling.{key} must be a number")
+            probability = float(value)
+            if not math.isfinite(probability) or probability < 0:
+                raise ValueError(f"patch_sampling.{key} must be finite and non-negative")
+            config[key] = probability
+            probabilities.append(probability)
+        if not math.isclose(sum(probabilities), 1.0, rel_tol=0.0, abs_tol=1e-6):
+            raise ValueError("patch_sampling probabilities must sum to 1")
+
+        for key in ("num_candidates", "car_class_id", "min_car_pixels", "ignore_index"):
+            value = config[key]
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise TypeError(f"patch_sampling.{key} must be an integer")
+        if config["num_candidates"] <= 0:
+            raise ValueError("patch_sampling.num_candidates must be positive")
+        if config["car_class_id"] < 0 or config["min_car_pixels"] < 0:
+            raise ValueError("patch_sampling car settings must be non-negative")
+        return config
+
     def _load_eval_target_tile(self, tile_index: int) -> np.ndarray:
         return self._load_label_tile(
             tile_index=tile_index,
@@ -324,7 +370,9 @@ class ISPRSDataset(Dataset):
         patch_h, patch_w = self.patch_size
         height, width = rgb.shape[-2:]
 
-        if self.split == "train":
+        if self.split == "train" and self.patch_sampling["enabled"]:
+            x1, y1 = self._sample_prioritized_crop(target, height, width)
+        elif self.split == "train":
             x1 = random.randint(0, height - patch_h - 1)
             y1 = random.randint(0, width - patch_w - 1)
         else:
@@ -337,6 +385,60 @@ class ISPRSDataset(Dataset):
         dsm_patch = dsm[x1:x2, y1:y2]
         target_patch = target[x1:x2, y1:y2]
         return rgb_patch, dsm_patch, target_patch
+
+    def _sample_prioritized_crop(
+        self,
+        target: np.ndarray,
+        height: int,
+        width: int,
+    ) -> tuple[int, int]:
+        patch_h, patch_w = self.patch_size
+        max_x = height - patch_h
+        max_y = width - patch_w
+        draw = random.random()
+        uniform_threshold = float(self.patch_sampling["uniform_probability"])
+        car_threshold = uniform_threshold + float(self.patch_sampling["car_probability"])
+
+        if draw < uniform_threshold:
+            return random.randint(0, max_x), random.randint(0, max_y)
+
+        candidates = [
+            (random.randint(0, max_x), random.randint(0, max_y))
+            for _ in range(int(self.patch_sampling["num_candidates"]))
+        ]
+        if draw < car_threshold:
+            car_class_id = int(self.patch_sampling["car_class_id"])
+            min_car_pixels = int(self.patch_sampling["min_car_pixels"])
+            scores = [
+                int(np.count_nonzero(target[x : x + patch_h, y : y + patch_w] == car_class_id))
+                for x, y in candidates
+            ]
+            scores = [score if score >= min_car_pixels else 0 for score in scores]
+        else:
+            ignore_index = int(self.patch_sampling["ignore_index"])
+            boundary = np.zeros_like(target, dtype=bool)
+            vertical = (
+                (target[1:, :] != target[:-1, :])
+                & (target[1:, :] != ignore_index)
+                & (target[:-1, :] != ignore_index)
+            )
+            horizontal = (
+                (target[:, 1:] != target[:, :-1])
+                & (target[:, 1:] != ignore_index)
+                & (target[:, :-1] != ignore_index)
+            )
+            boundary[1:, :] |= vertical
+            boundary[:-1, :] |= vertical
+            boundary[:, 1:] |= horizontal
+            boundary[:, :-1] |= horizontal
+            scores = [
+                int(np.count_nonzero(boundary[x : x + patch_h, y : y + patch_w]))
+                for x, y in candidates
+            ]
+
+        if any(scores):
+            return random.choices(candidates, weights=scores, k=1)[0]
+        return random.choice(candidates)
 
 
 def build_isprs_dataset(name: str, **kwargs: object) -> ISPRSDataset:

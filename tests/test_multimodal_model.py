@@ -1127,6 +1127,108 @@ class MFNetTrainingTest(unittest.TestCase):
             self.assertEqual(tile_index, 0)
             randrange.assert_called_once_with(1)
 
+    def test_disabled_patch_sampling_keeps_random_crop_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            self._write_vaihingen_sample(root)
+            dataset = ISPRSDataset(
+                preset=VAIHINGEN_PRESET,
+                root_dir=str(root),
+                ids=["1"],
+                dsm_preprocessing=DSM_PREPROCESSING_DISABLED,
+                patch_size=(16, 16),
+                samples_per_epoch=1,
+                cache=True,
+                augmentation=False,
+                split="train",
+                patch_sampling={"enabled": False},
+            )
+            rgb = np.zeros((3, 32, 32), dtype=np.float32)
+            dsm = np.zeros((32, 32), dtype=np.float32)
+            target = np.zeros((32, 32), dtype=np.int64)
+
+            with patch("data.isprs_dataset.random.random") as random_draw:
+                with patch("data.isprs_dataset.random.randint", side_effect=[3, 5]):
+                    _, _, target_patch = dataset._crop_random_patch(rgb, dsm, target)
+
+            random_draw.assert_not_called()
+            self.assertEqual(target_patch.shape, (16, 16))
+
+    def test_enabled_patch_sampling_can_prefer_car_candidates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            self._write_vaihingen_sample(root)
+            dataset = ISPRSDataset(
+                preset=VAIHINGEN_PRESET,
+                root_dir=str(root),
+                ids=["1"],
+                dsm_preprocessing=DSM_PREPROCESSING_DISABLED,
+                patch_size=(4, 4),
+                samples_per_epoch=1,
+                cache=True,
+                augmentation=False,
+                split="train",
+                patch_sampling={
+                    "enabled": True,
+                    "uniform_probability": 0.0,
+                    "car_probability": 1.0,
+                    "boundary_probability": 0.0,
+                    "num_candidates": 2,
+                    "min_car_pixels": 1,
+                },
+            )
+            rgb = np.zeros((3, 8, 8), dtype=np.float32)
+            dsm = np.zeros((8, 8), dtype=np.float32)
+            target = np.zeros((8, 8), dtype=np.int64)
+            target[4:8, 4:8] = 4
+
+            with patch("data.isprs_dataset.random.random", return_value=0.5):
+                with patch("data.isprs_dataset.random.randint", side_effect=[0, 0, 4, 4]):
+                    with patch(
+                        "data.isprs_dataset.random.choices",
+                        return_value=[(4, 4)],
+                    ) as choices:
+                        _, _, target_patch = dataset._crop_random_patch(rgb, dsm, target)
+
+            self.assertTrue(np.all(target_patch == 4))
+            self.assertEqual(choices.call_args.kwargs["weights"], [0, 16])
+
+    def test_enabled_patch_sampling_can_prefer_boundary_candidates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            self._write_vaihingen_sample(root)
+            dataset = ISPRSDataset(
+                preset=VAIHINGEN_PRESET,
+                root_dir=str(root),
+                ids=["1"],
+                dsm_preprocessing=DSM_PREPROCESSING_DISABLED,
+                patch_size=(4, 4),
+                samples_per_epoch=1,
+                cache=True,
+                augmentation=False,
+                split="train",
+                patch_sampling={
+                    "enabled": True,
+                    "uniform_probability": 0.0,
+                    "car_probability": 0.0,
+                    "boundary_probability": 1.0,
+                    "num_candidates": 2,
+                },
+            )
+            target = np.zeros((8, 8), dtype=np.int64)
+            target[4:8, 6:8] = 1
+
+            with patch("data.isprs_dataset.random.random", return_value=0.5):
+                with patch("data.isprs_dataset.random.randint", side_effect=[0, 0, 4, 4]):
+                    with patch(
+                        "data.isprs_dataset.random.choices",
+                        return_value=[(4, 4)],
+                    ) as choices:
+                        coordinates = dataset._sample_prioritized_crop(target, 8, 8)
+
+            self.assertEqual(coordinates, (4, 4))
+            self.assertGreater(choices.call_args.kwargs["weights"][1], 0)
+
     def test_dataset_rejects_invalid_tile_sampling_weights(self) -> None:
         invalid_cases = [
             ([1.0, 2.0], ValueError, "length must match"),
@@ -5247,6 +5349,7 @@ class MFNetTrainingTest(unittest.TestCase):
                 "cache": True,
                 "augmentation": True,
                 "dsm_preprocessing": dict(DSM_PREPROCESSING_DISABLED),
+                "patch_sampling": {"enabled": False},
             },
             "dataloader": {"num_workers": 0},
             "optimizer": {
@@ -5537,7 +5640,9 @@ class MFNetTrainingTest(unittest.TestCase):
             self.assertEqual(dataset_calls[0]["ids"], ["1"])
             self.assertEqual(dataset_calls[1]["ids"], ["5"])
             self.assertEqual(dataset_calls[0]["tile_sampling_weights"], [2.5])
+            self.assertEqual(dataset_calls[0]["patch_sampling"], {"enabled": False})
             self.assertNotIn("tile_sampling_weights", dataset_calls[1])
+            self.assertNotIn("patch_sampling", dataset_calls[1])
             expected_dsm_preprocessing = self._make_train_entry_config(root_dir=str(work_dir))["dataset"][
                 "dsm_preprocessing"
             ]
