@@ -8,7 +8,6 @@ from typing_extensions import override
 
 from .evaluator import Evaluator
 from .mfnet_trainer import MFNetTrainer
-from utils import DataUtils
 from utils.stat_tracker import StatTracker
 
 
@@ -56,11 +55,11 @@ class MFNetAuxAlignTrainer(MFNetTrainer):
             )
         logits, x_align_feat, y_align_feat = output
 
-        loss_seg = DataUtils.cross_entropy_filtered(
-            logits=logits,
+        loss_seg, loss_items = self._compute_segmentation_loss(
+            outputs=logits,
             target=target,
-            weight=self.class_weights,
         )
+        segmentation_logits = self._extract_segmentation_logits(logits)
         loss_align = F.mse_loss(y_align_feat, x_align_feat.detach())
 
         prealign_params = [
@@ -85,7 +84,7 @@ class MFNetAuxAlignTrainer(MFNetTrainer):
                 param.grad.add_(grad)
 
         loss = loss_seg.detach() + self.lambda_align * loss_align.detach()
-        pred = torch.argmax(logits.detach(), dim=1)
+        pred = torch.argmax(segmentation_logits.detach(), dim=1)
         accuracy = Evaluator.accuracy(pred=pred, target=target)
         metrics = {
             "loss": float(loss),
@@ -93,4 +92,10 @@ class MFNetAuxAlignTrainer(MFNetTrainer):
             "loss_align": float(loss_align.detach()),
             "accuracy": accuracy,
         }
+        metrics.update(
+            {
+                f"loss_{name}": float(value.detach())
+                for name, value in loss_items.items()
+            }
+        )
         return loss, metrics

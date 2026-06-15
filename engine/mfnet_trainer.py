@@ -1,25 +1,37 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 import torch
 from typing_extensions import override
 
+from losses import CombinedLoss, build_loss
+
 from .evaluator import Evaluator
-from utils import DataUtils
 
 from .trainer import Trainer
 
 
 class MFNetTrainer(Trainer):
-    def __init__(self, *args: object, **kwargs: object) -> None:
+    def __init__(
+        self,
+        *args: object,
+        criterion: CombinedLoss | None = None,
+        **kwargs: object,
+    ) -> None:
         super().__init__(*args, **kwargs)
-        class_weights = self.cfg.get("class_weights")
-        self.class_weights = (
-            torch.tensor(class_weights, dtype=torch.float32, device=self.device)
-            if class_weights is not None
-            else None
+        self.criterion = (
+            criterion
+            if criterion is not None
+            else build_loss(
+                self.cfg.get("loss"),
+                weights=self.cfg.get("loss_weights"),
+                class_weights=self.cfg.get("class_weights"),
+            )
         )
+        self.criterion = self.criterion.to(self.device)
+        self.class_weights = self.criterion.class_weights
 
     @override
     def before_epoch(self) -> None:
@@ -30,8 +42,8 @@ class MFNetTrainer(Trainer):
     @override
     def train_forward(self, batch: dict[str, Any]) -> tuple[torch.Tensor, dict[str, float]]:
         rgb, dsm, target = self._extract_train_tensors(batch)
-        logits = self.model(rgb, dsm, mode="Train")
-        loss, metrics = self._compute_loss_and_metrics(logits=logits, target=target)
+        outputs = self.model(rgb, dsm, mode="Train")
+        loss, metrics = self._compute_loss_and_metrics(logits=outputs, target=target)
         return loss, metrics
 
     @override
@@ -80,14 +92,39 @@ class MFNetTrainer(Trainer):
 
     def _compute_loss_and_metrics(
         self,
-        logits: torch.Tensor,
+        logits: torch.Tensor | Mapping[str, torch.Tensor],
         target: torch.Tensor,
     ) -> tuple[torch.Tensor, dict[str, float]]:
-        loss = DataUtils.cross_entropy_filtered(
-            logits=logits,
-            target=target,
-            weight=self.class_weights,
-        )
-        pred = torch.argmax(logits.detach(), dim=1)
+        segmentation_logits = self._extract_segmentation_logits(logits)
+        loss, loss_items = self._compute_segmentation_loss(outputs=logits, target=target)
+        pred = torch.argmax(segmentation_logits.detach(), dim=1)
         accuracy = Evaluator.accuracy(pred=pred, target=target)
-        return loss, {"loss": float(loss.detach()), "accuracy": accuracy}
+        metrics = {
+            "loss": float(loss.detach()),
+            "accuracy": accuracy,
+        }
+        metrics.update(
+            {
+                f"loss_{name}": float(value.detach())
+                for name, value in loss_items.items()
+            }
+        )
+        return loss, metrics
+
+    def _compute_segmentation_loss(
+        self,
+        *,
+        outputs: torch.Tensor | Mapping[str, torch.Tensor],
+        target: torch.Tensor,
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        return self.criterion(outputs, target)
+
+    @staticmethod
+    def _extract_segmentation_logits(
+        outputs: torch.Tensor | Mapping[str, torch.Tensor],
+    ) -> torch.Tensor:
+        if isinstance(outputs, torch.Tensor):
+            return outputs
+        if "logits" not in outputs:
+            raise KeyError("Model output mapping must contain 'logits'.")
+        return outputs["logits"]

@@ -8,7 +8,6 @@ from typing_extensions import override
 
 from .evaluator import Evaluator
 from .mfnet_trainer import MFNetTrainer
-from utils import DataUtils
 from utils.stat_tracker import StatTracker
 
 
@@ -55,14 +54,14 @@ class MFNetBaselineAuxAlignTrainer(MFNetTrainer):
                 "(logits, x_align_feat, y_align_feat) when return_align=True."
             )
         logits, x_align_feat, y_align_feat = output
-        self._raise_if_nonfinite("logits", logits)
+        segmentation_logits = self._extract_segmentation_logits(logits)
+        self._raise_if_nonfinite("logits", segmentation_logits)
         self._raise_if_nonfinite("x_align_feat", x_align_feat)
         self._raise_if_nonfinite("y_align_feat", y_align_feat)
 
-        loss_seg = DataUtils.cross_entropy_filtered(
-            logits=logits,
+        loss_seg, loss_items = self._compute_segmentation_loss(
+            outputs=logits,
             target=target,
-            weight=self.class_weights,
         )
         loss_align = F.mse_loss(y_align_feat, x_align_feat.detach())
         self._raise_if_nonfinite("loss_seg", loss_seg)
@@ -71,7 +70,7 @@ class MFNetBaselineAuxAlignTrainer(MFNetTrainer):
         self._backward_scoped_losses(loss_seg=loss_seg, loss_align=loss_align)
 
         loss = loss_seg.detach() + self.lambda_align * loss_align.detach()
-        pred = torch.argmax(logits.detach(), dim=1)
+        pred = torch.argmax(segmentation_logits.detach(), dim=1)
         accuracy = Evaluator.accuracy(pred=pred, target=target)
         metrics = {
             "loss": float(loss),
@@ -79,6 +78,12 @@ class MFNetBaselineAuxAlignTrainer(MFNetTrainer):
             "loss_align": float(loss_align.detach()),
             "accuracy": accuracy,
         }
+        metrics.update(
+            {
+                f"loss_{name}": float(value.detach())
+                for name, value in loss_items.items()
+            }
+        )
         return loss, metrics
 
     def _backward_scoped_losses(

@@ -22,6 +22,7 @@ from engine import (
     MFNetTrainer,
     SlidingWindowInferencer,
 )
+from losses import build_loss
 from models import build_model
 from utils import (
     TestNetRecorderLogger,
@@ -109,6 +110,11 @@ def main() -> None:
     experiment_name = work_dir.name or "mfnet"
 
     model = build_model(cfg["model"])
+    criterion = build_loss(
+        cfg.get("loss"),
+        weights=cfg.get("loss_weights"),
+        class_weights=cfg.get("class_weights"),
+    )
 
     train_dataset = build_isprs_dataset(
         dataset_name,
@@ -183,6 +189,7 @@ def main() -> None:
 
     trainer = trainer_cls(
         model=model,
+        criterion=criterion,
         optimizer=optimizer,
         train_loader=train_loader,
         val_loader=val_loader,
@@ -200,6 +207,8 @@ def main() -> None:
             "sam_checkpoint": cfg["model"].get("sam_checkpoint"),
             "num_classes": cfg["model"]["num_classes"],
             "class_weights": cfg.get("class_weights"),
+            "loss": cfg.get("loss"),
+            "loss_weights": cfg.get("loss_weights"),
             "validation": cfg["validation"],
         },
     )
