@@ -16,6 +16,7 @@ AVAILABLE_MODEL_TYPES: tuple[str, ...] = (
     "testnet_dgfm01_upernet",
     "testnet_sgcf",
     "testnet_spmf10",
+    "testnet_spmf11",
     "testnet_spmf20",
     "testnet_dga10_softplus",
     "testnet_dga20_softplus",
@@ -165,6 +166,16 @@ def build_model(cfg: dict[str, Any]) -> Any:
         from .mfnet import UNetFormerSPMF10
 
         model = UNetFormerSPMF10(
+            num_classes=int(cfg["num_classes"]),
+            sam_backbone=str(cfg["sam_backbone"]),
+            sam_checkpoint=str(cfg["sam_checkpoint"]),
+            **_intermediate_stats_kwargs(cfg),
+        )
+        return model
+    if model_type == "testnet_spmf11":
+        from .mfnet import UNetFormerSPMF11
+
+        model = UNetFormerSPMF11(
             num_classes=int(cfg["num_classes"]),
             sam_backbone=str(cfg["sam_backbone"]),
             sam_checkpoint=str(cfg["sam_checkpoint"]),

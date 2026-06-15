@@ -14,6 +14,13 @@ from .spmf10 import (
     SPMFBlock10,
     StructurePriorModulatedFusionBlock10,
 )
+from .spmf11 import (
+    DSMStructureBranch11,
+    MultiScaleSPMF11,
+    MultiScaleStructurePriorModulatedFusion11,
+    SPMFBlock11,
+    StructurePriorModulatedFusionBlock11,
+)
 from .spmf20 import (
     MultiScaleSPMF20,
     MultiScaleStructurePriorModulatedFusion20,
@@ -44,6 +51,11 @@ __all__ = [
     "MultiScaleSPMF10",
     "StructurePriorModulatedFusionBlock10",
     "MultiScaleStructurePriorModulatedFusion10",
+    "DSMStructureBranch11",
+    "SPMFBlock11",
+    "MultiScaleSPMF11",
+    "StructurePriorModulatedFusionBlock11",
+    "MultiScaleStructurePriorModulatedFusion11",
     "SPMFBlock20",
     "MultiScaleSPMF20",
     "StructurePriorModulatedFusionBlock20",
