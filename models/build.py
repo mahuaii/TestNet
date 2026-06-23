@@ -18,6 +18,7 @@ AVAILABLE_MODEL_TYPES: tuple[str, ...] = (
     "testnet_spmf10",
     "testnet_spmf11",
     "testnet_spmf20",
+    "testnet_prealign_spmf20",
     "testnet_dga10_softplus",
     "testnet_dga20_softplus",
     "testnet_dga30",
@@ -186,6 +187,16 @@ def build_model(cfg: dict[str, Any]) -> Any:
         from .mfnet import UNetFormerSPMF20
 
         model = UNetFormerSPMF20(
+            num_classes=int(cfg["num_classes"]),
+            sam_backbone=str(cfg["sam_backbone"]),
+            sam_checkpoint=str(cfg["sam_checkpoint"]),
+            **_intermediate_stats_kwargs(cfg),
+        )
+        return model
+    if model_type == "testnet_prealign_spmf20":
+        from .mfnet import UNetFormerPreAlignSPMF20
+
+        model = UNetFormerPreAlignSPMF20(
             num_classes=int(cfg["num_classes"]),
             sam_backbone=str(cfg["sam_backbone"]),
             sam_checkpoint=str(cfg["sam_checkpoint"]),
