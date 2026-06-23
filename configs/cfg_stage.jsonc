@@ -1,0 +1,23 @@
+{
+    "extends": "cfg.jsonc",
+    "model": {
+        "type": "testnet_prealign_spmf20"
+    },
+    "train": {
+        "max_epochs": 48,
+        "stages": [
+            {
+                "name": "prealign",
+                "epochs": [1, 20],
+                "freeze_modules": ["spmf20", "structure_branch10"],
+                "loss": ["ce"]
+            },
+            {
+                "name": "joint",
+                "epochs": [21, 48],
+                "freeze_modules": [],
+                "loss": ["ce"]
+            }
+        ]
+    }
+}
