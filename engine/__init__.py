@@ -7,6 +7,7 @@ from .mfnet_baseline_auxalign_trainer import MFNetBaselineAuxAlignTrainer
 from .mfnet_dga_trainer import MFNetDGATrainer
 from .mfnet_trainer import MFNetTrainer
 from .sliding_window_inferencer import SlidingWindowInferencer
+from .stage_scheduler import Stage, StageScheduler
 from .trainer import Trainer
 
 __all__ = [
@@ -19,5 +20,7 @@ __all__ = [
     "MFNetDGATrainer",
     "MFNetTrainer",
     "SlidingWindowInferencer",
+    "Stage",
+    "StageScheduler",
     "Trainer",
 ]

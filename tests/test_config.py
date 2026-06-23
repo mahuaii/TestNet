@@ -53,7 +53,15 @@ class ConfigTest(unittest.TestCase):
                   },
                   "train": {
                     "max_epochs": 50,
-                    "batch_size": 2
+                    "batch_size": 2,
+                    "stages": [
+                      {
+                        "name": "base",
+                        "epochs": [1, 50],
+                        "freeze_modules": [],
+                        "loss": ["ce"]
+                      }
+                    ]
                   }
                 }
                 """,
@@ -69,7 +77,15 @@ class ConfigTest(unittest.TestCase):
                   },
                   "train": {
                     "batch_size": 4,
-                    "lambda_align": 0.01
+                    "lambda_align": 0.01,
+                    "stages": [
+                      {
+                        "name": "child",
+                        "epochs": [1, 25],
+                        "freeze_modules": ["spmf20"],
+                        "loss": ["ce", "lovasz"]
+                      }
+                    ]
                   }
                 }
                 """,
@@ -87,6 +103,17 @@ class ConfigTest(unittest.TestCase):
             self.assertEqual(cfg["train"]["max_epochs"], 50)
             self.assertEqual(cfg["train"]["batch_size"], 4)
             self.assertEqual(cfg["train"]["lambda_align"], 0.01)
+            self.assertEqual(
+                cfg["train"]["stages"],
+                [
+                    {
+                        "name": "child",
+                        "epochs": [1, 25],
+                        "freeze_modules": ["spmf20"],
+                        "loss": ["ce", "lovasz"],
+                    }
+                ],
+            )
 
     def test_load_config_resolves_extends_relative_to_child_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

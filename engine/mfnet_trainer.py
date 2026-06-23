@@ -9,6 +9,7 @@ from typing_extensions import override
 from losses import CombinedLoss, build_loss
 
 from .evaluator import Evaluator
+from .stage_scheduler import StageScheduler
 
 from .trainer import Trainer
 
@@ -32,12 +33,19 @@ class MFNetTrainer(Trainer):
         )
         self.criterion = self.criterion.to(self.device)
         self.class_weights = self.criterion.class_weights
+        self.stage_scheduler = (
+            StageScheduler(self.model, self.cfg["stages"])
+            if "stages" in self.cfg
+            else None
+        )
 
     @override
     def before_epoch(self) -> None:
         super().before_epoch()
         if self.scheduler is not None:
             self.scheduler.step()
+        if self.stage_scheduler is not None:
+            self.stage_scheduler.apply(self)
 
     @override
     def train_forward(self, batch: dict[str, Any]) -> tuple[torch.Tensor, dict[str, float]]:

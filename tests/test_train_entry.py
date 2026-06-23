@@ -608,6 +608,55 @@ class TrainEntryTest(unittest.TestCase):
             trainer_kwargs = result["trainer_kwargs"][0]
             self.assertIsInstance(trainer_kwargs["logger"], _TestNetRecorderLogger)
 
+    def test_train_entry_passes_stages_to_base_trainer_for_prealign_spmf20_model(self) -> None:
+        module = self._load_train_entry_module()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "external_config.jsonc"
+            config_path.write_text('{"train": {"max_epochs": 2}}\n', encoding="utf-8")
+            work_dir = Path(tmpdir) / "auto_work"
+            cfg = self._make_train_entry_config(root_dir=str(work_dir))
+            cfg["model"]["type"] = "testnet_prealign_spmf20"  # type: ignore[index]
+            cfg["train"]["max_epochs"] = 2  # type: ignore[index]
+            stages = [
+                {
+                    "name": "prealign",
+                    "epochs": [1, 1],
+                    "freeze_modules": ["spmf20", "structure_branch10"],
+                    "loss": ["ce"],
+                },
+                {
+                    "name": "joint",
+                    "epochs": [2, 2],
+                    "freeze_modules": [],
+                    "loss": ["ce", "lovasz"],
+                    "loss_weights": {"lovasz": 0.3},
+                },
+            ]
+            cfg["train"]["stages"] = stages  # type: ignore[index]
+            args = type(
+                "Args",
+                (),
+                {
+                    "config": str(config_path),
+                    "device": "cpu",
+                    "resume_dir": None,
+                    "resume_ckpt": None,
+                    "load_from": None,
+                },
+            )()
+
+            result = self._run_train_entry(
+                module=module,
+                args=args,
+                cfg=cfg,
+                default_work_dir=work_dir,
+            )
+
+            self.assertEqual(result["trainer_classes"], ["MFNetTrainer"])
+            trainer_kwargs = result["trainer_kwargs"][0]
+            self.assertEqual(trainer_kwargs["cfg"]["stages"], stages)
+            self.assertIsInstance(trainer_kwargs["logger"], _TestNetLogger)
+
     def test_train_entry_uses_base_trainer_and_recorder_logger_for_dgsf10_model(self) -> None:
         module = self._load_train_entry_module()
         with tempfile.TemporaryDirectory() as tmpdir:
