@@ -33,5 +33,7 @@ _Datasets
 backup/
 docs/
 exp_queue.md
-
-MoBaNet-main
+/dist
+scripts/
+diagnostics/
+requirements-cloud.txt
