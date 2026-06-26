@@ -66,6 +66,23 @@ BASELINE_AUX_ALIGN_MODEL_TYPES = {
 }
 
 
+def collect_stage_lr_module_paths(stages: Any) -> list[str]:
+    if not isinstance(stages, list):
+        return []
+
+    module_paths: list[str] = []
+    for raw_stage in stages:
+        if not isinstance(raw_stage, dict):
+            continue
+        module_lrs = raw_stage.get("module_lrs", {})
+        if not isinstance(module_lrs, dict):
+            continue
+        for module_path in module_lrs:
+            if isinstance(module_path, str) and module_path not in module_paths:
+                module_paths.append(module_path)
+    return module_paths
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config")
@@ -168,6 +185,7 @@ def main() -> None:
             weight_decay=weight_decay,
             base_lr=base_lr,
             adapter_lr=adapter_lr,
+            lr_module_paths=collect_stage_lr_module_paths(cfg.get("stages")),
         ),
         lr=base_lr,
         momentum=optimizer_cfg.get("momentum", 0.9),
@@ -195,6 +213,23 @@ def main() -> None:
     logger_cls = TestNetRecorderLogger if model_type in RECORDER_LOGGER_MODEL_TYPES else TestNetLogger
     logger = logger_cls(str(work_dir), use_tensorboard=cfg["train"]["use_tensorboard"])
 
+    trainer_cfg = {
+        **cfg["train"],
+        "work_dir": str(work_dir),
+        "experiment_name": experiment_name,
+        "resume_from": resume_from,
+        "load_from": load_from,
+        "sam_checkpoint": cfg["model"].get("sam_checkpoint"),
+        "num_classes": cfg["model"]["num_classes"],
+        "class_weights": cfg.get("class_weights"),
+        "loss": cfg.get("loss"),
+        "loss_weights": cfg.get("loss_weights"),
+        "validation": cfg["validation"],
+    }
+    stages = cfg.get("stages")
+    if stages is not None:
+        trainer_cfg["stages"] = stages
+
     trainer = trainer_cls(
         model=model,
         criterion=criterion,
@@ -206,19 +241,7 @@ def main() -> None:
         device=torch.device(args.device),
         inferencer=SlidingWindowInferencer(),
         scheduler=scheduler,
-        cfg={
-            **cfg["train"],
-            "work_dir": str(work_dir),
-            "experiment_name": experiment_name,
-            "resume_from": resume_from,
-            "load_from": load_from,
-            "sam_checkpoint": cfg["model"].get("sam_checkpoint"),
-            "num_classes": cfg["model"]["num_classes"],
-            "class_weights": cfg.get("class_weights"),
-            "loss": cfg.get("loss"),
-            "loss_weights": cfg.get("loss_weights"),
-            "validation": cfg["validation"],
-        },
+        cfg=trainer_cfg,
     )
     # A --resume-dir run reuses the existing work_dir, so the initial run
     # summary in train.log should already be present and must not be duplicated.

@@ -53,16 +53,15 @@ class ConfigTest(unittest.TestCase):
                   },
                   "train": {
                     "max_epochs": 50,
-                    "batch_size": 2,
-                    "stages": [
-                      {
-                        "name": "base",
-                        "epochs": [1, 50],
-                        "freeze_modules": [],
-                        "loss": ["ce"]
-                      }
-                    ]
-                  }
+                    "batch_size": 2
+                  },
+                  "stages": [
+                    {
+                      "epochs": [1, 50],
+                      "freeze_modules": [],
+                      "loss": ["ce"]
+                    }
+                  ]
                 }
                 """,
                 encoding="utf-8",
@@ -77,16 +76,15 @@ class ConfigTest(unittest.TestCase):
                   },
                   "train": {
                     "batch_size": 4,
-                    "lambda_align": 0.01,
-                    "stages": [
-                      {
-                        "name": "child",
-                        "epochs": [1, 25],
-                        "freeze_modules": ["spmf20"],
-                        "loss": ["ce", "lovasz"]
-                      }
-                    ]
-                  }
+                    "lambda_align": 0.01
+                  },
+                  "stages": [
+                    {
+                      "epochs": [1, 25],
+                      "freeze_modules": ["spmf20"],
+                      "loss": ["ce", "lovasz"]
+                    }
+                  ]
                 }
                 """,
                 encoding="utf-8",
@@ -104,10 +102,9 @@ class ConfigTest(unittest.TestCase):
             self.assertEqual(cfg["train"]["batch_size"], 4)
             self.assertEqual(cfg["train"]["lambda_align"], 0.01)
             self.assertEqual(
-                cfg["train"]["stages"],
+                cfg["stages"],
                 [
                     {
-                        "name": "child",
                         "epochs": [1, 25],
                         "freeze_modules": ["spmf20"],
                         "loss": ["ce", "lovasz"],

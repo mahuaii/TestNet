@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,7 @@ import torch
 from .testnet_logger import TestNetLogger
 
 GATE_WEIGHT_DECAY_EXEMPT_PARAM_NAMES = {"alpha", "beta", "gamma", "delta", "lambda"}
+LR_SCOPE_DEFAULT = "__default__"
 
 
 def safe_path_component(value: object, fallback: str) -> str:
@@ -70,35 +72,79 @@ def build_optimizer_param_groups(
     *,
     base_lr: float | None = None,
     adapter_lr: float | None = None,
+    lr_module_paths: Sequence[str] | None = None,
 ) -> list[dict[str, object]]:
     if base_lr is not None and base_lr <= 0:
         raise ValueError(f"base_lr must be positive, got {base_lr}.")
     if adapter_lr is not None and adapter_lr <= 0:
         raise ValueError(f"adapter_lr must be positive, got {adapter_lr}.")
 
-    grouped_params: dict[tuple[bool, bool], list[torch.nn.Parameter]] = {}
+    lr_scopes = _validate_lr_module_paths(model, lr_module_paths)
+    use_lr_scopes = bool(lr_scopes)
+    grouped_params: dict[tuple[str, bool, bool], list[torch.nn.Parameter]] = {}
     for name, param in model.named_parameters():
         if not param.requires_grad:
             continue
+        lr_scope = _resolve_lr_scope(name, lr_scopes)
         is_adapter = "Adapter" in name
         no_decay = param.ndim <= 1 or is_gate_weight_decay_exempt_param(name)
-        key = (is_adapter, no_decay)
+        key = (lr_scope, is_adapter, no_decay)
         grouped_params.setdefault(key, []).append(param)
 
     param_groups: list[dict[str, object]] = []
-    for is_adapter, no_decay in ((False, False), (False, True), (True, False), (True, True)):
-        params = grouped_params.get((is_adapter, no_decay))
-        if not params:
-            continue
-        group: dict[str, object] = {
-            "params": params,
-            "weight_decay": 0.0 if no_decay else weight_decay,
-        }
-        group_lr = adapter_lr if is_adapter and adapter_lr is not None else base_lr
-        if group_lr is not None:
-            group["lr"] = group_lr
-        param_groups.append(group)
+    for lr_scope in (LR_SCOPE_DEFAULT, *lr_scopes):
+        for is_adapter, no_decay in ((False, False), (False, True), (True, False), (True, True)):
+            params = grouped_params.get((lr_scope, is_adapter, no_decay))
+            if not params:
+                continue
+            group: dict[str, object] = {
+                "params": params,
+                "weight_decay": 0.0 if no_decay else weight_decay,
+            }
+            group_lr = adapter_lr if is_adapter and adapter_lr is not None else base_lr
+            if group_lr is not None:
+                group["lr"] = group_lr
+            if use_lr_scopes:
+                group["lr_scope"] = lr_scope
+                if group_lr is not None:
+                    group["nominal_lr"] = group_lr
+            param_groups.append(group)
     return param_groups
+
+
+def _validate_lr_module_paths(
+    model: torch.nn.Module,
+    lr_module_paths: Sequence[str] | None,
+) -> tuple[str, ...]:
+    if lr_module_paths is None:
+        return ()
+    if isinstance(lr_module_paths, str):
+        raise TypeError("lr_module_paths must be a sequence of module path strings.")
+
+    paths: list[str] = []
+    for module_path in lr_module_paths:
+        if not isinstance(module_path, str) or not module_path:
+            raise TypeError("lr_module_paths must contain non-empty strings.")
+        model.get_submodule(module_path)
+        if module_path in paths:
+            raise ValueError(f"Duplicate lr module path: {module_path}.")
+        paths.append(module_path)
+
+    for index, module_path in enumerate(paths):
+        for other_path in paths[index + 1:]:
+            if module_path.startswith(f"{other_path}.") or other_path.startswith(f"{module_path}."):
+                raise ValueError(
+                    "lr_module_paths must not contain overlapping module paths: "
+                    f"{module_path!r}, {other_path!r}."
+                )
+    return tuple(paths)
+
+
+def _resolve_lr_scope(name: str, lr_scopes: Sequence[str]) -> str:
+    for lr_scope in lr_scopes:
+        if name.startswith(f"{lr_scope}."):
+            return lr_scope
+    return LR_SCOPE_DEFAULT
 
 
 def log_run_summary(

@@ -9,6 +9,7 @@ from .stat_tracker import StatTracker
 from .timer import AnchorTimer
 from .train_utils import (
     GATE_WEIGHT_DECAY_EXEMPT_PARAM_NAMES,
+    LR_SCOPE_DEFAULT,
     build_default_work_dir,
     build_optimizer_param_groups,
     count_model_params,
@@ -24,6 +25,7 @@ __all__ = [
     "CheckpointManager",
     "DataUtils",
     "GATE_WEIGHT_DECAY_EXEMPT_PARAM_NAMES",
+    "LR_SCOPE_DEFAULT",
     "IntermediateStatsRecorder",
     "Logger",
     "TestNetRecorderLogger",

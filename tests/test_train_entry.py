@@ -619,20 +619,18 @@ class TrainEntryTest(unittest.TestCase):
             cfg["train"]["max_epochs"] = 2  # type: ignore[index]
             stages = [
                 {
-                    "name": "prealign",
                     "epochs": [1, 1],
                     "freeze_modules": ["spmf20", "structure_branch10"],
                     "loss": ["ce"],
                 },
                 {
-                    "name": "joint",
                     "epochs": [2, 2],
                     "freeze_modules": [],
                     "loss": ["ce", "lovasz"],
                     "loss_weights": {"lovasz": 0.3},
                 },
             ]
-            cfg["train"]["stages"] = stages  # type: ignore[index]
+            cfg["stages"] = stages
             args = type(
                 "Args",
                 (),

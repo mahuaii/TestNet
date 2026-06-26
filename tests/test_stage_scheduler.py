@@ -6,6 +6,7 @@ import unittest
 import torch
 
 from engine.stage_scheduler import StageScheduler
+from utils import LR_SCOPE_DEFAULT, build_optimizer_param_groups
 
 
 class _ToyStageModel(torch.nn.Module):
@@ -27,13 +28,11 @@ class _ToyStageModel(torch.nn.Module):
 def _make_stages() -> list[dict[str, object]]:
     return [
         {
-            "name": "prealign",
             "epochs": [1, 2],
             "freeze_modules": ["spmf20", "structure_branch10"],
             "loss": ["ce"],
         },
         {
-            "name": "joint",
             "epochs": [3, 4],
             "freeze_modules": [],
             "loss": ["ce", "lovasz"],
@@ -51,6 +50,61 @@ def _make_trainer(model: torch.nn.Module) -> SimpleNamespace:
         criterion=None,
         class_weights=None,
     )
+
+
+def _make_stage_lr_trainer(model: torch.nn.Module) -> SimpleNamespace:
+    optimizer = torch.optim.SGD(
+        build_optimizer_param_groups(
+            model,
+            weight_decay=0.1,
+            base_lr=0.01,
+            lr_module_paths=["aux_prealign", "spmf20", "structure_branch10"],
+        ),
+        lr=0.01,
+        momentum=0.9,
+    )
+    return SimpleNamespace(
+        model=model,
+        epoch=1,
+        cfg={"class_weights": [1.0, 2.0]},
+        device=torch.device("cpu"),
+        criterion=None,
+        class_weights=None,
+        optimizer=optimizer,
+        scheduler=None,
+    )
+
+
+def _scope_lrs(trainer: SimpleNamespace) -> dict[str, set[float]]:
+    result: dict[str, set[float]] = {}
+    for group in trainer.optimizer.param_groups:
+        scope = str(group.get("lr_scope", LR_SCOPE_DEFAULT))
+        result.setdefault(scope, set()).add(float(group["lr"]))
+    return result
+
+
+def _make_lr_stages() -> list[dict[str, object]]:
+    return [
+        {
+            "epochs": [1, 2],
+            "freeze_modules": [],
+            "loss": ["ce"],
+            "default_lr": 0.01,
+            "module_lrs": {
+                "spmf20": 0.001,
+                "structure_branch10": 0.001,
+            },
+        },
+        {
+            "epochs": [3, 4],
+            "freeze_modules": [],
+            "loss": ["ce"],
+            "default_lr": 0.01,
+            "module_lrs": {
+                "aux_prealign": 0.001,
+            },
+        },
+    ]
 
 
 class StageSchedulerTest(unittest.TestCase):
@@ -102,7 +156,6 @@ class StageSchedulerTest(unittest.TestCase):
         trainer = _make_trainer(model)
         stages = [
             {
-                "name": "bad",
                 "epochs": [1, 1],
                 "freeze_modules": ["missing"],
                 "loss": ["ce"],
@@ -122,13 +175,11 @@ class StageSchedulerTest(unittest.TestCase):
     def test_overlapping_stage_raises(self) -> None:
         stages = [
             {
-                "name": "first",
                 "epochs": [1, 2],
                 "freeze_modules": [],
                 "loss": ["ce"],
             },
             {
-                "name": "second",
                 "epochs": [2, 3],
                 "freeze_modules": [],
                 "loss": ["ce"],
@@ -139,17 +190,103 @@ class StageSchedulerTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Multiple training stages"):
             scheduler.resolve_stage(2)
 
-    def test_stage_without_name_raises(self) -> None:
-        stages = [
-            {
-                "epochs": [1, 1],
-                "freeze_modules": [],
-                "loss": ["ce"],
-            }
-        ]
+    def test_stage_lr_overrides_selected_module_scopes(self) -> None:
+        model = _ToyStageModel()
+        trainer = _make_stage_lr_trainer(model)
+        scheduler = StageScheduler(model, _make_lr_stages())
 
-        with self.assertRaisesRegex(KeyError, "name"):
-            StageScheduler(_ToyStageModel(), stages)
+        scheduler.apply(trainer)
+
+        lrs = _scope_lrs(trainer)
+        self.assertEqual(lrs[LR_SCOPE_DEFAULT], {0.01})
+        self.assertEqual(lrs["aux_prealign"], {0.01})
+        self.assertEqual(lrs["spmf20"], {0.001})
+        self.assertEqual(lrs["structure_branch10"], {0.001})
+
+        trainer.epoch = 3
+        scheduler.apply(trainer)
+
+        lrs = _scope_lrs(trainer)
+        self.assertEqual(lrs[LR_SCOPE_DEFAULT], {0.01})
+        self.assertEqual(lrs["aux_prealign"], {0.001})
+        self.assertEqual(lrs["spmf20"], {0.01})
+        self.assertEqual(lrs["structure_branch10"], {0.01})
+
+    def test_stage_lr_uses_multistep_scheduler_scale(self) -> None:
+        model = _ToyStageModel()
+        optimizer = torch.optim.SGD(
+            build_optimizer_param_groups(
+                model,
+                weight_decay=0.1,
+                base_lr=0.01,
+                lr_module_paths=["aux_prealign", "spmf20", "structure_branch10"],
+            ),
+            lr=0.01,
+        )
+        lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(
+            optimizer,
+            milestones=[1],
+            gamma=0.1,
+        )
+        optimizer.step()
+        lr_scheduler.step()
+        trainer = SimpleNamespace(
+            model=model,
+            epoch=1,
+            cfg={"class_weights": [1.0, 2.0]},
+            device=torch.device("cpu"),
+            criterion=None,
+            class_weights=None,
+            optimizer=optimizer,
+            scheduler=lr_scheduler,
+        )
+        scheduler = StageScheduler(model, _make_lr_stages())
+
+        scheduler.apply(trainer)
+
+        lrs = _scope_lrs(trainer)
+        self.assertEqual(lrs[LR_SCOPE_DEFAULT], {0.001})
+        self.assertEqual(lrs["spmf20"], {0.0001})
+
+    def test_stage_lr_rejects_invalid_values_and_modules(self) -> None:
+        model = _ToyStageModel()
+
+        with self.assertRaisesRegex(ValueError, "must be positive"):
+            StageScheduler(
+                model,
+                [
+                    {
+                        "epochs": [1, 1],
+                        "freeze_modules": [],
+                        "loss": ["ce"],
+                        "default_lr": 0.0,
+                    }
+                ],
+            )
+        with self.assertRaisesRegex(TypeError, "module_lrs keys must be non-empty strings"):
+            StageScheduler(
+                model,
+                [
+                    {
+                        "epochs": [1, 1],
+                        "freeze_modules": [],
+                        "loss": ["ce"],
+                        "module_lrs": {"": 0.001},
+                    }
+                ],
+            )
+        with self.assertRaisesRegex(AttributeError, "missing"):
+            StageScheduler(
+                model,
+                [
+                    {
+                        "epochs": [1, 1],
+                        "freeze_modules": [],
+                        "loss": ["ce"],
+                        "module_lrs": {"missing": 0.001},
+                    }
+                ],
+            )
 
 
 if __name__ == "__main__":
