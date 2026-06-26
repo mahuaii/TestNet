@@ -1,0 +1,9 @@
+{
+    "extends": "cfg.jsonc",
+    "scheduler": {
+        "milestones": [
+            35,
+            45
+        ]
+    }
+}
