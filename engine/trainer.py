@@ -336,7 +336,18 @@ class Trainer(ABC):
         current_epoch = self.epoch
         self.epoch = validation_epoch
         try:
+            update_experiments_tsv_status(
+                work_dir=self.cfg["work_dir"],
+                epoch=self.epoch,
+                max_epochs=self.max_epochs,
+                phase="val",
+            )
             self.validate()
+            update_experiments_tsv_status(
+                work_dir=self.cfg["work_dir"],
+                epoch=self.epoch,
+                max_epochs=self.max_epochs,
+            )
             self._save_epoch_checkpoints(
                 resume_epoch=resume_epoch,
                 validation_pending=False,

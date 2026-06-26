@@ -131,6 +131,32 @@ class UpdateExperimentsTsvTest(unittest.TestCase):
                 "6b855\t40\t82.75\t92.42\t90.30\t28\trunning(32/48)\n",
             )
 
+    def test_status_update_marks_validation_phase(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir, "work_dirs")
+            work_dir = root / "vaihingen_xxx_6b855"
+            work_dir.mkdir(parents=True)
+            tsv_path = root / "experiments.tsv"
+            tsv_path.write_text(
+                "ID\tSeed\tmIoU\tOA\tF1\tBestE\tStatus\n"
+                "6b855\t40\t82.75\t92.42\t90.30\t28\trunning(32/48)\n",
+                encoding="utf-8",
+            )
+
+            updated = update_experiments_tsv_status(
+                work_dir=work_dir,
+                epoch=32,
+                max_epochs=48,
+                phase="val",
+            )
+
+            self.assertTrue(updated)
+            self.assertEqual(
+                tsv_path.read_text(encoding="utf-8"),
+                "ID\tSeed\tmIoU\tOA\tF1\tBestE\tStatus\n"
+                "6b855\t40\t82.75\t92.42\t90.30\t28\trunning(val32/48)\n",
+            )
+
     def test_status_missing_required_column_returns_false_and_leaves_file_unchanged(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir, "work_dirs")

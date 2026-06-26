@@ -694,31 +694,49 @@ class TrainerGradAccumTest(unittest.TestCase):
             self.assertFalse(latest_state["validation_pending"])
 
     def test_interrupted_validation_keeps_epoch_checkpoints_pending(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            trainer = build_trainer(
-                work_dir=tmpdir,
-                values=[1.0, 2.0],
-                batch_size=1,
-                effective_batch_size=1,
-                evaluator=InterruptingEvaluator(),
-                inferencer=IdentityInferencer(),
-            )
-            trainer.val_loader = DataLoader(
-                ScalarDataset([1.0]),
-                batch_size=1,
-                shuffle=False,
-            )
-            trainer.cfg["val_epoch_interval"] = 1
-            trainer.cfg["save_epoch_interval"] = 1
+        calls: list[dict[str, object]] = []
+        original_update_experiments_tsv_status = trainer_module.update_experiments_tsv_status
 
-            with self.assertRaisesRegex(RuntimeError, "validation interrupted"):
-                trainer.train()
+        def fake_update_experiments_tsv_status(**kwargs: object) -> bool:
+            calls.append(kwargs)
+            return True
 
-            for checkpoint_name in ("latest.pth", "epoch_1.pth"):
-                state_dict = CheckpointManager.load(Path(tmpdir) / checkpoint_name)
-                self.assertEqual(state_dict["epoch"], 1)
-                self.assertEqual(state_dict["resume_epoch"], 2)
-                self.assertTrue(state_dict["validation_pending"])
+        trainer_module.update_experiments_tsv_status = fake_update_experiments_tsv_status
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                trainer = build_trainer(
+                    work_dir=tmpdir,
+                    values=[1.0, 2.0],
+                    batch_size=1,
+                    effective_batch_size=1,
+                    evaluator=InterruptingEvaluator(),
+                    inferencer=IdentityInferencer(),
+                )
+                trainer.val_loader = DataLoader(
+                    ScalarDataset([1.0]),
+                    batch_size=1,
+                    shuffle=False,
+                )
+                trainer.cfg["val_epoch_interval"] = 1
+                trainer.cfg["save_epoch_interval"] = 1
+
+                with self.assertRaisesRegex(RuntimeError, "validation interrupted"):
+                    trainer.train()
+
+                self.assertEqual(
+                    calls,
+                    [
+                        {"work_dir": tmpdir, "epoch": 1, "max_epochs": 1},
+                        {"work_dir": tmpdir, "epoch": 1, "max_epochs": 1, "phase": "val"},
+                    ],
+                )
+                for checkpoint_name in ("latest.pth", "epoch_1.pth"):
+                    state_dict = CheckpointManager.load(Path(tmpdir) / checkpoint_name)
+                    self.assertEqual(state_dict["epoch"], 1)
+                    self.assertEqual(state_dict["resume_epoch"], 2)
+                    self.assertTrue(state_dict["validation_pending"])
+        finally:
+            trainer_module.update_experiments_tsv_status = original_update_experiments_tsv_status
 
     def test_resume_runs_pending_validation_before_next_epoch(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1139,7 +1157,15 @@ class TrainerGradAccumTest(unittest.TestCase):
                     batch_size=1,
                     effective_batch_size=1,
                     max_epochs=2,
+                    evaluator=CaptureEvaluator(),
+                    inferencer=IdentityInferencer(),
                 )
+                trainer.val_loader = DataLoader(
+                    ScalarDataset([1.0]),
+                    batch_size=1,
+                    shuffle=False,
+                )
+                trainer.cfg["val_epoch_interval"] = 1
 
                 trainer.train()
 
@@ -1147,6 +1173,10 @@ class TrainerGradAccumTest(unittest.TestCase):
                     calls,
                     [
                         {"work_dir": tmpdir, "epoch": 1, "max_epochs": 2},
+                        {"work_dir": tmpdir, "epoch": 1, "max_epochs": 2, "phase": "val"},
+                        {"work_dir": tmpdir, "epoch": 1, "max_epochs": 2},
+                        {"work_dir": tmpdir, "epoch": 2, "max_epochs": 2},
+                        {"work_dir": tmpdir, "epoch": 2, "max_epochs": 2, "phase": "val"},
                         {"work_dir": tmpdir, "epoch": 2, "max_epochs": 2},
                     ],
                 )
