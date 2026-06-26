@@ -13,10 +13,12 @@ from .modules import (
     DSMStructureBranch10,
     DSMStructureBranch11,
     DSMStructureBranch12,
+    DSMStructureBranch13,
     MultiScaleStructurePriorModulatedFusion10,
     MultiScaleStructurePriorModulatedFusion11,
     MultiScaleStructurePriorModulatedFusion20,
     MultiScaleStructurePriorModulatedFusion21,
+    MultiScaleStructurePriorModulatedFusion22,
 )
 
 
@@ -79,6 +81,19 @@ SPMF_VARIANTS: dict[str, SPMFVariantSpec] = {
             ("spmf21", "spmf21", "spmf21"),
             ("structure12", "structure_branch12", "spmf21/structure"),
             ("structure21", "structure_branch12", "spmf21/structure"),
+        ),
+    ),
+    "22": SPMFVariantSpec(
+        variant_name="22",
+        structure_branch_cls=DSMStructureBranch13,
+        fusion_cls=MultiScaleStructurePriorModulatedFusion22,
+        indexes_attr="spmf22_indexes",
+        structure_attr="structure_branch13",
+        fusion_attr="spmf22",
+        intermediate_modules=(
+            ("spmf22", "spmf22", "spmf22"),
+            ("structure13", "structure_branch13", "spmf22/structure"),
+            ("structure22", "structure_branch13", "spmf22/structure"),
         ),
     ),
 }

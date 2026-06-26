@@ -7,14 +7,17 @@ from models.mfnet.UNetFormer_MMSAM_spmf10 import UNetFormerSPMF10
 from models.mfnet.UNetFormer_MMSAM_spmf11 import UNetFormerSPMF11
 from models.mfnet.UNetFormer_MMSAM_spmf20 import UNetFormerSPMF20
 from models.mfnet.UNetFormer_MMSAM_spmf21 import UNetFormerSPMF21
+from models.mfnet.UNetFormer_MMSAM_spmf22 import UNetFormerSPMF22
 from models.mfnet.modules import (
     DSMStructureBranch10,
     DSMStructureBranch11,
     DSMStructureBranch12,
+    DSMStructureBranch13,
     MultiScaleStructurePriorModulatedFusion10,
     MultiScaleStructurePriorModulatedFusion11,
     MultiScaleStructurePriorModulatedFusion20,
     MultiScaleStructurePriorModulatedFusion21,
+    MultiScaleStructurePriorModulatedFusion22,
 )
 
 
@@ -25,6 +28,7 @@ class SPMFVariantRegistryTest(unittest.TestCase):
             (UNetFormerSPMF11, "11"),
             (UNetFormerSPMF20, "20"),
             (UNetFormerSPMF21, "21"),
+            (UNetFormerSPMF22, "22"),
         ):
             self.assertTrue(issubclass(cls, UNetFormerSPMF))
             self.assertEqual(cls.spmf_variant, variant_name)
@@ -65,6 +69,18 @@ class SPMFVariantRegistryTest(unittest.TestCase):
                     ("spmf21", "spmf21", "spmf21"),
                     ("structure12", "structure_branch12", "spmf21/structure"),
                     ("structure21", "structure_branch12", "spmf21/structure"),
+                ),
+            ),
+            "22": (
+                DSMStructureBranch13,
+                MultiScaleStructurePriorModulatedFusion22,
+                "spmf22_indexes",
+                "structure_branch13",
+                "spmf22",
+                (
+                    ("spmf22", "spmf22", "spmf22"),
+                    ("structure13", "structure_branch13", "spmf22/structure"),
+                    ("structure22", "structure_branch13", "spmf22/structure"),
                 ),
             ),
         }
