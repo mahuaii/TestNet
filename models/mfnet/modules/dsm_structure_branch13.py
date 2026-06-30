@@ -203,7 +203,7 @@ class DSMStructureBranch13(nn.Module):
 
     @staticmethod
     def _scale_from_logits(logits: torch.Tensor) -> torch.Tensor:
-        return 0.8 + 0.4 * torch.sigmoid(logits)
+        return 0.5 + torch.sigmoid(logits)
 
     @staticmethod
     def _modulate_structure(projected_geometry: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:

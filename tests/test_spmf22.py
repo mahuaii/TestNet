@@ -40,8 +40,8 @@ class DSMStructureBranch13Test(unittest.TestCase):
 
         scale = DSMStructureBranch13._scale_from_logits(logits)
 
-        self.assertTrue(torch.all(scale >= 0.8))
-        self.assertTrue(torch.all(scale <= 1.2))
+        self.assertTrue(torch.all(scale >= 0.5))
+        self.assertTrue(torch.all(scale <= 1.5))
         self.assertAlmostEqual(scale[0, 0, 0, 1].item(), 1.0, places=6)
 
     def test_zero_logits_modulation_returns_projected_geometry(self) -> None:
