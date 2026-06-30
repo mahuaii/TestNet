@@ -13,6 +13,7 @@ from utils import LR_SCOPE_DEFAULT, normalize_legacy_module_path
 @dataclass(frozen=True)
 class Stage:
     index: int
+    name: str | None
     start_epoch: int
     end_epoch: int
     freeze_modules: tuple[str, ...]
@@ -43,7 +44,7 @@ class StageScheduler:
         )
         self._validate_module_lr_paths(model)
 
-    def apply(self, trainer: Any) -> None:
+    def apply(self, trainer: Any) -> Stage:
         stage = self.resolve_stage(int(trainer.epoch))
         self._restore_baseline(trainer.model)
         self._freeze_modules(trainer.model, stage.freeze_modules)
@@ -56,6 +57,7 @@ class StageScheduler:
         trainer.class_weights = trainer.criterion.class_weights
         if stage.has_lr_policy:
             self._apply_stage_lrs(trainer, stage)
+        return stage
 
     def resolve_stage(self, epoch: int) -> Stage:
         if epoch < 1:
@@ -116,6 +118,7 @@ class StageScheduler:
 
         return Stage(
             index=index,
+            name=cls._parse_optional_name(index=index, raw_stage=raw_stage),
             start_epoch=start_epoch,
             end_epoch=end_epoch,
             freeze_modules=tuple(normalize_legacy_module_path(path) for path in freeze_modules),
@@ -128,6 +131,15 @@ class StageScheduler:
             ),
             module_lrs=cls._parse_module_lrs(stage_index=index, raw_stage=raw_stage),
         )
+
+    @staticmethod
+    def _parse_optional_name(*, index: int, raw_stage: Mapping[str, Any]) -> str | None:
+        name = raw_stage.get("name")
+        if name is None:
+            return None
+        if not isinstance(name, str) or not name:
+            raise TypeError(f"Stage {index} name must be a non-empty string when provided.")
+        return name
 
     @staticmethod
     def _parse_epochs(*, index: int, raw_stage: Mapping[str, Any]) -> tuple[int, int]:

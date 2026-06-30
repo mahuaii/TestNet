@@ -13,6 +13,15 @@ from .testnet_logger import TestNetLogger
 
 GATE_WEIGHT_DECAY_EXEMPT_PARAM_NAMES = {"alpha", "beta", "gamma", "delta", "lambda"}
 LR_SCOPE_DEFAULT = "__default__"
+LR_SCOPE_DEFAULT_DISPLAY = "default"
+OPTIMIZER_GROUP_METADATA_KEYS = (
+    "group_name",
+    "lr_scope",
+    "is_adapter",
+    "no_decay",
+    "num_params",
+    "nominal_lr",
+)
 LEGACY_MODULE_PATH_RENAMES = {
     "spmf10": "spmf_fusion10",
     "spmf11": "spmf_fusion11",
@@ -120,7 +129,6 @@ def build_optimizer_param_groups(
         raise ValueError(f"adapter_lr must be positive, got {adapter_lr}.")
 
     lr_scopes = _validate_lr_module_paths(model, lr_module_paths)
-    use_lr_scopes = bool(lr_scopes)
     grouped_params: dict[tuple[str, bool, bool], list[torch.nn.Parameter]] = {}
     for name, param in model.named_parameters():
         if not param.requires_grad:
@@ -137,17 +145,22 @@ def build_optimizer_param_groups(
             params = grouped_params.get((lr_scope, is_adapter, no_decay))
             if not params:
                 continue
+            scope_name = _display_lr_scope(lr_scope)
+            adapter_name = "adapter" if is_adapter else "main"
+            decay_name = "no_decay" if no_decay else "decay"
             group: dict[str, object] = {
                 "params": params,
                 "weight_decay": 0.0 if no_decay else weight_decay,
+                "group_name": f"{scope_name}:{adapter_name}:{decay_name}",
+                "lr_scope": lr_scope,
+                "is_adapter": is_adapter,
+                "no_decay": no_decay,
+                "num_params": sum(param.numel() for param in params),
             }
             group_lr = adapter_lr if is_adapter and adapter_lr is not None else base_lr
             if group_lr is not None:
                 group["lr"] = group_lr
-            if use_lr_scopes:
-                group["lr_scope"] = lr_scope
-                if group_lr is not None:
-                    group["nominal_lr"] = group_lr
+                group["nominal_lr"] = group_lr
             param_groups.append(group)
     return param_groups
 
@@ -186,6 +199,24 @@ def _resolve_lr_scope(name: str, lr_scopes: Sequence[str]) -> str:
         if name.startswith(f"{lr_scope}."):
             return lr_scope
     return LR_SCOPE_DEFAULT
+
+
+def _display_lr_scope(lr_scope: str) -> str:
+    if lr_scope == LR_SCOPE_DEFAULT:
+        return LR_SCOPE_DEFAULT_DISPLAY
+    return lr_scope
+
+
+def restore_optimizer_group_metadata(
+    optimizer: torch.optim.Optimizer,
+    metadata_by_group: Sequence[Mapping[str, object]],
+) -> None:
+    for group, metadata in zip(optimizer.param_groups, metadata_by_group):
+        for key in OPTIMIZER_GROUP_METADATA_KEYS:
+            if key not in group and key in metadata:
+                group[key] = metadata[key]
+        if "num_params" not in group:
+            group["num_params"] = sum(param.numel() for param in group["params"])
 
 
 def log_run_summary(

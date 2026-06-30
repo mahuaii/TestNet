@@ -13,7 +13,12 @@ from tools.update_experiments_tsv import (
 )
 
 from .evaluator import Evaluator
-from utils import normalize_legacy_optimizer_state_dict, normalize_legacy_state_dict_keys
+from utils import (
+    OPTIMIZER_GROUP_METADATA_KEYS,
+    normalize_legacy_optimizer_state_dict,
+    normalize_legacy_state_dict_keys,
+    restore_optimizer_group_metadata,
+)
 from utils.checkpoint_manager import CheckpointManager
 from utils.logger import Logger
 from utils.stat_tracker import StatTracker
@@ -87,7 +92,16 @@ class Trainer(ABC):
     def _load_training_state(self, path: str):
         state_dict = CheckpointManager.load(path)
         self.model.load_state_dict(normalize_legacy_state_dict_keys(state_dict["model"]))
+        optimizer_group_metadata = [
+            {
+                key: group[key]
+                for key in OPTIMIZER_GROUP_METADATA_KEYS
+                if key in group
+            }
+            for group in self.optimizer.param_groups
+        ]
         self.optimizer.load_state_dict(normalize_legacy_optimizer_state_dict(state_dict["optimizer"]))
+        restore_optimizer_group_metadata(self.optimizer, optimizer_group_metadata)
         if self.scheduler is not None and state_dict["scheduler"] is not None:
             self.scheduler.load_state_dict(state_dict["scheduler"])
         checkpoint_epoch = int(state_dict["epoch"])
@@ -148,6 +162,7 @@ class Trainer(ABC):
                 self.before_epoch()
 
                 self.logger.log_epoch_start(epoch=self.epoch, max_epochs=self.max_epochs)
+                self.after_epoch_start_logged()
                 self.timer.mark("epoch")
 
                 train_metrics = self.train_one_epoch()  # 训练一个 epoch，得到 epoch 级指标
@@ -180,6 +195,9 @@ class Trainer(ABC):
             epoch=self.epoch,
             max_epochs=self.max_epochs,
         )
+
+    def after_epoch_start_logged(self) -> None:
+        return None
 
     def train_one_epoch(self) -> dict[str, float]:
         """

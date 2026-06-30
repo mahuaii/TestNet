@@ -10,6 +10,7 @@ from losses import CombinedLoss, build_loss
 
 from .evaluator import Evaluator
 from .stage_scheduler import StageScheduler
+from .training_diagnostics import collect_optimizer_group_summaries, stage_label
 
 from .trainer import Trainer
 
@@ -38,14 +39,27 @@ class MFNetTrainer(Trainer):
             if "stages" in self.cfg
             else None
         )
+        self.current_stage = None
 
     @override
     def before_epoch(self) -> None:
         super().before_epoch()
         if self.scheduler is not None:
             self.scheduler.step()
+        self.current_stage = None
         if self.stage_scheduler is not None:
-            self.stage_scheduler.apply(self)
+            self.current_stage = self.stage_scheduler.apply(self)
+
+    @override
+    def after_epoch_start_logged(self) -> None:
+        current_stage_label = stage_label(self.current_stage)
+        self.logger.log_lr_groups(
+            epoch=self.epoch,
+            max_epochs=self.max_epochs,
+            stage_label=current_stage_label,
+            scheduler_scale=StageScheduler._scheduler_scale(self.scheduler),
+            group_summaries=collect_optimizer_group_summaries(self.optimizer),
+        )
 
     @override
     def train_forward(self, batch: dict[str, Any]) -> tuple[torch.Tensor, dict[str, float]]:

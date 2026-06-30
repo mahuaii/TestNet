@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from pathlib import Path
 import re
-from typing import Any
+from typing import Any, Mapping, Sequence
 
 
 # Empty SummaryWriter replacement used when TensorBoard is disabled or unavailable.
@@ -92,6 +92,31 @@ class Logger(ABC):
         )
         if message is not None:
             self.log_message(message)
+
+    def log_lr_groups(
+        self,
+        *,
+        epoch: int,
+        max_epochs: int,
+        stage_label: str,
+        scheduler_scale: float,
+        group_summaries: Sequence[Mapping[str, Any]],
+    ) -> None:
+        self._log_section_header("LR GROUPS", fill="-")
+        self.log_message(
+            f"Epoch: {epoch}/{max_epochs} | Stage: {stage_label} | "
+            f"Scheduler scale: {scheduler_scale:.8g}"
+        )
+        for group in group_summaries:
+            self.log_message(
+                "  "
+                f"group={group['group_name']} "
+                f"scope={group['lr_scope']} "
+                f"nominal_lr={float(group['nominal_lr']):.8g} "
+                f"effective_lr={float(group['effective_lr']):.8g} "
+                f"num_params={int(group['num_params'])}"
+            )
+        self._write_lr_group_scalars(epoch=epoch, group_summaries=group_summaries)
 
     def log_validation_timing(
         self,
@@ -216,6 +241,20 @@ class Logger(ABC):
 
     @abstractmethod
     def _write_validation_scalars(self, epoch: int, val_metrics: dict[str, float]) -> None: ...
+
+    def _write_lr_group_scalars(
+        self,
+        *,
+        epoch: int,
+        group_summaries: Sequence[Mapping[str, Any]],
+    ) -> None:
+        for group in group_summaries:
+            self._summary_writer.add_scalar(
+                f"Learning_rate/groups/{group['group_name']}",
+                float(group["effective_lr"]),
+                epoch,
+            )
+        self._summary_writer.flush()
 
     @staticmethod
     def format_time(seconds: float) -> str:
