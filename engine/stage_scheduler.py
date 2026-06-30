@@ -7,7 +7,7 @@ from typing import Any
 import torch
 
 from losses import build_loss
-from utils import LR_SCOPE_DEFAULT
+from utils import LR_SCOPE_DEFAULT, normalize_legacy_module_path
 
 
 @dataclass(frozen=True)
@@ -118,7 +118,7 @@ class StageScheduler:
             index=index,
             start_epoch=start_epoch,
             end_epoch=end_epoch,
-            freeze_modules=tuple(freeze_modules),
+            freeze_modules=tuple(normalize_legacy_module_path(path) for path in freeze_modules),
             loss=list(loss),
             loss_weights=loss_weights,
             default_lr=cls._parse_optional_lr(
@@ -211,7 +211,10 @@ class StageScheduler:
         for module_path, lr_value in raw_module_lrs.items():
             if not isinstance(module_path, str) or not module_path:
                 raise TypeError(f"Stage {stage_index} module_lrs keys must be non-empty strings.")
-            module_lrs[module_path] = cls._parse_required_lr(
+            normalized_module_path = normalize_legacy_module_path(module_path)
+            if normalized_module_path in module_lrs:
+                raise ValueError(f"Stage {stage_index} has duplicate module_lrs path: {normalized_module_path}.")
+            module_lrs[normalized_module_path] = cls._parse_required_lr(
                 stage_index=stage_index,
                 key=f"module_lrs[{module_path!r}]",
                 value=lr_value,

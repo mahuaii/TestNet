@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +13,13 @@ from .testnet_logger import TestNetLogger
 
 GATE_WEIGHT_DECAY_EXEMPT_PARAM_NAMES = {"alpha", "beta", "gamma", "delta", "lambda"}
 LR_SCOPE_DEFAULT = "__default__"
+LEGACY_MODULE_PATH_RENAMES = {
+    "spmf10": "spmf_fusion10",
+    "spmf11": "spmf_fusion11",
+    "spmf20": "spmf_fusion20",
+    "spmf21": "spmf_fusion21",
+    "spmf22": "spmf_fusion22",
+}
 
 
 def safe_path_component(value: object, fallback: str) -> str:
@@ -64,6 +71,39 @@ def count_model_params(model: torch.nn.Module) -> tuple[int, int, int, int]:
 
 def is_gate_weight_decay_exempt_param(name: str) -> bool:
     return name.rsplit(".", maxsplit=1)[-1] in GATE_WEIGHT_DECAY_EXEMPT_PARAM_NAMES
+
+
+def normalize_legacy_module_path(module_path: str) -> str:
+    head, separator, tail = module_path.partition(".")
+    renamed_head = LEGACY_MODULE_PATH_RENAMES.get(head)
+    if renamed_head is None:
+        return module_path
+    if separator:
+        return f"{renamed_head}.{tail}"
+    return renamed_head
+
+
+def normalize_legacy_state_dict_keys(state_dict: Mapping[str, Any]) -> dict[str, Any]:
+    normalized_state: dict[str, Any] = {}
+    for key, value in state_dict.items():
+        normalized_key = normalize_legacy_module_path(key)
+        if normalized_key in normalized_state:
+            raise ValueError(f"Duplicate model state key after legacy module path migration: {normalized_key}.")
+        normalized_state[normalized_key] = value
+    return normalized_state
+
+
+def normalize_legacy_optimizer_state_dict(state_dict: Mapping[str, Any]) -> dict[str, Any]:
+    normalized_state = dict(state_dict)
+    param_groups = []
+    for group in state_dict.get("param_groups", ()):
+        normalized_group = dict(group)
+        lr_scope = normalized_group.get("lr_scope")
+        if isinstance(lr_scope, str):
+            normalized_group["lr_scope"] = normalize_legacy_module_path(lr_scope)
+        param_groups.append(normalized_group)
+    normalized_state["param_groups"] = param_groups
+    return normalized_state
 
 
 def build_optimizer_param_groups(
@@ -125,10 +165,11 @@ def _validate_lr_module_paths(
     for module_path in lr_module_paths:
         if not isinstance(module_path, str) or not module_path:
             raise TypeError("lr_module_paths must contain non-empty strings.")
-        model.get_submodule(module_path)
-        if module_path in paths:
-            raise ValueError(f"Duplicate lr module path: {module_path}.")
-        paths.append(module_path)
+        normalized_module_path = normalize_legacy_module_path(module_path)
+        model.get_submodule(normalized_module_path)
+        if normalized_module_path in paths:
+            raise ValueError(f"Duplicate lr module path: {normalized_module_path}.")
+        paths.append(normalized_module_path)
 
     for index, module_path in enumerate(paths):
         for other_path in paths[index + 1:]:

@@ -81,7 +81,7 @@ class ConfigTest(unittest.TestCase):
                   "stages": [
                     {
                       "epochs": [1, 25],
-                      "freeze_modules": ["spmf20"],
+                      "freeze_modules": ["spmf_fusion20"],
                       "loss": ["ce", "lovasz"]
                     }
                   ]
@@ -106,7 +106,7 @@ class ConfigTest(unittest.TestCase):
                 [
                     {
                         "epochs": [1, 25],
-                        "freeze_modules": ["spmf20"],
+                        "freeze_modules": ["spmf_fusion20"],
                         "loss": ["ce", "lovasz"],
                     }
                 ],

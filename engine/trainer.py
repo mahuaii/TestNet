@@ -13,6 +13,7 @@ from tools.update_experiments_tsv import (
 )
 
 from .evaluator import Evaluator
+from utils import normalize_legacy_optimizer_state_dict, normalize_legacy_state_dict_keys
 from utils.checkpoint_manager import CheckpointManager
 from utils.logger import Logger
 from utils.stat_tracker import StatTracker
@@ -81,12 +82,12 @@ class Trainer(ABC):
                 model_state = state_dict["model"]
             elif "model_state_dict" in state_dict:
                 model_state = state_dict["model_state_dict"]
-        self.model.load_state_dict(model_state)
+        self.model.load_state_dict(normalize_legacy_state_dict_keys(model_state))
 
     def _load_training_state(self, path: str):
         state_dict = CheckpointManager.load(path)
-        self.model.load_state_dict(state_dict["model"])
-        self.optimizer.load_state_dict(state_dict["optimizer"])
+        self.model.load_state_dict(normalize_legacy_state_dict_keys(state_dict["model"]))
+        self.optimizer.load_state_dict(normalize_legacy_optimizer_state_dict(state_dict["optimizer"]))
         if self.scheduler is not None and state_dict["scheduler"] is not None:
             self.scheduler.load_state_dict(state_dict["scheduler"])
         checkpoint_epoch = int(state_dict["epoch"])

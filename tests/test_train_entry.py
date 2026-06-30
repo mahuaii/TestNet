@@ -620,7 +620,7 @@ class TrainEntryTest(unittest.TestCase):
             stages = [
                 {
                     "epochs": [1, 1],
-                    "freeze_modules": ["spmf20", "structure_branch10"],
+                    "freeze_modules": ["spmf_fusion20", "structure_branch10"],
                     "loss": ["ce"],
                 },
                 {

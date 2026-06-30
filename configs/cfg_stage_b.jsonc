@@ -15,7 +15,7 @@
             "loss": ["ce"],
             "default_lr": 0.01,
             "module_lrs": {
-                "spmf20": 0.001,
+                "spmf_fusion20": 0.001,
                 "structure_branch10": 0.001
             }
         },

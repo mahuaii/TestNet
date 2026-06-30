@@ -13,7 +13,7 @@ class _ToyStageModel(torch.nn.Module):
     def __init__(self) -> None:
         super().__init__()
         self.aux_prealign = torch.nn.Linear(2, 2, bias=False)
-        self.spmf20 = torch.nn.Linear(2, 2, bias=False)
+        self.spmf_fusion20 = torch.nn.Linear(2, 2, bias=False)
         self.structure_branch10 = torch.nn.Linear(2, 2, bias=False)
         self.decoder = torch.nn.Linear(2, 1, bias=False)
         self.frozen_backbone = torch.nn.Linear(2, 2, bias=False)
@@ -21,7 +21,7 @@ class _ToyStageModel(torch.nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         aligned = self.aux_prealign(x)
-        fused = self.spmf20(aligned)
+        fused = self.spmf_fusion20(aligned)
         return self.decoder(fused)
 
 
@@ -29,7 +29,7 @@ def _make_stages() -> list[dict[str, object]]:
     return [
         {
             "epochs": [1, 2],
-            "freeze_modules": ["spmf20", "structure_branch10"],
+            "freeze_modules": ["spmf_fusion20", "structure_branch10"],
             "loss": ["ce"],
         },
         {
@@ -58,7 +58,7 @@ def _make_stage_lr_trainer(model: torch.nn.Module) -> SimpleNamespace:
             model,
             weight_decay=0.1,
             base_lr=0.01,
-            lr_module_paths=["aux_prealign", "spmf20", "structure_branch10"],
+            lr_module_paths=["aux_prealign", "spmf_fusion20", "structure_branch10"],
         ),
         lr=0.01,
         momentum=0.9,
@@ -91,7 +91,7 @@ def _make_lr_stages() -> list[dict[str, object]]:
             "loss": ["ce"],
             "default_lr": 0.01,
             "module_lrs": {
-                "spmf20": 0.001,
+                "spmf_fusion20": 0.001,
                 "structure_branch10": 0.001,
             },
         },
@@ -115,7 +115,7 @@ class StageSchedulerTest(unittest.TestCase):
 
         scheduler.apply(trainer)
 
-        self.assertFalse(any(param.requires_grad for param in model.spmf20.parameters()))
+        self.assertFalse(any(param.requires_grad for param in model.spmf_fusion20.parameters()))
         self.assertFalse(any(param.requires_grad for param in model.structure_branch10.parameters()))
         self.assertTrue(all(param.requires_grad for param in model.aux_prealign.parameters()))
         self.assertTrue(all(param.requires_grad for param in model.decoder.parameters()))
@@ -132,7 +132,7 @@ class StageSchedulerTest(unittest.TestCase):
         trainer.epoch = 3
         scheduler.apply(trainer)
 
-        self.assertTrue(all(param.requires_grad for param in model.spmf20.parameters()))
+        self.assertTrue(all(param.requires_grad for param in model.spmf_fusion20.parameters()))
         self.assertTrue(all(param.requires_grad for param in model.structure_branch10.parameters()))
         self.assertFalse(any(param.requires_grad for param in model.frozen_backbone.parameters()))
         self.assertEqual([loss.name for loss in trainer.criterion.losses], ["ce", "lovasz"])
@@ -148,8 +148,8 @@ class StageSchedulerTest(unittest.TestCase):
         loss.backward()
 
         self.assertIsNotNone(model.aux_prealign.weight.grad)
-        self.assertIsNone(model.spmf20.weight.grad)
-        self.assertFalse(model.spmf20.weight.requires_grad)
+        self.assertIsNone(model.spmf_fusion20.weight.grad)
+        self.assertFalse(model.spmf_fusion20.weight.requires_grad)
 
     def test_unknown_module_path_raises(self) -> None:
         model = _ToyStageModel()
@@ -200,7 +200,7 @@ class StageSchedulerTest(unittest.TestCase):
         lrs = _scope_lrs(trainer)
         self.assertEqual(lrs[LR_SCOPE_DEFAULT], {0.01})
         self.assertEqual(lrs["aux_prealign"], {0.01})
-        self.assertEqual(lrs["spmf20"], {0.001})
+        self.assertEqual(lrs["spmf_fusion20"], {0.001})
         self.assertEqual(lrs["structure_branch10"], {0.001})
 
         trainer.epoch = 3
@@ -209,8 +209,28 @@ class StageSchedulerTest(unittest.TestCase):
         lrs = _scope_lrs(trainer)
         self.assertEqual(lrs[LR_SCOPE_DEFAULT], {0.01})
         self.assertEqual(lrs["aux_prealign"], {0.001})
-        self.assertEqual(lrs["spmf20"], {0.01})
+        self.assertEqual(lrs["spmf_fusion20"], {0.01})
         self.assertEqual(lrs["structure_branch10"], {0.01})
+
+    def test_stage_scheduler_accepts_legacy_spmf_module_paths(self) -> None:
+        model = _ToyStageModel()
+        trainer = _make_stage_lr_trainer(model)
+        scheduler = StageScheduler(
+            model,
+            [
+                {
+                    "epochs": [1, 1],
+                    "freeze_modules": ["spmf20"],
+                    "loss": ["ce"],
+                    "module_lrs": {"spmf20": 0.001},
+                }
+            ],
+        )
+
+        scheduler.apply(trainer)
+
+        self.assertFalse(any(param.requires_grad for param in model.spmf_fusion20.parameters()))
+        self.assertEqual(_scope_lrs(trainer)["spmf_fusion20"], {0.001})
 
     def test_stage_lr_uses_multistep_scheduler_scale(self) -> None:
         model = _ToyStageModel()
@@ -219,7 +239,7 @@ class StageSchedulerTest(unittest.TestCase):
                 model,
                 weight_decay=0.1,
                 base_lr=0.01,
-                lr_module_paths=["aux_prealign", "spmf20", "structure_branch10"],
+                lr_module_paths=["aux_prealign", "spmf_fusion20", "structure_branch10"],
             ),
             lr=0.01,
         )
@@ -246,7 +266,7 @@ class StageSchedulerTest(unittest.TestCase):
 
         lrs = _scope_lrs(trainer)
         self.assertEqual(lrs[LR_SCOPE_DEFAULT], {0.001})
-        self.assertEqual(lrs["spmf20"], {0.0001})
+        self.assertEqual(lrs["spmf_fusion20"], {0.0001})
 
     def test_stage_lr_rejects_invalid_values_and_modules(self) -> None:
         model = _ToyStageModel()

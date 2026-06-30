@@ -8,6 +8,8 @@ from utils import (
     LR_SCOPE_DEFAULT,
     build_default_work_dir,
     build_optimizer_param_groups,
+    normalize_legacy_optimizer_state_dict,
+    normalize_legacy_state_dict_keys,
     safe_path_component,
     work_dir_model_suffix,
 )
@@ -35,7 +37,7 @@ class ScopedLRModel(torch.nn.Module):
         super().__init__()
         self.backbone = torch.nn.Linear(2, 2)
         self.aux_prealign = torch.nn.Linear(2, 2)
-        self.spmf20 = torch.nn.Linear(2, 2)
+        self.spmf_fusion20 = torch.nn.Linear(2, 2)
         self.Adapter = torch.nn.Linear(2, 2)
 
 
@@ -136,11 +138,11 @@ class TrainUtilsTest(unittest.TestCase):
             weight_decay=0.123,
             base_lr=0.01,
             adapter_lr=0.001,
-            lr_module_paths=["aux_prealign", "spmf20"],
+            lr_module_paths=["aux_prealign", "spmf_fusion20"],
         )
 
         scopes = {group["lr_scope"] for group in param_groups}
-        self.assertEqual(scopes, {LR_SCOPE_DEFAULT, "aux_prealign", "spmf20"})
+        self.assertEqual(scopes, {LR_SCOPE_DEFAULT, "aux_prealign", "spmf_fusion20"})
         scoped_params = {
             scope: {
                 id(param)
@@ -154,7 +156,7 @@ class TrainUtilsTest(unittest.TestCase):
         self.assertIn(id(named_params["backbone.weight"]), scoped_params[LR_SCOPE_DEFAULT])
         self.assertIn(id(named_params["Adapter.weight"]), scoped_params[LR_SCOPE_DEFAULT])
         self.assertIn(id(named_params["aux_prealign.weight"]), scoped_params["aux_prealign"])
-        self.assertIn(id(named_params["spmf20.weight"]), scoped_params["spmf20"])
+        self.assertIn(id(named_params["spmf_fusion20.weight"]), scoped_params["spmf_fusion20"])
 
         adapter_group = next(
             group
@@ -165,6 +167,48 @@ class TrainUtilsTest(unittest.TestCase):
         )
         self.assertIn(id(named_params["Adapter.weight"]), {id(param) for param in adapter_group["params"]})
 
+    def test_build_optimizer_param_groups_accepts_legacy_spmf_module_paths(self) -> None:
+        model = ScopedLRModel()
+
+        param_groups = build_optimizer_param_groups(
+            model,
+            weight_decay=0.123,
+            base_lr=0.01,
+            lr_module_paths=["spmf20"],
+        )
+
+        scopes = {group["lr_scope"] for group in param_groups}
+        self.assertIn("spmf_fusion20", scopes)
+        self.assertNotIn("spmf20", scopes)
+
+    def test_legacy_state_dict_keys_are_renamed_to_spmf_fusion_keys(self) -> None:
+        weight = torch.ones(2, 2)
+
+        migrated = normalize_legacy_state_dict_keys(
+            {
+                "spmf20.blocks.0.rgb_projection.weight": weight,
+                "decoder.weight": torch.zeros(1, 2),
+            }
+        )
+
+        self.assertIs(migrated["spmf_fusion20.blocks.0.rgb_projection.weight"], weight)
+        self.assertIn("decoder.weight", migrated)
+        self.assertNotIn("spmf20.blocks.0.rgb_projection.weight", migrated)
+
+    def test_legacy_optimizer_lr_scope_is_renamed_to_spmf_fusion_scope(self) -> None:
+        migrated = normalize_legacy_optimizer_state_dict(
+            {
+                "state": {},
+                "param_groups": [
+                    {"params": [0], "lr_scope": "spmf20", "lr": 0.001},
+                    {"params": [1], "lr_scope": "aux_prealign", "lr": 0.01},
+                ],
+            }
+        )
+
+        self.assertEqual(migrated["param_groups"][0]["lr_scope"], "spmf_fusion20")
+        self.assertEqual(migrated["param_groups"][1]["lr_scope"], "aux_prealign")
+
     def test_build_optimizer_param_groups_rejects_invalid_lr_module_paths(self) -> None:
         model = ScopedLRModel()
 
@@ -174,7 +218,13 @@ class TrainUtilsTest(unittest.TestCase):
             build_optimizer_param_groups(
                 model,
                 weight_decay=0.1,
-                lr_module_paths=["spmf20", "spmf20"],
+                lr_module_paths=["spmf_fusion20", "spmf_fusion20"],
+            )
+        with self.assertRaisesRegex(ValueError, "Duplicate"):
+            build_optimizer_param_groups(
+                model,
+                weight_decay=0.1,
+                lr_module_paths=["spmf20", "spmf_fusion20"],
             )
 
 
