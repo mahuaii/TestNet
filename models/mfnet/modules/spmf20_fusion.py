@@ -111,7 +111,23 @@ class SPMFFusionBlock20(nn.Module):
         routing_weights = torch.softmax(torch.stack([rgb_logits, dsm_logits], dim=1), dim=1)
         rgb_weight = routing_weights[:, 0]
         dsm_weight = routing_weights[:, 1]
+        self._record_gate_stats(rgb_weight=rgb_weight, dsm_weight=dsm_weight)
         return rgb_weight * rgb + dsm_weight * dsm
+
+    def _record_gate_stats(self, *, rgb_weight: torch.Tensor, dsm_weight: torch.Tensor) -> None:
+        stats = getattr(self, "intermediate_stats", None)
+        if stats is None:
+            return
+        prefix = str(getattr(self, "intermediate_stats_prefix", "spmf20")).strip("/")
+        for name, value in (
+            (f"{prefix}/gate/rgb_weight", rgb_weight),
+            (f"{prefix}/gate/dsm_weight", dsm_weight),
+        ):
+            tensor = value.detach()
+            stats.record_scalar(f"{name}_mean", tensor.mean())
+            stats.record_scalar(f"{name}_std", tensor.std(unbiased=False))
+            stats.record_scalar(f"{name}_min", tensor.amin())
+            stats.record_scalar(f"{name}_max", tensor.amax())
 
 
 class MultiScaleSPMFFusion20(nn.Module):
@@ -155,15 +171,27 @@ class MultiScaleSPMFFusion20(nn.Module):
         rgb_feats = validate_feature_sequence("rgb_feats", rgb_feats)
         dsm_feats = validate_feature_sequence("dsm_feats", dsm_feats)
         structure_feats = validate_feature_sequence("structure_feats", structure_feats)
-        outputs = [
-            block(rgb, dsm, structure)
-            for block, rgb, dsm, structure in zip(
+        outputs = []
+        stats = getattr(self, "intermediate_stats", None)
+        prefix = str(getattr(self, "intermediate_stats_prefix", "spmf20")).strip("/")
+        for index, (block, rgb, dsm, structure) in enumerate(
+            zip(
                 self.blocks,
                 rgb_feats,
                 dsm_feats,
                 structure_feats,
-            )
-        ]
+            ),
+            start=1,
+        ):
+            if stats is not None:
+                block.intermediate_stats = stats
+                block.intermediate_stats_prefix = f"{prefix}/scale{index}"
+            fused = block(rgb, dsm, structure)
+            if stats is not None:
+                stats.record_norm(f"{prefix}/feature_norm/R{index}", rgb)
+                stats.record_norm(f"{prefix}/feature_norm/G{index}", dsm)
+                stats.record_norm(f"{prefix}/feature_norm/D{index}", fused)
+            outputs.append(fused)
         return tuple(outputs)  # type: ignore[return-value]
 
 

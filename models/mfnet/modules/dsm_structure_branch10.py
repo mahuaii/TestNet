@@ -141,12 +141,16 @@ class DSMStructureBranch10(nn.Module):
         geometry_features = (g1, g2, g3, g4)
 
         outputs = []
-        for geometry, tap, tap_adapter, confidence_generator, projection in zip(
+        structure_inputs = zip(
             geometry_features,
             dsm_taps,
             self.tap_adapters,
             self.confidence_generators,
             self.output_projections,
+        )
+        for index, (geometry, tap, tap_adapter, confidence_generator, projection) in enumerate(
+            structure_inputs,
+            start=1,
         ):
             tap_for_structure = tap.detach()
             adapted_tap = tap_adapter(
@@ -155,7 +159,9 @@ class DSMStructureBranch10(nn.Module):
                 align_corners=self.align_corners,
             )
             confidence = confidence_generator(adapted_tap)
-            outputs.append(projection(geometry) * (1.0 + confidence))
+            structure = projection(geometry) * (1.0 + confidence)
+            self._record_intermediate_stats(index=index, confidence=confidence, structure=structure)
+            outputs.append(structure)
         return tuple(outputs)  # type: ignore[return-value]
 
     def _make_structure_input(self, dsm: torch.Tensor) -> torch.Tensor:
@@ -187,6 +193,31 @@ class DSMStructureBranch10(nn.Module):
         )
         local_variance = (local_square_mean - local_mean.square()).clamp_min(0.0)
         return torch.exp(-local_variance / (2.0 * self.similarity_sigma * self.similarity_sigma))
+
+    def _record_intermediate_stats(
+        self,
+        *,
+        index: int,
+        confidence: torch.Tensor,
+        structure: torch.Tensor,
+    ) -> None:
+        stats = getattr(self, "intermediate_stats", None)
+        if stats is None:
+            return
+        prefix = str(getattr(self, "intermediate_stats_prefix", "spmf20/structure")).strip("/")
+        self._record_distribution(f"{prefix}/confidence/confidence{index}", confidence)
+        self._record_distribution(f"{prefix}/feature/structure{index}", structure)
+        stats.record_norm(f"{prefix}/feature/structure{index}_norm", structure)
+
+    def _record_distribution(self, name: str, value: torch.Tensor) -> None:
+        stats = getattr(self, "intermediate_stats", None)
+        if stats is None:
+            return
+        tensor = value.detach()
+        stats.record_scalar(f"{name}_mean", tensor.mean())
+        stats.record_scalar(f"{name}_std", tensor.std(unbiased=False))
+        stats.record_scalar(f"{name}_min", tensor.amin())
+        stats.record_scalar(f"{name}_max", tensor.amax())
 
 
 __all__ = ["DSMStructureBranch10"]

@@ -106,4 +106,16 @@ class AuxPreAlign(nn.Module):
                 f"Spatial size changed unexpectedly: input {(height, width)}, output {tuple(y.shape[-2:])}."
             )
 
+        self._record_intermediate_stats(y)
         return y
+
+    def _record_intermediate_stats(self, output: torch.Tensor) -> None:
+        stats = getattr(self, "intermediate_stats", None)
+        if stats is None:
+            return
+        prefix = str(getattr(self, "intermediate_stats_prefix", "prealign")).strip("/")
+        tensor = output.detach()
+        stats.record_scalar(f"{prefix}/output_mean", tensor.mean())
+        stats.record_scalar(f"{prefix}/output_std", tensor.std(unbiased=False))
+        stats.record_scalar(f"{prefix}/output_var", tensor.var(unbiased=False))
+        stats.record_norm(f"{prefix}/output_norm", tensor)

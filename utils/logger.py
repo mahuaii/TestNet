@@ -21,6 +21,11 @@ class _NoOpSummaryWriter:
 class Logger(ABC):
     _SECTION_WIDTH = 80
     _EPOCH_HEADER_PATTERN = re.compile(r"^\s*EPOCH\s+(\d+)\s*/")
+    _DIAGNOSTIC_TENSORBOARD_PREFIXES = {
+        "prealign/": "PreAlign/",
+        "spmf20/structure/": "SPMF20/Structure/",
+        "spmf20/": "SPMF20/",
+    }
 
     def __init__(
         self,
@@ -117,6 +122,40 @@ class Logger(ABC):
                 f"num_params={int(group['num_params'])}"
             )
         self._write_lr_group_scalars(epoch=epoch, group_summaries=group_summaries)
+
+    def log_trainable_param_counts(
+        self,
+        *,
+        epoch: int,
+        stage_label: str,
+        counts: Mapping[str, int],
+    ) -> None:
+        self._log_section_header("TRAINABLE PARAMS", fill="-")
+        self.log_message(f"Epoch: {epoch} | Stage: {stage_label}")
+        for name, count in counts.items():
+            self.log_message(f"  {name}: {int(count)}")
+        self._write_trainable_param_scalars(epoch=epoch, counts=counts)
+
+    def log_diagnostic_scalars(
+        self,
+        *,
+        epoch: int,
+        metrics: Mapping[str, float],
+        prefixes: Sequence[str],
+    ) -> None:
+        selected = {
+            key: float(value)
+            for key, value in sorted(metrics.items())
+            if any(key.startswith(prefix) for prefix in prefixes)
+        }
+        if not selected:
+            return
+
+        self._log_section_header("DIAGNOSTIC SUMMARY", fill="-")
+        self.log_message(f"Epoch: {epoch}")
+        for key, value in selected.items():
+            self.log_message(f"  {key}: {value:.6g}")
+        self._write_diagnostic_scalars(epoch=epoch, metrics=selected)
 
     def log_validation_timing(
         self,
@@ -255,6 +294,41 @@ class Logger(ABC):
                 epoch,
             )
         self._summary_writer.flush()
+
+    def _write_trainable_param_scalars(
+        self,
+        *,
+        epoch: int,
+        counts: Mapping[str, int],
+    ) -> None:
+        for name, count in counts.items():
+            self._summary_writer.add_scalar(
+                f"Trainable_params/{name}",
+                int(count),
+                epoch,
+            )
+        self._summary_writer.flush()
+
+    def _write_diagnostic_scalars(
+        self,
+        *,
+        epoch: int,
+        metrics: Mapping[str, float],
+    ) -> None:
+        for key, value in metrics.items():
+            self._summary_writer.add_scalar(
+                self._diagnostic_tensorboard_tag(key),
+                float(value),
+                epoch,
+            )
+        self._summary_writer.flush()
+
+    @classmethod
+    def _diagnostic_tensorboard_tag(cls, key: str) -> str:
+        for prefix, tag_prefix in cls._DIAGNOSTIC_TENSORBOARD_PREFIXES.items():
+            if key.startswith(prefix):
+                return tag_prefix + key[len(prefix) :]
+        return "Diagnostics/" + key.replace("/", "_")
 
     @staticmethod
     def format_time(seconds: float) -> str:

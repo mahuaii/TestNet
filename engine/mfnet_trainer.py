@@ -10,7 +10,13 @@ from losses import CombinedLoss, build_loss
 
 from .evaluator import Evaluator
 from .stage_scheduler import StageScheduler
-from .training_diagnostics import collect_optimizer_group_summaries, stage_label
+from .training_diagnostics import (
+    attach_prealign_spmf_recorders,
+    collect_optimizer_group_summaries,
+    collect_trainable_param_counts,
+    diagnostics_enabled,
+    stage_label,
+)
 
 from .trainer import Trainer
 
@@ -40,6 +46,8 @@ class MFNetTrainer(Trainer):
             else None
         )
         self.current_stage = None
+        if diagnostics_enabled(self.cfg, "log_prealign_spmf_stats"):
+            attach_prealign_spmf_recorders(self.model)
 
     @override
     def before_epoch(self) -> None:
@@ -60,6 +68,12 @@ class MFNetTrainer(Trainer):
             scheduler_scale=StageScheduler._scheduler_scale(self.scheduler),
             group_summaries=collect_optimizer_group_summaries(self.optimizer),
         )
+        if diagnostics_enabled(self.cfg, "log_trainable_params"):
+            self.logger.log_trainable_param_counts(
+                epoch=self.epoch,
+                stage_label=current_stage_label,
+                counts=collect_trainable_param_counts(self.model, self.optimizer),
+            )
 
     @override
     def train_forward(self, batch: dict[str, Any]) -> tuple[torch.Tensor, dict[str, float]]:

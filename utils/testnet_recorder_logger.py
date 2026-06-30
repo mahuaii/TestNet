@@ -8,6 +8,9 @@ from .testnet_logger import TestNetLogger
 _TENSORBOARD_PREFIXES = {
     "dga/": "DGA/",
     "dgsf10/": "DGSF10/",
+    "prealign/": "PreAlign/",
+    "spmf20/structure/": "SPMF20/Structure/",
+    "spmf20/": "SPMF20/",
 }
 
 

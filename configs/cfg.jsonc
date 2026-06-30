@@ -115,6 +115,11 @@
         "val_epoch_interval": 4,
         "save_epoch_interval": 0,
         "save_step_interval": 0,
-        "use_tensorboard": true
+        "use_tensorboard": true,
+        "diagnostics": {
+            "enabled": false,
+            "log_trainable_params": false,
+            "log_prealign_spmf_stats": false
+        }
     }
 }

@@ -13,6 +13,7 @@ from tools.update_experiments_tsv import (
 )
 
 from .evaluator import Evaluator
+from .training_diagnostics import DIAGNOSTIC_STAT_PREFIXES, diagnostics_enabled
 from utils import (
     OPTIMIZER_GROUP_METADATA_KEYS,
     normalize_legacy_optimizer_state_dict,
@@ -321,6 +322,12 @@ class Trainer(ABC):
             train_metrics=train_metrics,
             lr=self.lr,
         )
+        if diagnostics_enabled(self.cfg, "log_prealign_spmf_stats"):
+            self.logger.log_diagnostic_scalars(
+                epoch=self.epoch,
+                metrics=train_metrics,
+                prefixes=DIAGNOSTIC_STAT_PREFIXES,
+            )
 
         self._save_epoch_checkpoints(
             resume_epoch=self.epoch + 1,
