@@ -1,0 +1,50 @@
+{
+    "extends": "cfg.jsonc",
+    "model": {
+        "type": "testnet_prealign_spmf20"
+    },
+    "scheduler": {
+        "type": "MultiStepLR",
+        "milestones": [40, 44],
+        "gamma": 0.1
+    },
+    "stages": [
+        {
+            "name": "stage1_prealign_main",
+            "epochs": [1, 25],
+            "freeze_modules": ["spmf_fusion20", "structure_branch10"],
+            "loss": ["ce"],
+            "default_lr": 0.01,
+            "module_lrs": {
+                "aux_prealign": 0.01
+            }
+        },
+        {
+            "name": "stage2_structure_spmf_with_slow_prealign",
+            "epochs": [26, 40],
+            "freeze_modules": [],
+            "loss": ["ce"],
+            "default_lr": 0.01,
+            "module_lrs": {
+                "aux_prealign": 0.003,
+                "spmf_fusion20": 0.01,
+                "structure_branch10": 0.01
+            }
+        },
+        {
+            "name": "stage3_joint_decay",
+            "epochs": [41, 48],
+            "freeze_modules": [],
+            "loss": ["ce"],
+            "default_lr": 0.01,
+            "module_lrs": {
+                "aux_prealign": 0.003,
+                "spmf_fusion20": 0.01,
+                "structure_branch10": 0.01
+            }
+        }
+    ],
+    "train": {
+        "max_epochs": 48
+    }
+}
