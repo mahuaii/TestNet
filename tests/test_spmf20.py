@@ -9,16 +9,14 @@ from models.mfnet.modules.dsm_structure_branch10 import DSMStructureBranch10 as 
 from models.mfnet.modules.spmf10 import DSMStructureBranch10 as SPMF10DSMStructureBranch10
 from models.mfnet.modules.spmf20 import (
     DSMStructureBranch10 as SPMF20DSMStructureBranch10,
-    MultiScaleSPMF20,
-    MultiScaleStructurePriorModulatedFusion20,
-    SPMFBlock20,
-    StructurePriorModulatedFusionBlock20,
+    MultiScaleSPMFFusion20,
+    SPMFFusionBlock20,
 )
 from models.mfnet.modules.spmf20_fusion import (
-    MultiScaleStructurePriorModulatedFusion20 as SplitMultiScaleSPMF20,
+    MultiScaleSPMFFusion20 as SplitMultiScaleSPMFFusion20,
 )
 from models.mfnet.modules.spmf20_fusion import (
-    StructurePriorModulatedFusionBlock20 as SplitSPMFBlock20,
+    SPMFFusionBlock20 as SplitSPMFFusionBlock20,
 )
 
 
@@ -26,15 +24,13 @@ class SPMF20FacadeTest(unittest.TestCase):
     def test_facades_reuse_split_structure_and_fusion_implementations(self) -> None:
         self.assertIs(SPMF10DSMStructureBranch10, SplitDSMStructureBranch10)
         self.assertIs(SPMF20DSMStructureBranch10, SplitDSMStructureBranch10)
-        self.assertIs(StructurePriorModulatedFusionBlock20, SplitSPMFBlock20)
-        self.assertIs(MultiScaleStructurePriorModulatedFusion20, SplitMultiScaleSPMF20)
-        self.assertIs(SPMFBlock20, StructurePriorModulatedFusionBlock20)
-        self.assertIs(MultiScaleSPMF20, MultiScaleStructurePriorModulatedFusion20)
+        self.assertIs(SPMFFusionBlock20, SplitSPMFFusionBlock20)
+        self.assertIs(MultiScaleSPMFFusion20, SplitMultiScaleSPMFFusion20)
 
 
-class StructurePriorModulatedFusionBlock20Test(unittest.TestCase):
+class SPMFFusionBlock20Test(unittest.TestCase):
     def test_forward_returns_rgb_shaped_output(self) -> None:
-        module = StructurePriorModulatedFusionBlock20(channels=8, structure_channels=5, hidden_dim=12)
+        module = SPMFFusionBlock20(channels=8, structure_channels=5, hidden_dim=12)
         rgb = torch.randn(2, 8, 7, 9)
         dsm = torch.randn(2, 8, 7, 9)
         structure = torch.randn(2, 5, 7, 9)
@@ -45,7 +41,7 @@ class StructurePriorModulatedFusionBlock20Test(unittest.TestCase):
         self.assertTrue(torch.isfinite(output).all())
 
     def test_uses_structure_conditioned_affine_and_independent_evidence_heads(self) -> None:
-        module = StructurePriorModulatedFusionBlock20(channels=8, structure_channels=5, hidden_dim=12)
+        module = SPMFFusionBlock20(channels=8, structure_channels=5, hidden_dim=12)
 
         self.assertEqual(module.rgb_affine.in_channels, 12)
         self.assertEqual(module.rgb_affine.out_channels, 24)
@@ -70,7 +66,7 @@ class StructurePriorModulatedFusionBlock20Test(unittest.TestCase):
             self.assertFalse(hasattr(module, forbidden_name))
 
     def test_zero_initialization_produces_exact_modality_average(self) -> None:
-        module = StructurePriorModulatedFusionBlock20(channels=8, structure_channels=5, hidden_dim=12)
+        module = SPMFFusionBlock20(channels=8, structure_channels=5, hidden_dim=12)
         rgb = torch.randn(2, 8, 7, 9)
         dsm = torch.randn(2, 8, 7, 9)
         structure = torch.randn(2, 5, 7, 9)
@@ -86,7 +82,7 @@ class StructurePriorModulatedFusionBlock20Test(unittest.TestCase):
         self.assertTrue(torch.equal(output, 0.5 * (rgb + dsm)))
 
     def test_softmax_evidence_competes_between_modalities(self) -> None:
-        module = StructurePriorModulatedFusionBlock20(channels=3, structure_channels=2, hidden_dim=4)
+        module = SPMFFusionBlock20(channels=3, structure_channels=2, hidden_dim=4)
         with torch.no_grad():
             module.rgb_evidence_head[-1].bias.fill_(math.log(3.0))
             module.dsm_evidence_head[-1].bias.zero_()
@@ -99,7 +95,7 @@ class StructurePriorModulatedFusionBlock20Test(unittest.TestCase):
         self.assertTrue(torch.allclose(output, 0.75 * rgb + 0.25 * dsm, atol=1e-6, rtol=1e-6))
 
     def test_rejects_invalid_inputs(self) -> None:
-        module = StructurePriorModulatedFusionBlock20(channels=8, structure_channels=5, hidden_dim=12)
+        module = SPMFFusionBlock20(channels=8, structure_channels=5, hidden_dim=12)
         rgb = torch.randn(2, 8, 7, 9)
         dsm = torch.randn(2, 8, 7, 9)
         structure = torch.randn(2, 5, 7, 9)
@@ -116,7 +112,7 @@ class StructurePriorModulatedFusionBlock20Test(unittest.TestCase):
             module(rgb, dsm, torch.randn(2, 5, 6, 9))
 
     def test_backward_produces_finite_input_and_parameter_gradients(self) -> None:
-        module = StructurePriorModulatedFusionBlock20(channels=8, structure_channels=5, hidden_dim=12)
+        module = SPMFFusionBlock20(channels=8, structure_channels=5, hidden_dim=12)
         rgb = torch.randn(2, 8, 7, 9, requires_grad=True)
         dsm = torch.randn(2, 8, 7, 9, requires_grad=True)
         structure = torch.randn(2, 5, 7, 9, requires_grad=True)
@@ -132,9 +128,9 @@ class StructurePriorModulatedFusionBlock20Test(unittest.TestCase):
             self.assertTrue(torch.isfinite(parameter.grad).all())
 
 
-class MultiScaleStructurePriorModulatedFusion20Test(unittest.TestCase):
+class MultiScaleSPMFFusion20Test(unittest.TestCase):
     def test_forward_returns_four_rgb_shaped_outputs(self) -> None:
-        module = MultiScaleStructurePriorModulatedFusion20(
+        module = MultiScaleSPMFFusion20(
             channels=(8, 10, 12, 14),
             structure_channels=(3, 4, 5, 6),
             hidden_dim=(8, 8, 8, 8),
@@ -154,7 +150,7 @@ class MultiScaleStructurePriorModulatedFusion20Test(unittest.TestCase):
             self.assertTrue(torch.equal(output, 0.5 * (rgb + dsm)))
 
     def test_rejects_invalid_feature_sequence_and_constructor_lengths(self) -> None:
-        module = MultiScaleStructurePriorModulatedFusion20(channels=8, hidden_dim=8)
+        module = MultiScaleSPMFFusion20(channels=8, hidden_dim=8)
         features = tuple(torch.randn(2, 8, 4, 4) for _ in range(4))
 
         with self.assertRaises(ValueError):
@@ -166,9 +162,9 @@ class MultiScaleStructurePriorModulatedFusion20Test(unittest.TestCase):
         with self.assertRaises(TypeError):
             module(object(), features, features)  # type: ignore[arg-type]
         with self.assertRaises(ValueError):
-            MultiScaleStructurePriorModulatedFusion20(channels=(8, 8, 8), hidden_dim=8)
+            MultiScaleSPMFFusion20(channels=(8, 8, 8), hidden_dim=8)
         with self.assertRaises(ValueError):
-            MultiScaleStructurePriorModulatedFusion20(
+            MultiScaleSPMFFusion20(
                 channels=8,
                 structure_channels=(8, 8, 8),
                 hidden_dim=8,

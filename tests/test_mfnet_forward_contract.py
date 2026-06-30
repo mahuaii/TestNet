@@ -1220,7 +1220,7 @@ class MFNetForwardContractTest(unittest.TestCase):
                 dsm_feats: tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
                 structure_feats: tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
             ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-                events.append("spmf10")
+                events.append("spmf_fusion10")
                 self.rgb_feats = rgb_feats
                 self.dsm_feats = dsm_feats
                 self.structure_feats = structure_feats
@@ -1260,14 +1260,14 @@ class MFNetForwardContractTest(unittest.TestCase):
         model.fpn3y = SpyFPN("fpn3y", fpn_outputs[6])
         model.fpn4y = SpyFPN("fpn4y", fpn_outputs[7])
         model.structure_branch10 = SpyStructureBranch()
-        model.spmf10 = SpySPMF10()
+        model.spmf_fusion10 = SpySPMF10()
         model.decoder = SpyDecoder()
         raw_dsm = torch.ones(2, 8, 8)
 
         output = model(torch.zeros(2, 3, 8, 8), raw_dsm)
 
         structure_branch = model.structure_branch10
-        spmf10 = model.spmf10
+        spmf10 = model.spmf_fusion10
         decoder = model.decoder
         assert isinstance(structure_branch, SpyStructureBranch)
         assert isinstance(spmf10, SpySPMF10)
@@ -1294,7 +1294,7 @@ class MFNetForwardContractTest(unittest.TestCase):
                 "fpn3y",
                 "fpn4y",
                 "structure",
-                "spmf10",
+                "spmf_fusion10",
                 "decoder",
             ],
         )
@@ -1427,7 +1427,7 @@ class MFNetForwardContractTest(unittest.TestCase):
                 dsm_feats: tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
                 structure_feats: tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
             ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-                events.append("spmf20")
+                events.append("spmf_fusion20")
                 self.rgb_feats = rgb_feats
                 self.dsm_feats = dsm_feats
                 self.structure_feats = structure_feats
@@ -1468,7 +1468,7 @@ class MFNetForwardContractTest(unittest.TestCase):
         model.fpn3y = SpyFPN("fpn3y", fpn_outputs[6])
         model.fpn4y = SpyFPN("fpn4y", fpn_outputs[7])
         model.structure_branch10 = SpyStructureBranch()
-        model.spmf20 = SpySPMF20()
+        model.spmf_fusion20 = SpySPMF20()
         model.decoder = SpyDecoder()
         raw_dsm = torch.arange(128, dtype=torch.float32).view(2, 8, 8)
 
@@ -1477,7 +1477,7 @@ class MFNetForwardContractTest(unittest.TestCase):
         aux_prealign = model.aux_prealign
         patch_embed = model.image_encoder.patch_embed
         structure_branch = model.structure_branch10
-        spmf20 = model.spmf20
+        spmf20 = model.spmf_fusion20
         decoder = model.decoder
         assert isinstance(aux_prealign, FakeAuxPreAlign)
         assert isinstance(patch_embed, FakePatchEmbed)
@@ -1512,7 +1512,7 @@ class MFNetForwardContractTest(unittest.TestCase):
                 "fpn3y",
                 "fpn4y",
                 "structure",
-                "spmf20",
+                "spmf_fusion20",
                 "decoder",
             ],
         )

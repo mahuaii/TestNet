@@ -523,7 +523,7 @@ class MFNetBuildTest(unittest.TestCase):
                     "sam_backbone": "vit_b",
                     "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
                     "record_intermediate_stats": True,
-                    "record_intermediate_modules": ["spmf10"],
+                    "record_intermediate_modules": ["spmf_fusion10"],
                 }
             )
 
@@ -536,7 +536,7 @@ class MFNetBuildTest(unittest.TestCase):
                         "sam_backbone": "vit_b",
                         "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
                         "record_intermediate_stats": True,
-                        "record_intermediate_modules": ["spmf10"],
+                        "record_intermediate_modules": ["spmf_fusion10"],
                     }
                 ],
             )
@@ -568,7 +568,7 @@ class MFNetBuildTest(unittest.TestCase):
                     "sam_backbone": "vit_b",
                     "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
                     "record_intermediate_stats": True,
-                    "record_intermediate_modules": ["spmf20"],
+                    "record_intermediate_modules": ["spmf_fusion20"],
                 }
             )
 
@@ -581,7 +581,7 @@ class MFNetBuildTest(unittest.TestCase):
                         "sam_backbone": "vit_b",
                         "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
                         "record_intermediate_stats": True,
-                        "record_intermediate_modules": ["spmf20"],
+                        "record_intermediate_modules": ["spmf_fusion20"],
                     }
                 ],
             )
@@ -613,7 +613,7 @@ class MFNetBuildTest(unittest.TestCase):
                     "sam_backbone": "vit_b",
                     "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
                     "record_intermediate_stats": True,
-                    "record_intermediate_modules": ["spmf20"],
+                    "record_intermediate_modules": ["spmf_fusion20"],
                 }
             )
 
@@ -626,7 +626,7 @@ class MFNetBuildTest(unittest.TestCase):
                         "sam_backbone": "vit_b",
                         "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
                         "record_intermediate_stats": True,
-                        "record_intermediate_modules": ["spmf20"],
+                        "record_intermediate_modules": ["spmf_fusion20"],
                     }
                 ],
             )

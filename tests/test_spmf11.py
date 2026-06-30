@@ -9,32 +9,26 @@ import torch
 
 from models.mfnet.modules import (
     DSMStructureBranch11,
-    MultiScaleStructurePriorModulatedFusion11,
-    StructurePriorModulatedFusionBlock11,
+    MultiScaleSPMFFusion11,
+    SPMFFusionBlock11,
 )
 from models.mfnet.modules.dsm_structure_branch11 import DSMStructureBranch11 as SplitDSMStructureBranch11
 from models.mfnet.modules.spmf11 import (
     DSMStructureBranch11 as FacadeDSMStructureBranch11,
 )
-from models.mfnet.modules.spmf11 import (
-    MultiScaleSPMF11,
-    SPMFBlock11,
+from models.mfnet.modules.spmf11_fusion import (
+    MultiScaleSPMFFusion11 as SplitMultiScaleSPMFFusion11,
 )
 from models.mfnet.modules.spmf11_fusion import (
-    MultiScaleStructurePriorModulatedFusion11 as SplitMultiScaleSPMF11,
-)
-from models.mfnet.modules.spmf11_fusion import (
-    StructurePriorModulatedFusionBlock11 as SplitSPMFBlock11,
+    SPMFFusionBlock11 as SplitSPMFFusionBlock11,
 )
 
 
 class SPMF11FacadeTest(unittest.TestCase):
     def test_facade_reuses_split_implementations(self) -> None:
         self.assertIs(FacadeDSMStructureBranch11, SplitDSMStructureBranch11)
-        self.assertIs(StructurePriorModulatedFusionBlock11, SplitSPMFBlock11)
-        self.assertIs(MultiScaleStructurePriorModulatedFusion11, SplitMultiScaleSPMF11)
-        self.assertIs(SPMFBlock11, StructurePriorModulatedFusionBlock11)
-        self.assertIs(MultiScaleSPMF11, MultiScaleStructurePriorModulatedFusion11)
+        self.assertIs(SPMFFusionBlock11, SplitSPMFFusionBlock11)
+        self.assertIs(MultiScaleSPMFFusion11, SplitMultiScaleSPMFFusion11)
 
 
 class SPMF11BuildTest(unittest.TestCase):
@@ -58,7 +52,7 @@ class SPMF11BuildTest(unittest.TestCase):
                     "sam_backbone": "vit_b",
                     "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
                     "record_intermediate_stats": True,
-                    "record_intermediate_modules": ["spmf11"],
+                    "record_intermediate_modules": ["spmf_fusion11"],
                 }
             )
         finally:
@@ -76,7 +70,7 @@ class SPMF11BuildTest(unittest.TestCase):
                     "sam_backbone": "vit_b",
                     "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
                     "record_intermediate_stats": True,
-                    "record_intermediate_modules": ["spmf11"],
+                    "record_intermediate_modules": ["spmf_fusion11"],
                 }
             ],
         )
@@ -159,7 +153,7 @@ class UNetFormerSPMF11Test(unittest.TestCase):
         model.fpn1x = model.fpn2x = model.fpn3x = model.fpn4x = torch.nn.Identity()
         model.fpn1y = model.fpn2y = model.fpn3y = model.fpn4y = torch.nn.Identity()
         model.structure_branch11 = StructureBranch()
-        model.spmf11 = SPMF11()
+        model.spmf_fusion11 = SPMF11()
         model.decoder = Decoder()
         raw_dsm = torch.rand(2, 8, 8)
 
@@ -168,7 +162,7 @@ class UNetFormerSPMF11Test(unittest.TestCase):
         self.assertEqual(output.shape, (2, 6, 8, 8))
         self.assertTrue(torch.equal(model.structure_branch11.dsm, raw_dsm.unsqueeze(1)))
         self.assertEqual(len(model.structure_branch11.taps or ()), 4)
-        self.assertIsNotNone(model.spmf11.inputs)
+        self.assertIsNotNone(model.spmf_fusion11.inputs)
         self.assertIsNotNone(model.decoder.inputs)
 
 
@@ -233,9 +227,9 @@ class DSMStructureBranch11Test(unittest.TestCase):
             self.assertTrue(torch.isfinite(parameter.grad).all())
 
 
-class StructurePriorModulatedFusionBlock11Test(unittest.TestCase):
+class SPMFFusionBlock11Test(unittest.TestCase):
     def test_uses_independent_nonzero_initialized_modality_gates(self) -> None:
-        module = StructurePriorModulatedFusionBlock11(
+        module = SPMFFusionBlock11(
             channels=8,
             structure_channels=5,
             hidden_dim=12,
@@ -253,7 +247,7 @@ class StructurePriorModulatedFusionBlock11Test(unittest.TestCase):
         self.assertLess(dsm_output.weight.std().item(), 0.01)
 
     def test_independent_gate_biases_do_not_form_a_complementary_pair(self) -> None:
-        module = StructurePriorModulatedFusionBlock11(channels=3, structure_channels=2, hidden_dim=4)
+        module = SPMFFusionBlock11(channels=3, structure_channels=2, hidden_dim=4)
         with torch.no_grad():
             module.rgb_gate_generator[-1].weight.zero_()
             module.rgb_gate_generator[-1].bias.fill_(torch.logit(torch.tensor(0.75)))
@@ -268,7 +262,7 @@ class StructurePriorModulatedFusionBlock11Test(unittest.TestCase):
         self.assertTrue(torch.allclose(output, 0.75 * rgb + 0.75 * dsm, atol=1e-6, rtol=1e-6))
 
     def test_first_backward_reaches_gate_projections(self) -> None:
-        module = StructurePriorModulatedFusionBlock11(channels=8, structure_channels=5, hidden_dim=12)
+        module = SPMFFusionBlock11(channels=8, structure_channels=5, hidden_dim=12)
         rgb = torch.randn(2, 8, 7, 9, requires_grad=True)
         dsm = torch.randn(2, 8, 7, 9, requires_grad=True)
         structure = torch.randn(2, 5, 7, 9, requires_grad=True)
@@ -283,12 +277,12 @@ class StructurePriorModulatedFusionBlock11Test(unittest.TestCase):
 
     def test_rejects_nonpositive_gate_init_std(self) -> None:
         with self.assertRaises(ValueError):
-            StructurePriorModulatedFusionBlock11(gate_init_std=0.0)
+            SPMFFusionBlock11(gate_init_std=0.0)
 
 
-class MultiScaleStructurePriorModulatedFusion11Test(unittest.TestCase):
+class MultiScaleSPMFFusion11Test(unittest.TestCase):
     def test_forward_returns_four_rgb_shaped_outputs(self) -> None:
-        module = MultiScaleStructurePriorModulatedFusion11(
+        module = MultiScaleSPMFFusion11(
             channels=(8, 10, 12, 14),
             structure_channels=(3, 4, 5, 6),
             hidden_dim=(8, 8, 8, 8),

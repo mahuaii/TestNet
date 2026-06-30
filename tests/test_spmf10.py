@@ -6,8 +6,8 @@ import torch
 
 from models.mfnet.modules import (
     DSMStructureBranch10,
-    MultiScaleStructurePriorModulatedFusion10,
-    StructurePriorModulatedFusionBlock10,
+    MultiScaleSPMFFusion10,
+    SPMFFusionBlock10,
 )
 
 
@@ -108,9 +108,9 @@ class DSMStructureBranch10Test(unittest.TestCase):
             self.assertEqual(confidence_generator[1].out_channels, 12)
 
 
-class StructurePriorModulatedFusionBlock10Test(unittest.TestCase):
+class SPMFFusionBlock10Test(unittest.TestCase):
     def test_forward_returns_rgb_shaped_output(self) -> None:
-        module = StructurePriorModulatedFusionBlock10(channels=8, structure_channels=5, hidden_dim=12)
+        module = SPMFFusionBlock10(channels=8, structure_channels=5, hidden_dim=12)
         rgb = torch.randn(2, 8, 7, 9)
         dsm = torch.randn(2, 8, 7, 9)
         structure = torch.randn(2, 5, 7, 9)
@@ -121,7 +121,7 @@ class StructurePriorModulatedFusionBlock10Test(unittest.TestCase):
         self.assertTrue(torch.isfinite(output).all())
 
     def test_uses_three_projected_inputs_to_generate_feature_channel_gate(self) -> None:
-        module = StructurePriorModulatedFusionBlock10(channels=8, structure_channels=5, hidden_dim=12)
+        module = SPMFFusionBlock10(channels=8, structure_channels=5, hidden_dim=12)
 
         self.assertEqual(module.fusion_gate_generator[0][0].in_channels, 36)
         self.assertEqual(module.fusion_gate_generator[1].out_channels, 8)
@@ -131,7 +131,7 @@ class StructurePriorModulatedFusionBlock10Test(unittest.TestCase):
         self.assertFalse(hasattr(module, "gamma"))
 
     def test_initial_gate_logits_are_zero_and_output_is_modality_average(self) -> None:
-        module = StructurePriorModulatedFusionBlock10(channels=8, structure_channels=5, hidden_dim=12)
+        module = SPMFFusionBlock10(channels=8, structure_channels=5, hidden_dim=12)
         gate_output = module.fusion_gate_generator[1]
         rgb = torch.randn(2, 8, 7, 9)
         dsm = torch.randn(2, 8, 7, 9)
@@ -144,7 +144,7 @@ class StructurePriorModulatedFusionBlock10Test(unittest.TestCase):
         self.assertTrue(torch.allclose(output, 0.5 * (rgb + dsm)))
 
     def test_rejects_invalid_inputs(self) -> None:
-        module = StructurePriorModulatedFusionBlock10(channels=8, structure_channels=5, hidden_dim=12)
+        module = SPMFFusionBlock10(channels=8, structure_channels=5, hidden_dim=12)
         rgb = torch.randn(2, 8, 7, 9)
         dsm = torch.randn(2, 8, 7, 9)
         structure = torch.randn(2, 5, 7, 9)
@@ -161,7 +161,7 @@ class StructurePriorModulatedFusionBlock10Test(unittest.TestCase):
             module(rgb, dsm, torch.randn(2, 5, 6, 9))
 
     def test_backward_produces_finite_input_and_parameter_gradients(self) -> None:
-        module = StructurePriorModulatedFusionBlock10(channels=8, structure_channels=5, hidden_dim=12)
+        module = SPMFFusionBlock10(channels=8, structure_channels=5, hidden_dim=12)
         rgb = torch.randn(2, 8, 7, 9, requires_grad=True)
         dsm = torch.randn(2, 8, 7, 9, requires_grad=True)
         structure = torch.randn(2, 5, 7, 9, requires_grad=True)
@@ -177,9 +177,9 @@ class StructurePriorModulatedFusionBlock10Test(unittest.TestCase):
             self.assertTrue(torch.isfinite(parameter.grad).all())
 
 
-class MultiScaleStructurePriorModulatedFusion10Test(unittest.TestCase):
+class MultiScaleSPMFFusion10Test(unittest.TestCase):
     def test_forward_returns_four_rgb_shaped_outputs(self) -> None:
-        module = MultiScaleStructurePriorModulatedFusion10(
+        module = MultiScaleSPMFFusion10(
             channels=(8, 10, 12, 14),
             structure_channels=(3, 4, 5, 6),
             hidden_dim=(8, 8, 8, 8),
@@ -197,7 +197,7 @@ class MultiScaleStructurePriorModulatedFusion10Test(unittest.TestCase):
             self.assertTrue(torch.isfinite(output).all())
 
     def test_rejects_invalid_feature_sequence_lengths(self) -> None:
-        module = MultiScaleStructurePriorModulatedFusion10(channels=8, hidden_dim=8)
+        module = MultiScaleSPMFFusion10(channels=8, hidden_dim=8)
         rgb_feats = tuple(torch.randn(2, 8, 4, 4) for _ in range(4))
         dsm_feats = tuple(torch.randn(2, 8, 4, 4) for _ in range(4))
         structure_feats = tuple(torch.randn(2, 8, 4, 4) for _ in range(4))
@@ -213,9 +213,9 @@ class MultiScaleStructurePriorModulatedFusion10Test(unittest.TestCase):
 
     def test_rejects_invalid_constructor_lengths(self) -> None:
         with self.assertRaises(ValueError):
-            MultiScaleStructurePriorModulatedFusion10(channels=(8, 8, 8), hidden_dim=8)
+            MultiScaleSPMFFusion10(channels=(8, 8, 8), hidden_dim=8)
         with self.assertRaises(ValueError):
-            MultiScaleStructurePriorModulatedFusion10(channels=8, structure_channels=(8, 8, 8), hidden_dim=8)
+            MultiScaleSPMFFusion10(channels=8, structure_channels=(8, 8, 8), hidden_dim=8)
 
 
 if __name__ == "__main__":

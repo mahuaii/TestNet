@@ -2,20 +2,15 @@
 
 from .dsm_structure_branch12 import DSMStructureBranch12
 from .spmf20_fusion import (
-    MultiScaleStructurePriorModulatedFusion20,
-    SPMFBlock20,
-    StructurePriorModulatedFusionBlock20,
+    MultiScaleSPMFFusion20,
+    SPMFFusionBlock20,
 )
 
-SPMFBlock21 = SPMFBlock20
-MultiScaleSPMF21 = MultiScaleStructurePriorModulatedFusion20
-StructurePriorModulatedFusionBlock21 = StructurePriorModulatedFusionBlock20
-MultiScaleStructurePriorModulatedFusion21 = MultiScaleStructurePriorModulatedFusion20
+SPMFFusionBlock21 = SPMFFusionBlock20
+MultiScaleSPMFFusion21 = MultiScaleSPMFFusion20
 
 __all__ = [
     "DSMStructureBranch12",
-    "SPMFBlock21",
-    "MultiScaleSPMF21",
-    "StructurePriorModulatedFusionBlock21",
-    "MultiScaleStructurePriorModulatedFusion21",
+    "SPMFFusionBlock21",
+    "MultiScaleSPMFFusion21",
 ]

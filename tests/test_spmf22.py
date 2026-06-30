@@ -9,15 +9,13 @@ import torch
 
 from models.mfnet.modules import (
     DSMStructureBranch13,
-    MultiScaleSPMF22,
-    MultiScaleStructurePriorModulatedFusion22,
-    SPMFBlock22,
-    StructurePriorModulatedFusionBlock22,
+    MultiScaleSPMFFusion22,
+    SPMFFusionBlock22,
 )
 from models.mfnet.modules.dsm_structure_branch13 import DSMStructureBranch13 as SplitDSMStructureBranch13
 from models.mfnet.modules.spmf20_fusion import (
-    MultiScaleStructurePriorModulatedFusion20,
-    StructurePriorModulatedFusionBlock20,
+    MultiScaleSPMFFusion20,
+    SPMFFusionBlock20,
 )
 from models.mfnet.modules.spmf22 import DSMStructureBranch13 as FacadeDSMStructureBranch13
 from utils import IntermediateStatsRecorder
@@ -26,10 +24,8 @@ from utils import IntermediateStatsRecorder
 class SPMF22FacadeTest(unittest.TestCase):
     def test_facade_uses_branch13_and_unchanged_spmf20_fusion(self) -> None:
         self.assertIs(FacadeDSMStructureBranch13, SplitDSMStructureBranch13)
-        self.assertIs(StructurePriorModulatedFusionBlock22, StructurePriorModulatedFusionBlock20)
-        self.assertIs(MultiScaleStructurePriorModulatedFusion22, MultiScaleStructurePriorModulatedFusion20)
-        self.assertIs(SPMFBlock22, StructurePriorModulatedFusionBlock20)
-        self.assertIs(MultiScaleSPMF22, MultiScaleStructurePriorModulatedFusion20)
+        self.assertIs(SPMFFusionBlock22, SPMFFusionBlock20)
+        self.assertIs(MultiScaleSPMFFusion22, MultiScaleSPMFFusion20)
 
 
 class DSMStructureBranch13Test(unittest.TestCase):
@@ -248,7 +244,7 @@ class UNetFormerSPMF22Test(unittest.TestCase):
         model.fpn1x = model.fpn2x = model.fpn3x = model.fpn4x = torch.nn.Identity()
         model.fpn1y = model.fpn2y = model.fpn3y = model.fpn4y = torch.nn.Identity()
         model.structure_branch13 = StructureBranch()
-        model.spmf22 = SPMF22()
+        model.spmf_fusion22 = SPMF22()
         model.decoder = Decoder()
         raw_dsm = torch.rand(2, 8, 8)
 
@@ -257,10 +253,10 @@ class UNetFormerSPMF22Test(unittest.TestCase):
         self.assertEqual(output.shape, (2, 6, 8, 8))
         self.assertTrue(torch.equal(model.structure_branch13.dsm, raw_dsm.unsqueeze(1)))
         self.assertEqual(len(model.structure_branch13.taps or ()), 4)
-        self.assertIsNotNone(model.spmf22.inputs)
+        self.assertIsNotNone(model.spmf_fusion22.inputs)
         self.assertIsNotNone(model.decoder.inputs)
         self.assertFalse(hasattr(model, "structure_branch12"))
-        self.assertFalse(hasattr(model, "spmf21"))
+        self.assertFalse(hasattr(model, "spmf_fusion21"))
 
 
 if __name__ == "__main__":

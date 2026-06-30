@@ -15,7 +15,7 @@ from ._spmf_common import (
 from .dga20 import LayerNorm2d
 
 
-class StructurePriorModulatedFusionBlock11(nn.Module):
+class SPMFFusionBlock11(nn.Module):
     """Single-scale SPMF11 block with independent modality gates."""
 
     def __init__(
@@ -99,7 +99,7 @@ class StructurePriorModulatedFusionBlock11(nn.Module):
         return rgb_gate * rgb + dsm_gate * dsm
 
 
-class MultiScaleStructurePriorModulatedFusion11(nn.Module):
+class MultiScaleSPMFFusion11(nn.Module):
     """Apply independent SPMF11 blocks to four feature scales."""
 
     def __init__(
@@ -119,7 +119,7 @@ class MultiScaleStructurePriorModulatedFusion11(nn.Module):
             self.structure_channels = as_four_tuple("structure_channels", structure_channels)
         self.hidden_dim = as_four_tuple("hidden_dim", hidden_dim)
         self.blocks = nn.ModuleList(
-            StructurePriorModulatedFusionBlock11(
+            SPMFFusionBlock11(
                 channels=channel,
                 structure_channels=structure_channel,
                 hidden_dim=hidden,
@@ -154,13 +154,7 @@ class MultiScaleStructurePriorModulatedFusion11(nn.Module):
         return tuple(outputs)  # type: ignore[return-value]
 
 
-SPMFBlock11 = StructurePriorModulatedFusionBlock11
-MultiScaleSPMF11 = MultiScaleStructurePriorModulatedFusion11
-
-
 __all__ = [
-    "SPMFBlock11",
-    "MultiScaleSPMF11",
-    "StructurePriorModulatedFusionBlock11",
-    "MultiScaleStructurePriorModulatedFusion11",
+    "SPMFFusionBlock11",
+    "MultiScaleSPMFFusion11",
 ]
