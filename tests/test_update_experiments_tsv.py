@@ -154,7 +154,7 @@ class UpdateExperimentsTsvTest(unittest.TestCase):
             self.assertEqual(
                 tsv_path.read_text(encoding="utf-8"),
                 "ID\tSeed\tmIoU\tOA\tF1\tBestE\tStatus\n"
-                "6b855\t40\t82.75\t92.42\t90.30\t28\trunning(val32/48)\n",
+                "6b855\t40\t82.75\t92.42\t90.30\t28\trunning(32/48)(val)\n",
             )
 
     def test_status_missing_required_column_returns_false_and_leaves_file_unchanged(self) -> None:
