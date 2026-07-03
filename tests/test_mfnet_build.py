@@ -537,6 +537,7 @@ class MFNetBuildTest(unittest.TestCase):
                         "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
                         "record_intermediate_stats": True,
                         "record_intermediate_modules": ["spmf_fusion10"],
+                        "detach_dsm_taps": True,
                     }
                 ],
             )
@@ -569,6 +570,7 @@ class MFNetBuildTest(unittest.TestCase):
                     "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
                     "record_intermediate_stats": True,
                     "record_intermediate_modules": ["spmf_fusion20"],
+                    "detach_dsm_taps": False,
                 }
             )
 
@@ -582,6 +584,7 @@ class MFNetBuildTest(unittest.TestCase):
                         "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
                         "record_intermediate_stats": True,
                         "record_intermediate_modules": ["spmf_fusion20"],
+                        "detach_dsm_taps": False,
                     }
                 ],
             )
@@ -627,6 +630,7 @@ class MFNetBuildTest(unittest.TestCase):
                         "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
                         "record_intermediate_stats": True,
                         "record_intermediate_modules": ["spmf_fusion20"],
+                        "detach_dsm_taps": True,
                     }
                 ],
             )

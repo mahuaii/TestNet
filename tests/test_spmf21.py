@@ -84,6 +84,24 @@ class DSMStructureBranch12Test(unittest.TestCase):
         for tap in taps:
             self.assertIsNone(tap.grad)
 
+    def test_returns_tap_gradients_when_taps_are_attached(self) -> None:
+        module = DSMStructureBranch12(
+            tap_channels=(3, 4, 5, 6),
+            structure_channels=(8, 8, 8, 8),
+            output_channels=12,
+            similarity_kernel_size=3,
+            detach_dsm_taps=False,
+        )
+        dsm = torch.randn(2, 1, 64, 80, requires_grad=True)
+        taps = self._make_taps(requires_grad=True)
+
+        outputs = module(dsm, taps)
+        sum(output.square().mean() for output in outputs).backward()
+
+        for tap in taps:
+            self.assertIsNotNone(tap.grad)
+            self.assertTrue(torch.isfinite(tap.grad).all())
+
     def test_records_confidence_structure_and_alpha_statistics(self) -> None:
         module = DSMStructureBranch12(
             tap_channels=(3, 4, 5, 6),
@@ -153,6 +171,7 @@ class SPMF21BuildTest(unittest.TestCase):
                     "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
                     "record_intermediate_stats": True,
                     "record_intermediate_modules": ["structure12"],
+                    "detach_dsm_taps": True,
                 }
             ],
         )

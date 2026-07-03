@@ -15,9 +15,14 @@ class _ToyStageModel(torch.nn.Module):
         self.aux_prealign = torch.nn.Linear(2, 2, bias=False)
         self.spmf_fusion20 = torch.nn.Linear(2, 2, bias=False)
         self.structure_branch10 = torch.nn.Linear(2, 2, bias=False)
+        self.structure_branch10.detach_dsm_taps = True
+        self._spmf_variant_spec = SimpleNamespace(structure_attr="structure_branch10")
         self.decoder = torch.nn.Linear(2, 1, bias=False)
         self.frozen_backbone = torch.nn.Linear(2, 2, bias=False)
         self.frozen_backbone.requires_grad_(False)
+
+    def set_detach_dsm_taps(self, enabled: bool) -> None:
+        self.structure_branch10.detach_dsm_taps = enabled
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         aligned = self.aux_prealign(x)
@@ -212,6 +217,33 @@ class StageSchedulerTest(unittest.TestCase):
         self.assertEqual(lrs["spmf_fusion20"], {0.01})
         self.assertEqual(lrs["structure_branch10"], {0.01})
 
+    def test_stage_detach_dsm_taps_overrides_and_then_inherits_baseline(self) -> None:
+        model = _ToyStageModel()
+        trainer = _make_trainer(model)
+        scheduler = StageScheduler(
+            model,
+            [
+                {
+                    "epochs": [1, 1],
+                    "freeze_modules": [],
+                    "loss": ["ce"],
+                    "detach_dsm_taps": False,
+                },
+                {
+                    "epochs": [2, 2],
+                    "freeze_modules": [],
+                    "loss": ["ce"],
+                },
+            ],
+        )
+
+        scheduler.apply(trainer)
+        self.assertFalse(model.structure_branch10.detach_dsm_taps)
+
+        trainer.epoch = 2
+        scheduler.apply(trainer)
+        self.assertTrue(model.structure_branch10.detach_dsm_taps)
+
     def test_stage_scheduler_accepts_legacy_spmf_module_paths(self) -> None:
         model = _ToyStageModel()
         trainer = _make_stage_lr_trainer(model)
@@ -304,6 +336,18 @@ class StageSchedulerTest(unittest.TestCase):
                         "freeze_modules": [],
                         "loss": ["ce"],
                         "module_lrs": {"missing": 0.001},
+                    }
+                ],
+            )
+        with self.assertRaisesRegex(TypeError, "detach_dsm_taps must be a bool"):
+            StageScheduler(
+                model,
+                [
+                    {
+                        "epochs": [1, 1],
+                        "freeze_modules": [],
+                        "loss": ["ce"],
+                        "detach_dsm_taps": "false",
                     }
                 ],
             )

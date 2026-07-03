@@ -71,6 +71,7 @@ class SPMF11BuildTest(unittest.TestCase):
                     "sam_checkpoint": "/tmp/sam_vit_b_01ec64.pth",
                     "record_intermediate_stats": True,
                     "record_intermediate_modules": ["spmf_fusion11"],
+                    "detach_dsm_taps": True,
                 }
             ],
         )
@@ -225,6 +226,23 @@ class DSMStructureBranch11Test(unittest.TestCase):
         for parameter in module.parameters():
             self.assertIsNotNone(parameter.grad)
             self.assertTrue(torch.isfinite(parameter.grad).all())
+
+    def test_backward_can_keep_taps_attached(self) -> None:
+        module = DSMStructureBranch11(
+            tap_channels=(3, 4, 5, 6),
+            structure_channels=(8, 8, 8, 8),
+            output_channels=12,
+            similarity_kernel_size=3,
+            detach_dsm_taps=False,
+        )
+        dsm = torch.rand(2, 1, 64, 80, requires_grad=True)
+        taps = self._make_taps(requires_grad=True)
+
+        sum(output.square().mean() for output in module(dsm, taps)).backward()
+
+        for tap in taps:
+            self.assertIsNotNone(tap.grad)
+            self.assertTrue(torch.isfinite(tap.grad).all())
 
 
 class SPMFFusionBlock11Test(unittest.TestCase):

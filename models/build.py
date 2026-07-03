@@ -47,6 +47,13 @@ def _intermediate_stats_kwargs(cfg: dict[str, Any]) -> dict[str, Any]:
     return kwargs
 
 
+def _spmf_kwargs(cfg: dict[str, Any]) -> dict[str, Any]:
+    detach_dsm_taps = cfg.get("detach_dsm_taps", True)
+    if not isinstance(detach_dsm_taps, bool):
+        raise TypeError(f"model.detach_dsm_taps must be a bool, got {type(detach_dsm_taps).__name__}.")
+    return {**_intermediate_stats_kwargs(cfg), "detach_dsm_taps": detach_dsm_taps}
+
+
 def build_model(cfg: dict[str, Any]) -> Any:
     model_type = cfg["type"]
     if model_type == "mfnet_unetformer":
@@ -172,7 +179,7 @@ def build_model(cfg: dict[str, Any]) -> Any:
             num_classes=int(cfg["num_classes"]),
             sam_backbone=str(cfg["sam_backbone"]),
             sam_checkpoint=str(cfg["sam_checkpoint"]),
-            **_intermediate_stats_kwargs(cfg),
+            **_spmf_kwargs(cfg),
         )
         return model
     if model_type == "testnet_spmf11":
@@ -182,7 +189,7 @@ def build_model(cfg: dict[str, Any]) -> Any:
             num_classes=int(cfg["num_classes"]),
             sam_backbone=str(cfg["sam_backbone"]),
             sam_checkpoint=str(cfg["sam_checkpoint"]),
-            **_intermediate_stats_kwargs(cfg),
+            **_spmf_kwargs(cfg),
         )
         return model
     if model_type == "testnet_spmf20":
@@ -192,7 +199,7 @@ def build_model(cfg: dict[str, Any]) -> Any:
             num_classes=int(cfg["num_classes"]),
             sam_backbone=str(cfg["sam_backbone"]),
             sam_checkpoint=str(cfg["sam_checkpoint"]),
-            **_intermediate_stats_kwargs(cfg),
+            **_spmf_kwargs(cfg),
         )
         return model
     if model_type == "testnet_spmf21":
@@ -202,7 +209,7 @@ def build_model(cfg: dict[str, Any]) -> Any:
             num_classes=int(cfg["num_classes"]),
             sam_backbone=str(cfg["sam_backbone"]),
             sam_checkpoint=str(cfg["sam_checkpoint"]),
-            **_intermediate_stats_kwargs(cfg),
+            **_spmf_kwargs(cfg),
         )
         return model
     if model_type == "testnet_spmf22":
@@ -212,7 +219,7 @@ def build_model(cfg: dict[str, Any]) -> Any:
             num_classes=int(cfg["num_classes"]),
             sam_backbone=str(cfg["sam_backbone"]),
             sam_checkpoint=str(cfg["sam_checkpoint"]),
-            **_intermediate_stats_kwargs(cfg),
+            **_spmf_kwargs(cfg),
         )
         return model
     if model_type == "testnet_prealign_spmf20":
@@ -222,7 +229,7 @@ def build_model(cfg: dict[str, Any]) -> Any:
             num_classes=int(cfg["num_classes"]),
             sam_backbone=str(cfg["sam_backbone"]),
             sam_checkpoint=str(cfg["sam_checkpoint"]),
-            **_intermediate_stats_kwargs(cfg),
+            **_spmf_kwargs(cfg),
         )
         return model
     if model_type == "testnet_dga10_softplus":

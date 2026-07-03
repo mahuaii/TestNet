@@ -4,6 +4,7 @@
         "num_classes": 6,
         "sam_backbone": "vit_b",
         "sam_checkpoint": "_Checkpoints/segment-anything/sam_vit_b_01ec64.pth",
+        "detach_dsm_taps": true,
         "record_intermediate_stats": false,
         "record_intermediate_modules": [
             "dga",

@@ -74,8 +74,11 @@ class DSMStructureBranch12(nn.Module):
         eps: float = 1e-6,
         norm_layer: type[nn.Module] = LayerNorm2d,
         align_corners: bool = False,
+        detach_dsm_taps: bool = True,
     ) -> None:
         super().__init__()
+        if not isinstance(detach_dsm_taps, bool):
+            raise TypeError(f"Expected detach_dsm_taps to be a bool, got {type(detach_dsm_taps).__name__}.")
         self.tap_channels = as_four_tuple("tap_channels", tap_channels)
         self.structure_channels = as_four_tuple("structure_channels", structure_channels)
         self.output_channels = validate_positive_int("output_channels", output_channels)
@@ -102,6 +105,7 @@ class DSMStructureBranch12(nn.Module):
             )
         self.eps = float(eps)
         self.align_corners = bool(align_corners)
+        self.detach_dsm_taps = detach_dsm_taps
 
         c1, c2, c3, c4 = self.structure_channels
         self.stem = nn.Sequential(
@@ -164,8 +168,9 @@ class DSMStructureBranch12(nn.Module):
             self.confidence_generators,
             self.output_projections,
         ):
+            tap_for_structure = tap.detach() if self.detach_dsm_taps else tap
             adapted_tap = tap_adapter(
-                tap.detach(),
+                tap_for_structure,
                 tuple(geometry.shape[-2:]),
                 align_corners=self.align_corners,
             )

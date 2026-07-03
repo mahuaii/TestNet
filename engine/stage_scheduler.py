@@ -19,6 +19,7 @@ class Stage:
     freeze_modules: tuple[str, ...]
     loss: list[str]
     loss_weights: Mapping[str, float] | None
+    detach_dsm_taps: bool | None
     default_lr: float | None
     module_lrs: Mapping[str, float]
 
@@ -38,6 +39,7 @@ class StageScheduler:
             name: param.requires_grad
             for name, param in model.named_parameters()
         }
+        self._baseline_detach_dsm_taps = self._get_detach_dsm_taps(model)
         self._stages = tuple(
             self._parse_stage(index=index, raw_stage=raw_stage)
             for index, raw_stage in enumerate(stages)
@@ -48,6 +50,7 @@ class StageScheduler:
         stage = self.resolve_stage(int(trainer.epoch))
         self._restore_baseline(trainer.model)
         self._freeze_modules(trainer.model, stage.freeze_modules)
+        self._apply_detach_dsm_taps(trainer.model, stage)
 
         trainer.criterion = build_loss(
             stage.loss,
@@ -124,6 +127,11 @@ class StageScheduler:
             freeze_modules=tuple(normalize_legacy_module_path(path) for path in freeze_modules),
             loss=list(loss),
             loss_weights=loss_weights,
+            detach_dsm_taps=cls._parse_optional_bool(
+                stage_index=index,
+                key="detach_dsm_taps",
+                value=raw_stage.get("detach_dsm_taps"),
+            ),
             default_lr=cls._parse_optional_lr(
                 stage_index=index,
                 key="default_lr",
@@ -167,6 +175,29 @@ class StageScheduler:
         for stage in self._stages:
             for module_path in stage.module_lrs:
                 model.get_submodule(module_path)
+
+    @staticmethod
+    def _get_detach_dsm_taps(model: torch.nn.Module) -> bool | None:
+        structure_branch = None
+        if hasattr(model, "_spmf_variant_spec"):
+            spec = getattr(model, "_spmf_variant_spec")
+            structure_attr = getattr(spec, "structure_attr", None)
+            if isinstance(structure_attr, str) and hasattr(model, structure_attr):
+                structure_branch = getattr(model, structure_attr)
+        if structure_branch is None:
+            return None
+        value = getattr(structure_branch, "detach_dsm_taps", None)
+        if value is None:
+            return None
+        if not isinstance(value, bool):
+            raise TypeError(f"model detach_dsm_taps must be a bool, got {type(value).__name__}.")
+        return value
+
+    def _apply_detach_dsm_taps(self, model: torch.nn.Module, stage: Stage) -> None:
+        enabled = self._baseline_detach_dsm_taps if stage.detach_dsm_taps is None else stage.detach_dsm_taps
+        if enabled is None:
+            return
+        model.set_detach_dsm_taps(enabled)  # type: ignore[attr-defined]
 
     @staticmethod
     def _apply_stage_lrs(trainer: Any, stage: Stage) -> None:
@@ -238,6 +269,14 @@ class StageScheduler:
         if value is None:
             return None
         return cls._parse_required_lr(stage_index=stage_index, key=key, value=value)
+
+    @staticmethod
+    def _parse_optional_bool(*, stage_index: int, key: str, value: Any) -> bool | None:
+        if value is None:
+            return None
+        if not isinstance(value, bool):
+            raise TypeError(f"Stage {stage_index} {key} must be a bool.")
+        return value
 
     @staticmethod
     def _parse_required_lr(*, stage_index: int, key: str, value: Any) -> float:

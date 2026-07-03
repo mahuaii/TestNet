@@ -127,6 +127,7 @@ class UNetFormerSPMF(UNetFormer):
         *args: object,
         record_intermediate_stats: bool = False,
         record_intermediate_modules: Iterable[str] = (),
+        detach_dsm_taps: bool = True,
         **kwargs: object,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -144,7 +145,11 @@ class UNetFormerSPMF(UNetFormer):
         setattr(
             self,
             self._spmf_variant_spec.structure_attr,
-            self._spmf_variant_spec.structure_branch_cls(tap_channels=tap_channels, output_channels=256),
+            self._spmf_variant_spec.structure_branch_cls(
+                tap_channels=tap_channels,
+                output_channels=256,
+                detach_dsm_taps=detach_dsm_taps,
+            ),
         )
         setattr(
             self,
@@ -164,6 +169,12 @@ class UNetFormerSPMF(UNetFormer):
                     for module_name, attr_name, prefix in self._spmf_variant_spec.intermediate_modules
                 },
             )
+
+    def set_detach_dsm_taps(self, enabled: bool) -> None:
+        if not isinstance(enabled, bool):
+            raise TypeError(f"Expected enabled to be a bool, got {type(enabled).__name__}.")
+        structure_branch = getattr(self, self._spmf_variant_spec.structure_attr)
+        structure_branch.detach_dsm_taps = enabled
 
     @property
     def _spmf_variant_spec(self) -> SPMFVariantSpec:
