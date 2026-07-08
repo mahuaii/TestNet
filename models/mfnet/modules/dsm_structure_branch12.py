@@ -69,7 +69,7 @@ class DSMStructureBranch12(nn.Module):
         *,
         similarity_kernel_size: int = 7,
         similarity_sigma: float = 0.15,
-        confidence_alpha_init: float = 0.0,
+        confidence_alpha_init: float = 0.2,
         max_confidence_alpha: float = 1.0,
         eps: float = 1e-6,
         norm_layer: type[nn.Module] = LayerNorm2d,

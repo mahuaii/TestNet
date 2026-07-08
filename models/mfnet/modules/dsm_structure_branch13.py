@@ -63,7 +63,7 @@ class _ScaleHead(nn.Module):
         super().__init__()
         self.proj = ConvNormAct(in_channels, in_channels, kernel_size=3, norm_layer=norm_layer)
         self.out = nn.Conv2d(in_channels, out_channels, kernel_size=1)
-        nn.init.zeros_(self.out.weight)
+        nn.init.normal_(self.out.weight, mean=0.0, std=1e-3)
         nn.init.zeros_(self.out.bias)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
