@@ -53,8 +53,11 @@ def update_experiments_tsv_status(
     max_epochs: int,
     phase: str = "train",
 ) -> bool:
-    phase_text = "(val)" if phase == "val" else ""
-    status = f"running({int(epoch)}/{int(max_epochs)}){phase_text}"
+    if phase == "done":
+        status = "done"
+    else:
+        phase_text = "(val)" if phase == "val" else ""
+        status = f"running({int(epoch)}/{int(max_epochs)}){phase_text}"
 
     def update_row(fields: list[str], column_indexes: dict[str, int]) -> None:
         fields[column_indexes["Status"]] = status

@@ -369,11 +369,14 @@ class Trainer(ABC):
                 phase="val",
             )
             self.validate()
-            update_experiments_tsv_status(
-                work_dir=self.cfg["work_dir"],
-                epoch=self.epoch,
-                max_epochs=self.max_epochs,
-            )
+            status_kwargs: dict[str, Any] = {
+                "work_dir": self.cfg["work_dir"],
+                "epoch": self.epoch,
+                "max_epochs": self.max_epochs,
+            }
+            if self.epoch == self.max_epochs:
+                status_kwargs["phase"] = "done"
+            update_experiments_tsv_status(**status_kwargs)
             self._save_epoch_checkpoints(
                 resume_epoch=resume_epoch,
                 validation_pending=False,

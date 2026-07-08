@@ -107,19 +107,45 @@ class Logger(ABC):
         scheduler_scale: float,
         group_summaries: Sequence[Mapping[str, Any]],
     ) -> None:
-        self._log_section_header("LR GROUPS", fill="-")
         self.log_message(
-            f"Epoch: {epoch}/{max_epochs} | Stage: {stage_label} | "
-            f"Scheduler scale: {scheduler_scale:.8g}"
+            f"LR groups | Epoch: {epoch}/{max_epochs} | Stage: {stage_label} | "
+            f"Scale: {scheduler_scale:.8g}"
         )
-        for group in group_summaries:
+        formatted_groups = [
+            self._format_lr_group_summary(group)
+            for group in group_summaries
+        ]
+        if not formatted_groups:
+            self.log_message("  (no optimizer groups)")
+            self._write_lr_group_scalars(epoch=epoch, group_summaries=group_summaries)
+            return
+
+        scope_width = max(
+            len("scope"),
+            *(len(group["scope"]) for group in formatted_groups),
+        )
+        group_width = max(
+            len("group"),
+            *(len(group["group"]) for group in formatted_groups),
+        )
+        lr_width = max(
+            len("lr"),
+            *(len(group["lr"]) for group in formatted_groups),
+        )
+        params_width = max(
+            len("params"),
+            *(len(group["params"]) for group in formatted_groups),
+        )
+        self.log_message(
+            f"  {'scope':<{scope_width}}  {'group':<{group_width}}  "
+            f"{'lr':<{lr_width}}  {'params':>{params_width}}"
+        )
+        for formatted in formatted_groups:
             self.log_message(
-                "  "
-                f"group={group['group_name']} "
-                f"scope={group['lr_scope']} "
-                f"nominal_lr={float(group['nominal_lr']):.8g} "
-                f"effective_lr={float(group['effective_lr']):.8g} "
-                f"num_params={int(group['num_params'])}"
+                f"  {formatted['scope']:<{scope_width}}  "
+                f"{formatted['group']:<{group_width}}  "
+                f"{formatted['lr']:<{lr_width}}  "
+                f"{formatted['params']:>{params_width}}"
             )
         self._write_lr_group_scalars(epoch=epoch, group_summaries=group_summaries)
 
@@ -242,6 +268,58 @@ class Logger(ABC):
         self.log_val_message(line)
         self.log_val_message(f"  {title}")
         self.log_val_message(line)
+
+    @classmethod
+    def _format_lr_group_summary(cls, group: Mapping[str, Any]) -> dict[str, str]:
+        nominal_lr = float(group["nominal_lr"])
+        effective_lr = float(group["effective_lr"])
+        lr = cls._format_lr(nominal_lr)
+        if effective_lr != nominal_lr:
+            lr = f"{lr}->{cls._format_lr(effective_lr)}"
+        return {
+            "scope": cls._compact_lr_scope(str(group["lr_scope"])),
+            "group": cls._compact_lr_group_name(
+                group_name=str(group["group_name"]),
+                lr_scope=str(group["lr_scope"]),
+            ),
+            "lr": lr,
+            "params": cls._format_param_count(int(group["num_params"])),
+        }
+
+    @staticmethod
+    def _compact_lr_scope(lr_scope: str) -> str:
+        max_width = 28
+        if len(lr_scope) <= max_width:
+            return lr_scope
+        keep_width = max_width - 3
+        left_width = keep_width // 2
+        right_width = keep_width - left_width
+        return f"{lr_scope[:left_width]}...{lr_scope[-right_width:]}"
+
+    @staticmethod
+    def _compact_lr_group_name(group_name: str, lr_scope: str) -> str:
+        parts = group_name.split(":")
+        if len(parts) >= 3 and parts[0] == lr_scope:
+            parts = parts[1:]
+        return " ".join(Logger._compact_lr_group_token(part) for part in parts)
+
+    @staticmethod
+    def _compact_lr_group_token(token: str) -> str:
+        return {
+            "no_decay": "no-decay",
+        }.get(token, token)
+
+    @staticmethod
+    def _format_lr(value: float) -> str:
+        return f"{value:.3g}"
+
+    @staticmethod
+    def _format_param_count(count: int) -> str:
+        abs_count = abs(count)
+        for suffix, scale in (("B", 1_000_000_000), ("M", 1_000_000), ("K", 1_000)):
+            if abs_count >= scale:
+                return f"{count / scale:.3g}{suffix}"
+        return str(count)
 
     def close(self) -> None:
         self._summary_writer.close()
