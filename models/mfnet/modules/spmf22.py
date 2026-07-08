@@ -1,16 +1,11 @@
-"""Compatibility facade for DSMStructureBranch13 with the unchanged SPMF20 fusion modules."""
+"""SPMF22 structure branch export.
+
+SPMF22 combines DSMStructureBranch13 with the shared SPMF20 fusion module.
+This module intentionally does not define or alias Fusion22 symbols.
+"""
 
 from .dsm_structure_branch13 import DSMStructureBranch13
-from .spmf20_fusion import (
-    MultiScaleSPMFFusion20,
-    SPMFFusionBlock20,
-)
-
-SPMFFusionBlock22 = SPMFFusionBlock20
-MultiScaleSPMFFusion22 = MultiScaleSPMFFusion20
 
 __all__ = [
     "DSMStructureBranch13",
-    "SPMFFusionBlock22",
-    "MultiScaleSPMFFusion22",
 ]

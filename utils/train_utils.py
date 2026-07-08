@@ -26,8 +26,6 @@ LEGACY_MODULE_PATH_RENAMES = {
     "spmf10": "spmf_fusion10",
     "spmf11": "spmf_fusion11",
     "spmf20": "spmf_fusion20",
-    "spmf21": "spmf_fusion21",
-    "spmf22": "spmf_fusion22",
 }
 
 
