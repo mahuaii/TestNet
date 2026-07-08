@@ -1,6 +1,0 @@
-{
-    "extends": "cfg_extended.jsonc",
-    "train": {
-        "lambda_align": 0.05
-    }
-}

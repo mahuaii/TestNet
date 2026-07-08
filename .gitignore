@@ -38,3 +38,5 @@ exp_queue.md
 scripts/
 diagnostics/
 requirements-cloud.txt
+configs/
+tests/
