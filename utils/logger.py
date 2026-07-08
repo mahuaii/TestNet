@@ -183,6 +183,29 @@ class Logger(ABC):
             self.log_message(f"  {key}: {value:.6g}")
         self._write_diagnostic_scalars(epoch=epoch, metrics=selected)
 
+    def log_module_norm_scalars(
+        self,
+        *,
+        global_step: int,
+        param_group_stats: Mapping[str, Mapping[str, float]],
+        module_group_stats: Mapping[str, Mapping[str, float]],
+    ) -> None:
+        for group_name, metrics in param_group_stats.items():
+            for metric_name, value in metrics.items():
+                self._summary_writer.add_scalar(
+                    f"ModuleNorm/ParamGroup/{group_name}/{metric_name}",
+                    float(value),
+                    global_step,
+                )
+        for group_name, metrics in module_group_stats.items():
+            for metric_name, value in metrics.items():
+                self._summary_writer.add_scalar(
+                    f"ModuleNorm/Module/{group_name}/{metric_name}",
+                    float(value),
+                    global_step,
+                )
+        self._summary_writer.flush()
+
     def log_validation_timing(
         self,
         test_time_seconds: float,

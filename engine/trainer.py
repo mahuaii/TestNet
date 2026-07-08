@@ -13,6 +13,7 @@ from tools.update_experiments_tsv import (
 )
 
 from .evaluator import Evaluator
+from .module_norm_monitor import ModuleNormMonitor
 from .training_diagnostics import DIAGNOSTIC_STAT_PREFIXES, diagnostics_enabled
 from utils import (
     OPTIMIZER_GROUP_METADATA_KEYS,
@@ -76,6 +77,15 @@ class Trainer(ABC):
         self.max_epochs = cfg["max_epochs"]
         self.timer = AnchorTimer()
         self.total_steps_per_epoch = max(1, len(self.train_loader))
+        self.module_norm_monitor = (
+            ModuleNormMonitor(
+                model=self.model,
+                optimizer=self.optimizer,
+                logger=self.logger,
+            )
+            if self.logger.use_tensorboard
+            else None
+        )
 
     @property
     def lr(self) -> float:
@@ -443,7 +453,15 @@ class Trainer(ABC):
         self.model.train()
 
     def optimize_step(self):
+        next_global_step = self.global_step + 1
+        sample_module_norms = (
+            self.module_norm_monitor.before_step(next_global_step=next_global_step)
+            if self.module_norm_monitor is not None
+            else False
+        )
         self.optimizer.step()
+        if sample_module_norms and self.module_norm_monitor is not None:
+            self.module_norm_monitor.after_step(global_step=next_global_step)
         self.optimizer.zero_grad()
         self.global_step += 1
 
