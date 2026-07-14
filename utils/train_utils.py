@@ -4,6 +4,7 @@ import json
 import re
 import uuid
 from collections.abc import Mapping, Sequence
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -57,7 +58,7 @@ def build_default_work_dir(
     lambda_align: object | None = None,
     root_dir: str | Path = "work_dirs",
 ) -> Path:
-    run_id = uuid.uuid4().hex[:5]
+    run_id = f"{datetime.now():%m%d}{uuid.uuid4().hex[:2]}"
     name_parts = [
         safe_path_component(dataset_name, "dataset"),
         work_dir_model_suffix(model_name),

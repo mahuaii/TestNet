@@ -9,13 +9,13 @@ from collections.abc import Callable
 from pathlib import Path
 
 
-_EXPERIMENT_ID_PATTERN = re.compile(r"([A-Za-z0-9]{5})$")
+_EXPERIMENT_ID_PATTERN = re.compile(r"([0-9]{4}[0-9a-f]{2})$")
 
 
 def extract_experiment_id(work_dir: str | Path) -> str:
     match = _EXPERIMENT_ID_PATTERN.search(Path(work_dir).name)
     if match is None:
-        raise ValueError(f"could not extract 5-character experiment ID from {work_dir}")
+        raise ValueError(f"could not extract 6-character experiment ID from {work_dir}")
     return match.group(1)
 
 
