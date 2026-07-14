@@ -69,8 +69,8 @@ class DSMStructureBranch12(nn.Module):
         *,
         similarity_kernel_size: int = 7,
         similarity_sigma: float = 0.15,
-        confidence_alpha_init: float = 0.2,
-        max_confidence_alpha: float = 1.0,
+        confidence_alpha_init: float = 1.0,
+        max_confidence_alpha: float = 2.0,
         eps: float = 1e-6,
         norm_layer: type[nn.Module] = LayerNorm2d,
         align_corners: bool = False,
@@ -92,9 +92,9 @@ class DSMStructureBranch12(nn.Module):
         if self.similarity_sigma <= 0:
             raise ValueError(f"Expected similarity_sigma to be positive, got {self.similarity_sigma}.")
         self.max_confidence_alpha = float(max_confidence_alpha)
-        if self.max_confidence_alpha < 0.0 or self.max_confidence_alpha > 1.0:
+        if self.max_confidence_alpha < 0.0 or self.max_confidence_alpha > 2.0:
             raise ValueError(
-                "Expected max_confidence_alpha to be in [0, 1], "
+                "Expected max_confidence_alpha to be in [0, 2], "
                 f"got {self.max_confidence_alpha}."
             )
         confidence_alpha_init = float(confidence_alpha_init)
