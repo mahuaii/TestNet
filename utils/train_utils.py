@@ -27,6 +27,11 @@ LEGACY_MODULE_PATH_RENAMES = {
     "spmf11": "spmf_fusion11",
     "spmf20": "spmf_fusion20",
 }
+SPMF_CONFIG_MODULE_SPEC_ATTRS = {
+    "structure_branch": "structure_attr",
+    "spmf_fusion": "fusion_attr",
+}
+VERSIONED_SPMF_CONFIG_MODULE_RE = re.compile(r"^(structure_branch|spmf_fusion)\d+$")
 
 
 def safe_path_component(value: object, fallback: str) -> str:
@@ -107,10 +112,27 @@ def normalize_legacy_optimizer_state_dict(state_dict: Mapping[str, Any]) -> dict
         normalized_group = dict(group)
         lr_scope = normalized_group.get("lr_scope")
         if isinstance(lr_scope, str):
-            normalized_group["lr_scope"] = normalize_legacy_module_path(lr_scope)
+            normalized_scope = _normalize_optimizer_lr_scope(lr_scope)
+            normalized_group["lr_scope"] = normalized_scope
+            group_name = normalized_group.get("group_name")
+            if isinstance(group_name, str):
+                group_scope, separator, group_suffix = group_name.partition(":")
+                if separator:
+                    normalized_group_scope = _normalize_optimizer_lr_scope(group_scope)
+                    normalized_group["group_name"] = f"{normalized_group_scope}:{group_suffix}"
         param_groups.append(normalized_group)
     normalized_state["param_groups"] = param_groups
     return normalized_state
+
+
+def _normalize_optimizer_lr_scope(lr_scope: str) -> str:
+    normalized_scope = normalize_legacy_module_path(lr_scope)
+    head, separator, tail = normalized_scope.partition(".")
+    match = VERSIONED_SPMF_CONFIG_MODULE_RE.fullmatch(head)
+    if match is None:
+        return normalized_scope
+    normalized_head = match.group(1)
+    return f"{normalized_head}.{tail}" if separator else normalized_head
 
 
 def build_optimizer_param_groups(
@@ -138,7 +160,7 @@ def build_optimizer_param_groups(
         grouped_params.setdefault(key, []).append(param)
 
     param_groups: list[dict[str, object]] = []
-    for lr_scope in (LR_SCOPE_DEFAULT, *lr_scopes):
+    for lr_scope in (LR_SCOPE_DEFAULT, *(config_path for config_path, _ in lr_scopes)):
         for is_adapter, no_decay in ((False, False), (False, True), (True, False), (True, True)):
             params = grouped_params.get((lr_scope, is_adapter, no_decay))
             if not params:
@@ -166,25 +188,28 @@ def build_optimizer_param_groups(
 def _validate_lr_module_paths(
     model: torch.nn.Module,
     lr_module_paths: Sequence[str] | None,
-) -> tuple[str, ...]:
+) -> tuple[tuple[str, str], ...]:
     if lr_module_paths is None:
         return ()
     if isinstance(lr_module_paths, str):
         raise TypeError("lr_module_paths must be a sequence of module path strings.")
 
-    paths: list[str] = []
+    paths: list[tuple[str, str]] = []
     for module_path in lr_module_paths:
         if not isinstance(module_path, str) or not module_path:
             raise TypeError("lr_module_paths must contain non-empty strings.")
-        normalized_module_path = normalize_legacy_module_path(module_path)
-        model.get_submodule(normalized_module_path)
-        if normalized_module_path in paths:
-            raise ValueError(f"Duplicate lr module path: {normalized_module_path}.")
-        paths.append(normalized_module_path)
+        validate_config_module_path(module_path)
+        resolved_module_path = resolve_config_module_path(model, module_path)
+        model.get_submodule(resolved_module_path)
+        if any(config_path == module_path for config_path, _ in paths):
+            raise ValueError(f"Duplicate lr module path: {module_path}.")
+        paths.append((module_path, resolved_module_path))
 
-    for index, module_path in enumerate(paths):
-        for other_path in paths[index + 1:]:
-            if module_path.startswith(f"{other_path}.") or other_path.startswith(f"{module_path}."):
+    for index, (module_path, resolved_module_path) in enumerate(paths):
+        for other_path, other_resolved_path in paths[index + 1:]:
+            if resolved_module_path.startswith(f"{other_resolved_path}.") or other_resolved_path.startswith(
+                f"{resolved_module_path}."
+            ):
                 raise ValueError(
                     "lr_module_paths must not contain overlapping module paths: "
                     f"{module_path!r}, {other_path!r}."
@@ -192,11 +217,36 @@ def _validate_lr_module_paths(
     return tuple(paths)
 
 
-def _resolve_lr_scope(name: str, lr_scopes: Sequence[str]) -> str:
-    for lr_scope in lr_scopes:
-        if name.startswith(f"{lr_scope}."):
-            return lr_scope
+def _resolve_lr_scope(name: str, lr_scopes: Sequence[tuple[str, str]]) -> str:
+    for config_path, resolved_path in lr_scopes:
+        if name.startswith(f"{resolved_path}."):
+            return config_path
     return LR_SCOPE_DEFAULT
+
+
+def validate_config_module_path(module_path: str) -> None:
+    head = module_path.partition(".")[0]
+    if head in LEGACY_MODULE_PATH_RENAMES or VERSIONED_SPMF_CONFIG_MODULE_RE.fullmatch(head):
+        raise ValueError(
+            f"Versioned SPMF config module path {module_path!r} is not supported; "
+            "use 'structure_branch' or 'spmf_fusion'."
+        )
+
+
+def resolve_config_module_path(model: torch.nn.Module, module_path: str) -> str:
+    validate_config_module_path(module_path)
+    head, separator, tail = module_path.partition(".")
+    spec_attr = SPMF_CONFIG_MODULE_SPEC_ATTRS.get(head)
+    if spec_attr is None:
+        return module_path
+
+    spec = getattr(model, "_spmf_variant_spec", None)
+    resolved_head = getattr(spec, spec_attr, None)
+    if not isinstance(resolved_head, str) or not resolved_head:
+        raise AttributeError(
+            f"Model {type(model).__name__} does not define an SPMF module for config path {head!r}."
+        )
+    return f"{resolved_head}.{tail}" if separator else resolved_head
 
 
 def _display_lr_scope(lr_scope: str) -> str:

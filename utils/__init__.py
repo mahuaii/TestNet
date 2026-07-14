@@ -19,9 +19,11 @@ from .train_utils import (
     normalize_legacy_module_path,
     normalize_legacy_optimizer_state_dict,
     normalize_legacy_state_dict_keys,
+    resolve_config_module_path,
     restore_optimizer_group_metadata,
     safe_path_component,
     save_effective_config,
+    validate_config_module_path,
     work_dir_model_suffix,
 )
 
@@ -46,8 +48,10 @@ __all__ = [
     "normalize_legacy_module_path",
     "normalize_legacy_optimizer_state_dict",
     "normalize_legacy_state_dict_keys",
+    "resolve_config_module_path",
     "restore_optimizer_group_metadata",
     "safe_path_component",
     "save_effective_config",
+    "validate_config_module_path",
     "work_dir_model_suffix",
 ]

@@ -5,10 +5,10 @@ from typing import Any
 
 import torch
 
-from utils import IntermediateStatsRecorder, LR_SCOPE_DEFAULT
+from utils import IntermediateStatsRecorder, LR_SCOPE_DEFAULT, resolve_config_module_path
 
 
-DIAGNOSTIC_STAT_PREFIXES = ("prealign/", "spmf20/")
+DIAGNOSTIC_STAT_PREFIXES = ("prealign/", "spmf/")
 
 
 def diagnostics_enabled(cfg: Mapping[str, Any], key: str | None = None) -> bool:
@@ -27,8 +27,8 @@ def attach_prealign_spmf_recorders(model: torch.nn.Module) -> None:
         model.intermediate_stats = stats
 
     _attach_module(model, "aux_prealign", stats, "prealign")
-    _attach_module(model, "spmf_fusion20", stats, "spmf20")
-    _attach_module(model, "structure_branch10", stats, "spmf20/structure")
+    _attach_module(model, "spmf_fusion", stats, "spmf")
+    _attach_module(model, "structure_branch", stats, "spmf/structure")
 
 
 def collect_optimizer_group_summaries(
@@ -70,8 +70,8 @@ def collect_trainable_param_counts(
 ) -> dict[str, int]:
     return {
         "aux_prealign": _count_trainable_module(model, "aux_prealign"),
-        "spmf_fusion20": _count_trainable_module(model, "spmf_fusion20"),
-        "structure_branch10": _count_trainable_module(model, "structure_branch10"),
+        "spmf_fusion": _count_trainable_module(model, "spmf_fusion"),
+        "structure_branch": _count_trainable_module(model, "structure_branch"),
         "encoder_adapters": _count_encoder_params(model, adapter=True),
         "image_encoder_non_adapter": _count_encoder_params(model, adapter=False),
         "decoder": _count_trainable_module(model, "decoder"),
@@ -86,7 +86,7 @@ def _attach_module(
     prefix: str,
 ) -> None:
     try:
-        module = model.get_submodule(module_path)
+        module = model.get_submodule(resolve_config_module_path(model, module_path))
     except AttributeError:
         return
     module.intermediate_stats = stats
@@ -99,7 +99,7 @@ def _count_params(params: object) -> int:
 
 def _count_trainable_module(model: torch.nn.Module, module_path: str) -> int:
     try:
-        module = model.get_submodule(module_path)
+        module = model.get_submodule(resolve_config_module_path(model, module_path))
     except AttributeError:
         return 0
     return sum(param.numel() for param in module.parameters() if param.requires_grad)

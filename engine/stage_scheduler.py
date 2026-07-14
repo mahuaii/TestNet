@@ -7,7 +7,7 @@ from typing import Any
 import torch
 
 from losses import build_loss
-from utils import LR_SCOPE_DEFAULT, normalize_legacy_module_path
+from utils import LR_SCOPE_DEFAULT, resolve_config_module_path, validate_config_module_path
 
 
 @dataclass(frozen=True)
@@ -90,7 +90,7 @@ class StageScheduler:
         module_paths: Sequence[str],
     ) -> None:
         for module_path in module_paths:
-            module = model.get_submodule(module_path)
+            module = model.get_submodule(resolve_config_module_path(model, module_path))
             for param in module.parameters():
                 param.requires_grad = False
 
@@ -124,7 +124,7 @@ class StageScheduler:
             name=cls._parse_optional_name(index=index, raw_stage=raw_stage),
             start_epoch=start_epoch,
             end_epoch=end_epoch,
-            freeze_modules=tuple(normalize_legacy_module_path(path) for path in freeze_modules),
+            freeze_modules=tuple(cls._validate_config_module_path(path) for path in freeze_modules),
             loss=list(loss),
             loss_weights=loss_weights,
             detach_dsm_taps=cls._parse_optional_bool(
@@ -174,7 +174,7 @@ class StageScheduler:
     def _validate_module_lr_paths(self, model: torch.nn.Module) -> None:
         for stage in self._stages:
             for module_path in stage.module_lrs:
-                model.get_submodule(module_path)
+                model.get_submodule(resolve_config_module_path(model, module_path))
 
     @staticmethod
     def _get_detach_dsm_taps(model: torch.nn.Module) -> bool | None:
@@ -254,15 +254,20 @@ class StageScheduler:
         for module_path, lr_value in raw_module_lrs.items():
             if not isinstance(module_path, str) or not module_path:
                 raise TypeError(f"Stage {stage_index} module_lrs keys must be non-empty strings.")
-            normalized_module_path = normalize_legacy_module_path(module_path)
-            if normalized_module_path in module_lrs:
-                raise ValueError(f"Stage {stage_index} has duplicate module_lrs path: {normalized_module_path}.")
-            module_lrs[normalized_module_path] = cls._parse_required_lr(
+            validate_config_module_path(module_path)
+            if module_path in module_lrs:
+                raise ValueError(f"Stage {stage_index} has duplicate module_lrs path: {module_path}.")
+            module_lrs[module_path] = cls._parse_required_lr(
                 stage_index=stage_index,
                 key=f"module_lrs[{module_path!r}]",
                 value=lr_value,
             )
         return module_lrs
+
+    @staticmethod
+    def _validate_config_module_path(module_path: str) -> str:
+        validate_config_module_path(module_path)
+        return module_path
 
     @classmethod
     def _parse_optional_lr(cls, *, stage_index: int, key: str, value: Any) -> float | None:

@@ -9,8 +9,8 @@ _TENSORBOARD_PREFIXES = {
     "dga/": "DGA/",
     "dgsf10/": "DGSF10/",
     "prealign/": "PreAlign/",
-    "spmf20/structure/": "SPMF20/Structure/",
-    "spmf20/": "SPMF20/",
+    "spmf/structure/": "SPMF/Structure/",
+    "spmf/": "SPMF/",
 }
 
 

@@ -23,8 +23,8 @@ class Logger(ABC):
     _EPOCH_HEADER_PATTERN = re.compile(r"^\s*EPOCH\s+(\d+)\s*/")
     _DIAGNOSTIC_TENSORBOARD_PREFIXES = {
         "prealign/": "PreAlign/",
-        "spmf20/structure/": "SPMF20/Structure/",
-        "spmf20/": "SPMF20/",
+        "spmf/structure/": "SPMF/Structure/",
+        "spmf/": "SPMF/",
     }
 
     def __init__(
