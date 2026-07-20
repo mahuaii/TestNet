@@ -61,18 +61,28 @@ class MFNetTrainer(Trainer):
     @override
     def after_epoch_start_logged(self) -> None:
         current_stage_label = stage_label(self.current_stage)
+        group_summaries = collect_optimizer_group_summaries(self.optimizer)
         self.logger.log_lr_groups(
             epoch=self.epoch,
             max_epochs=self.max_epochs,
             stage_label=current_stage_label,
             scheduler_scale=StageScheduler._scheduler_scale(self.scheduler),
-            group_summaries=collect_optimizer_group_summaries(self.optimizer),
+            group_summaries=group_summaries,
+        )
+        self.logger.write_lr_group_scalars(
+            epoch=self.epoch,
+            group_summaries=group_summaries,
         )
         if diagnostics_enabled(self.cfg, "log_trainable_params"):
+            counts = collect_trainable_param_counts(self.model, self.optimizer)
             self.logger.log_trainable_param_counts(
                 epoch=self.epoch,
                 stage_label=current_stage_label,
-                counts=collect_trainable_param_counts(self.model, self.optimizer),
+                counts=counts,
+            )
+            self.logger.write_trainable_param_scalars(
+                epoch=self.epoch,
+                counts=counts,
             )
 
     @override

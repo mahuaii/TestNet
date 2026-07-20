@@ -97,7 +97,7 @@ class TestNetLogger(Logger):
         return "\n".join(lines)
 
     @override
-    def _write_step_scalars(
+    def write_train_step_scalars(
         self,
         global_step: int | None,
         step_stats: dict[str, float],
@@ -119,7 +119,7 @@ class TestNetLogger(Logger):
         self._summary_writer.flush()
 
     @override
-    def _write_validation_scalars(self, epoch: int, val_metrics: dict[str, float]) -> None:
+    def write_validation_scalars(self, epoch: int, val_metrics: dict[str, float]) -> None:
         metric_tags = {
             "MIoU": "Metrics/MIoU",
             "accuracy": "Metrics/Accuracy",

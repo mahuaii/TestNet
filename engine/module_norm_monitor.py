@@ -127,7 +127,7 @@ class ModuleNormMonitor:
                     update=update,
                 )
 
-        self.logger.log_module_norm_scalars(
+        self.logger.write_module_norm_scalars(
             global_step=global_step,
             param_group_stats=self._snapshot(param_group_accumulators),
             module_group_stats=self._snapshot(module_group_accumulators),

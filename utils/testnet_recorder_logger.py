@@ -16,13 +16,13 @@ _TENSORBOARD_PREFIXES = {
 
 class TestNetRecorderLogger(TestNetLogger):
     @override
-    def _write_step_scalars(
+    def write_train_step_scalars(
         self,
         global_step: int | None,
         step_stats: dict[str, float],
         lr: float | None = None,
     ) -> None:
-        super()._write_step_scalars(
+        super().write_train_step_scalars(
             global_step=global_step,
             step_stats=step_stats,
             lr=lr,

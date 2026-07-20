@@ -77,11 +77,6 @@ class Logger(ABC):
         )
         if message is not None:
             self.log_message(message)
-        self._write_step_scalars(
-            global_step=global_step,
-            step_stats=step_stats,
-            lr=lr,
-        )
 
     def log_epoch_end(
         self,
@@ -117,7 +112,6 @@ class Logger(ABC):
         ]
         if not formatted_groups:
             self.log_message("  (no optimizer groups)")
-            self._write_lr_group_scalars(epoch=epoch, group_summaries=group_summaries)
             return
 
         scope_width = max(
@@ -147,7 +141,6 @@ class Logger(ABC):
                 f"{formatted['lr']:<{lr_width}}  "
                 f"{formatted['params']:>{params_width}}"
             )
-        self._write_lr_group_scalars(epoch=epoch, group_summaries=group_summaries)
 
     def log_trainable_param_counts(
         self,
@@ -160,20 +153,15 @@ class Logger(ABC):
         self.log_message(f"Epoch: {epoch} | Stage: {stage_label}")
         for name, count in counts.items():
             self.log_message(f"  {name}: {int(count)}")
-        self._write_trainable_param_scalars(epoch=epoch, counts=counts)
 
-    def log_diagnostic_scalars(
+    def log_diagnostic_summary(
         self,
         *,
         epoch: int,
         metrics: Mapping[str, float],
         prefixes: Sequence[str],
     ) -> None:
-        selected = {
-            key: float(value)
-            for key, value in sorted(metrics.items())
-            if any(key.startswith(prefix) for prefix in prefixes)
-        }
+        selected = self._select_diagnostic_metrics(metrics=metrics, prefixes=prefixes)
         if not selected:
             return
 
@@ -181,9 +169,8 @@ class Logger(ABC):
         self.log_message(f"Epoch: {epoch}")
         for key, value in selected.items():
             self.log_message(f"  {key}: {value:.6g}")
-        self._write_diagnostic_scalars(epoch=epoch, metrics=selected)
 
-    def log_module_norm_scalars(
+    def write_module_norm_scalars(
         self,
         *,
         global_step: int,
@@ -219,7 +206,6 @@ class Logger(ABC):
             message = self._format_validation_summary(val_metrics=val_metrics)
             if message is not None:
                 self.log_val_message(message)
-            self._write_validation_scalars(epoch=epoch, val_metrics=val_metrics)
 
     def log_checkpoint_saved(self, path: str | Path) -> None:
         self.log_message(f"Saved checkpoint: {path}", False)
@@ -372,7 +358,7 @@ class Logger(ABC):
     def _format_validation_summary(self, val_metrics: dict[str, float]) -> str | None: ...
 
     @abstractmethod
-    def _write_step_scalars(
+    def write_train_step_scalars(
         self,
         global_step: int | None,
         step_stats: dict[str, float],
@@ -380,9 +366,9 @@ class Logger(ABC):
     ) -> None: ...
 
     @abstractmethod
-    def _write_validation_scalars(self, epoch: int, val_metrics: dict[str, float]) -> None: ...
+    def write_validation_scalars(self, epoch: int, val_metrics: dict[str, float]) -> None: ...
 
-    def _write_lr_group_scalars(
+    def write_lr_group_scalars(
         self,
         *,
         epoch: int,
@@ -396,7 +382,7 @@ class Logger(ABC):
             )
         self._summary_writer.flush()
 
-    def _write_trainable_param_scalars(
+    def write_trainable_param_scalars(
         self,
         *,
         epoch: int,
@@ -410,19 +396,36 @@ class Logger(ABC):
             )
         self._summary_writer.flush()
 
-    def _write_diagnostic_scalars(
+    def write_diagnostic_scalars(
         self,
         *,
         epoch: int,
         metrics: Mapping[str, float],
+        prefixes: Sequence[str],
     ) -> None:
-        for key, value in metrics.items():
+        selected = self._select_diagnostic_metrics(metrics=metrics, prefixes=prefixes)
+        if not selected:
+            return
+
+        for key, value in selected.items():
             self._summary_writer.add_scalar(
                 self._diagnostic_tensorboard_tag(key),
                 float(value),
                 epoch,
             )
         self._summary_writer.flush()
+
+    @staticmethod
+    def _select_diagnostic_metrics(
+        *,
+        metrics: Mapping[str, float],
+        prefixes: Sequence[str],
+    ) -> dict[str, float]:
+        return {
+            key: float(value)
+            for key, value in sorted(metrics.items())
+            if any(key.startswith(prefix) for prefix in prefixes)
+        }
 
     @classmethod
     def _diagnostic_tensorboard_tag(cls, key: str) -> str:

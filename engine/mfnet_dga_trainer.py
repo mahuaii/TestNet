@@ -32,6 +32,11 @@ class MFNetDGATrainer(MFNetTrainer):
                 epoch_elapsed_seconds=self.timer.elapsed("epoch"),
                 lr=self.lr,
             )
+            self.logger.write_train_step_scalars(
+                global_step=self.global_step,
+                step_stats=step_stats,
+                lr=self.lr,
+            )
             self.timer.mark("log_interval")
 
         save_step_interval = self.cfg["save_step_interval"]

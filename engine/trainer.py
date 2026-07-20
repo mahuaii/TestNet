@@ -296,15 +296,21 @@ class Trainer(ABC):
         """
         # 输出 step 级日志（满足间隔要求或 epoch 尾部）
         if step % int(self.cfg["log_step_interval"]) == 0 or is_last_step_of_epoch:
+            step_stats = step_stats_tracker.get_aggregated_stats()
             self.logger.log_train_step(
                 epoch=self.epoch,
                 max_epochs=self.max_epochs,
                 step=step,
                 total_steps=self.total_steps_per_epoch,
                 global_step=self.global_step,
-                step_stats=step_stats_tracker.get_aggregated_stats(),
+                step_stats=step_stats,
                 interval_time_seconds=self.timer.elapsed("log_interval"),
                 epoch_elapsed_seconds=self.timer.elapsed("epoch"),
+                lr=self.lr,
+            )
+            self.logger.write_train_step_scalars(
+                global_step=self.global_step,
+                step_stats=step_stats,
                 lr=self.lr,
             )
             self.timer.mark("log_interval")
@@ -333,7 +339,7 @@ class Trainer(ABC):
             lr=self.lr,
         )
         if diagnostics_enabled(self.cfg, "log_prealign_spmf_stats"):
-            self.logger.log_diagnostic_scalars(
+            self.logger.write_diagnostic_scalars(
                 epoch=self.epoch,
                 metrics=train_metrics,
                 prefixes=DIAGNOSTIC_STAT_PREFIXES,
@@ -404,6 +410,10 @@ class Trainer(ABC):
         """
         self.logger.log_validation_timing(
             test_time_seconds=validation_time_seconds,
+            epoch=self.epoch,
+            val_metrics=val_metrics,
+        )
+        self.logger.write_validation_scalars(
             epoch=self.epoch,
             val_metrics=val_metrics,
         )
