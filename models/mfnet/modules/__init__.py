@@ -27,6 +27,10 @@ from .spmf21 import (
 from .spmf22 import (
     DSMStructureBranch13,
 )
+from .spmf30 import (
+    MultiScaleSPMFFusion30,
+    SPMFFusionBlock30,
+)
 from .upernet import PPM, UperNetHead
 
 __all__ = [
@@ -56,6 +60,8 @@ __all__ = [
     "MultiScaleSPMFFusion20",
     "DSMStructureBranch12",
     "DSMStructureBranch13",
+    "SPMFFusionBlock30",
+    "MultiScaleSPMFFusion30",
     "PPM",
     "UperNetHead",
 ]
