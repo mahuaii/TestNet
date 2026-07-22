@@ -69,8 +69,6 @@ class DSMStructureBranch12(nn.Module):
         *,
         similarity_kernel_size: int = 7,
         similarity_sigma: float = 0.15,
-        confidence_alpha_init: float = 1.0,
-        max_confidence_alpha: float = 2.0,
         eps: float = 1e-6,
         norm_layer: type[nn.Module] = LayerNorm2d,
         align_corners: bool = False,
@@ -91,18 +89,6 @@ class DSMStructureBranch12(nn.Module):
         self.similarity_sigma = float(similarity_sigma)
         if self.similarity_sigma <= 0:
             raise ValueError(f"Expected similarity_sigma to be positive, got {self.similarity_sigma}.")
-        self.max_confidence_alpha = float(max_confidence_alpha)
-        if self.max_confidence_alpha < 0.0 or self.max_confidence_alpha > 2.0:
-            raise ValueError(
-                "Expected max_confidence_alpha to be in [0, 2], "
-                f"got {self.max_confidence_alpha}."
-            )
-        confidence_alpha_init = float(confidence_alpha_init)
-        if confidence_alpha_init < 0.0 or confidence_alpha_init > self.max_confidence_alpha:
-            raise ValueError(
-                "Expected confidence_alpha_init to be in [0, max_confidence_alpha], "
-                f"got {confidence_alpha_init}."
-            )
         self.eps = float(eps)
         self.align_corners = bool(align_corners)
         self.detach_dsm_taps = detach_dsm_taps
@@ -133,7 +119,6 @@ class DSMStructureBranch12(nn.Module):
             ConvNormAct(structure_channel, self.output_channels, kernel_size=1, norm_layer=norm_layer)
             for structure_channel in self.structure_channels
         )
-        self.confidence_alphas = nn.Parameter(torch.full((4,), confidence_alpha_init))
 
     def forward(
         self,
@@ -175,9 +160,8 @@ class DSMStructureBranch12(nn.Module):
                 align_corners=self.align_corners,
             )
             confidence = confidence_generator(adapted_tap)
-            alpha = self._bounded_confidence_alpha(len(outputs))
-            structure = self._modulate_structure(projection(geometry), confidence, alpha)
-            self._record_debug_stats(len(outputs) + 1, confidence, structure, alpha)
+            structure = self._modulate_structure(projection(geometry), confidence)
+            self._record_debug_stats(len(outputs) + 1, confidence, structure)
             outputs.append(structure)
         return tuple(outputs)  # type: ignore[return-value]
 
@@ -211,16 +195,13 @@ class DSMStructureBranch12(nn.Module):
         local_variance = (local_square_mean - local_mean.square()).clamp_min(0.0)
         return torch.exp(-local_variance / (2.0 * self.similarity_sigma * self.similarity_sigma))
 
-    def _bounded_confidence_alpha(self, index: int) -> torch.Tensor:
-        return self.confidence_alphas[index].clamp(0.0, self.max_confidence_alpha)
-
     @staticmethod
     def _modulate_structure(
         projected_geometry: torch.Tensor,
         confidence: torch.Tensor,
-        alpha: torch.Tensor,
     ) -> torch.Tensor:
-        modulation = 1.0 + alpha.view(1, 1, 1, 1) * (2.0 * confidence - 1.0)
+        confidence_alpha = 1.0
+        modulation = 1.0 + confidence_alpha * (2.0 * confidence - 1.0)
         return projected_geometry * modulation
 
     def _record_debug_stats(
@@ -228,7 +209,6 @@ class DSMStructureBranch12(nn.Module):
         index: int,
         confidence: torch.Tensor,
         structure: torch.Tensor,
-        alpha: torch.Tensor,
     ) -> None:
         stats = getattr(self, "intermediate_stats", None)
         if stats is None:
@@ -236,11 +216,6 @@ class DSMStructureBranch12(nn.Module):
         prefix = str(getattr(self, "intermediate_stats_prefix")).strip("/")
         self._record_tensor_stats(stats, f"{prefix}/confidence/confidence{index}", confidence)
         self._record_tensor_stats(stats, f"{prefix}/structure/structure{index}", structure)
-        stats.record_scalar(f"{prefix}/alpha/alpha{index}_mean", alpha)
-        stats.record_scalar(f"{prefix}/alpha/alpha{index}_std", alpha.new_zeros(()))
-        stats.record_scalar(f"{prefix}/alpha/alpha{index}_var", alpha.new_zeros(()))
-        stats.record_scalar(f"{prefix}/alpha/alpha{index}_min", alpha)
-        stats.record_scalar(f"{prefix}/alpha/alpha{index}_max", alpha)
 
     @staticmethod
     def _record_tensor_stats(stats: Any, name: str, value: torch.Tensor) -> None:
