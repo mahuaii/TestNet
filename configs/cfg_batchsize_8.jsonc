@@ -1,0 +1,6 @@
+{
+    "extends": "cfg.jsonc",
+    "train": {
+        "batch_size": 8
+    }
+}

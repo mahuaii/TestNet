@@ -1,0 +1,26 @@
+{
+    "extends": "cfg.jsonc",
+    "model": {
+        "type": "testnet_prealign_spmf20"
+    },
+    "stages": [
+        {
+            "epochs": [1, 20],
+            "freeze_modules": ["spmf_fusion", "structure_branch"],
+            "loss": ["ce"]
+        },
+        {
+            "epochs": [21, 48],
+            "freeze_modules": [],
+            "loss": ["ce"]
+        }
+    ],
+    "train": {
+        "max_epochs": 48,
+        "diagnostics": {
+            "enabled": true,
+            "log_trainable_params": true,
+            "log_prealign_spmf_stats": true
+        }
+    }
+}

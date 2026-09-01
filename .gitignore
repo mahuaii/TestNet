@@ -13,10 +13,7 @@ env/
 .idea/
 
 # Runtime artifacts
-work_dirs/
 work_dirs_archive/
-_Checkpoints
-_Datasets
 /datasets/*
 !/datasets/.gitkeep
 *.pth
@@ -38,5 +35,4 @@ exp_queue.md
 scripts/
 diagnostics/
 requirements-cloud.txt
-configs/
 tests/

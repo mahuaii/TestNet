@@ -1,0 +1,72 @@
+{
+    "extends": "cfg.jsonc",
+    "scheduler": {
+        "type": "MultiStepLR",
+        "milestones": [48, 56],
+        "gamma": 0.1
+    },
+    "stages": [
+        {
+            "name": "stage1_prealign_main",
+            "epochs": [1, 25],
+            "freeze_modules": ["spmf_fusion", "structure_branch"],
+            "loss": ["ce"],
+            "default_lr": 0.01,
+            "module_lrs": {
+                "aux_prealign": 0.01
+            }
+        },
+        {
+            "name": "stage2a_structure_spmf_adapter_frozen",
+            "epochs": [26, 34],
+            "freeze_modules": ["sam.image_encoder"],
+            "loss": ["ce"],
+            "default_lr": 0.01,
+            "module_lrs": {
+                "aux_prealign": 0.003,
+                "spmf_fusion": 0.01,
+                "structure_branch": 0.01
+            }
+        },
+        {
+            "name": "stage2b_structure_spmf_adapter_slow",
+            "epochs": [35, 48],
+            "freeze_modules": [],
+            "loss": ["ce"],
+            "default_lr": 0.01,
+            "module_lrs": {
+                "aux_prealign": 0.003,
+                "spmf_fusion": 0.01,
+                "structure_branch": 0.01,
+                "sam.image_encoder": 0.001
+            }
+        },
+        {
+            "name": "stage3_joint_decay",
+            "epochs": [49, 60],
+            "freeze_modules": [],
+            "loss": ["ce"],
+            "default_lr": 0.01,
+            "module_lrs": {
+                "aux_prealign": 0.003,
+                "spmf_fusion": 0.01,
+                "structure_branch": 0.01,
+                "sam.image_encoder": 0.001
+            }
+        }
+    ],
+    "optimizer": {
+        "type": "SGD",
+        "lr": 0.01,
+        "momentum": 0.9,
+        "weight_decay": 0.0005
+    },
+    "train": {
+        "max_epochs": 60,
+        "diagnostics": {
+            "enabled": true,
+            "log_trainable_params": true,
+            "log_prealign_spmf_stats": true
+        }
+    }
+}
