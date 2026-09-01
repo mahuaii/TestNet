@@ -36,4 +36,5 @@ scripts/
 diagnostics/
 requirements-cloud.txt
 tests/
-work_dirs/
+work_dirs/*
+!work_dirs/experiments copy.tsv
