@@ -31,7 +31,7 @@ ID	flag	Dataset	Modules	Loss	mIoU	OA	F1	BestE	Status	Note	Command
 08059d		Vaihingen	SPMF21	CE	82.61	91.92	90.24	32	done	batchsize 8	python train.py --config configs/cfg_batchsize_8 --model-type testnet_spmf21
 081262		Vaihingen	SPMF21	CE	82.80	91.93	90.38	28	done	batchsize 4	python train.py --config configs/cfg_batchsize_4 --model-type testnet_spmf21
 081263		Vaihingen	SPMF21	CE	82.85	92.19	90.38	36	done	batchsize 8	python train.py --config configs/cfg_batchsize_8 --model-type testnet_spmf21
-0901b7		Vaihingen	SPMF21	CE					running(4/48)		python train.py --config configs/cfg.jsonc --model-type testnet_spmf21
-		Vaihingen	SPMF21	CE					planned		python train.py --config configs/cfg.jsonc --model-type testnet_spmf21
+0901b7		Vaihingen	SPMF21	CE	81.40	91.69	89.47	8	running(11/48)		python train.py --config configs/cfg.jsonc --model-type testnet_spmf21
+090110		Vaihingen	SPMF21	CE	77.86	90.67	87.10	4	running(7/48)		python train.py --config configs/cfg.jsonc --model-type testnet_spmf21
 		Vaihingen	SPMF21	CE					planned		python train.py --config configs/cfg.jsonc --model-type testnet_spmf21
 		Vaihingen	SPMF21	CE					planned		python train.py --config configs/cfg.jsonc --model-type testnet_spmf21

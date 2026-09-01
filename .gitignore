@@ -36,3 +36,4 @@ scripts/
 diagnostics/
 requirements-cloud.txt
 tests/
+work_dirs/
