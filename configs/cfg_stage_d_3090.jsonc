@@ -1,0 +1,23 @@
+{
+    "extends": "cfg_stage_d.jsonc",
+    "dataloader": {
+        "num_workers": 2,
+        "persistent_workers": true,
+        "prefetch_factor": 2,
+        "pin_memory": true
+    },
+    "runtime_3090": {
+        "precision": "bfloat16",
+        "tf32": true,
+        "work_dir_root": "work_dirs"
+    },
+    "train": {
+        "batch_size": 12,
+        "val_batch_size": 16,
+        "diagnostics": {
+            "enabled": false,
+            "log_trainable_params": false,
+            "log_prealign_spmf_stats": false
+        }
+    }
+}
