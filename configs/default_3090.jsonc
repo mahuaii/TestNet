@@ -1,0 +1,87 @@
+{
+    "extends": [
+        "defaults/3090.jsonc",
+        "defaults/dataset_vaihingen.jsonc"
+    ],
+    "model": {
+        "type": "",
+        "num_classes": 6,
+        "sam_backbone": "vit_b",
+        "sam_checkpoint": "_Checkpoints/segment-anything/sam_vit_b_01ec64.pth",
+        "detach_dsm_taps": true,
+        "record_intermediate_stats": false,
+        "record_intermediate_modules": []
+    },
+    "dataset": {
+        "cache": true,
+        "augmentation": true,
+        "dsm_preprocessing": {
+            "enabled": false,
+            "type": "similarity_enhancement",
+            "window_size": 7,
+            "sigma": 0.15,
+            "lambda_weight": 0.2
+        },
+        // 优先级 3
+        "patch_sampling": {
+            "enabled": false, // 是否启用汽车/边界优先的 patch 采样
+            "uniform_probability": 0.5, // 普通随机采样的概率
+            "car_probability": 0.3, // 优先选择汽车较多 patch 的概率
+            "boundary_probability": 0.2, // 优先选择类别边界较多 patch 的概率
+            "num_candidates": 10, // 每次优先采样时随机生成的候选 patch 数量
+            "car_class_id": 4, // 汽车类别在标签中的类别编号
+            "min_car_pixels": 16, // 候选 patch 被视为含汽车所需的最少汽车像素数
+            "ignore_index": 255 // 计算类别边界时忽略的标签值
+        },
+        "train_samples_per_epoch": 10000,
+        "val_samples_per_epoch": 4
+    },
+    "dataloader": {
+        "num_workers": 0
+    },
+    // 可选 loss: "ce", "lovasz", "boundary"
+    // 启用 "boundary" 时，模型输出必须包含 "boundary_logits"
+    "loss": [
+        "ce",
+        // "lovasz",
+        // "boundary"
+    ],
+    "loss_weights": {
+        "ce": 1.0,
+        "lovasz": 0.2,
+        "boundary": 0.05
+    },
+    "optimizer": {
+        "type": "SGD",
+        "lr": 0.01,
+        "momentum": 0.9,
+        "weight_decay": 0.0005
+    },
+    "scheduler": {
+        "type": "MultiStepLR",
+        "milestones": [
+            25,
+            35,
+            45
+        ],
+        "gamma": 0.1
+    },
+    "validation": {
+        "stride": 32
+    },
+    "train": {
+        "max_epochs": 48,
+        "batch_size": 10,
+        "auto_resume": true,
+        "log_step_interval": 100,
+        "val_epoch_interval": 4,
+        "save_epoch_interval": 0,
+        "save_step_interval": 0,
+        "use_tensorboard": true,
+        "diagnostics": {
+            "enabled": false,
+            "log_trainable_params": false,
+            "log_prealign_spmf_stats": false
+        }
+    }
+}
