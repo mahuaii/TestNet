@@ -1,5 +1,5 @@
 {
-    "extends": "cfg.jsonc",
+    "extends": "default.jsonc",
     "train": {
         "batch_size": 8
     }

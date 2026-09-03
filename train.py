@@ -32,6 +32,7 @@ from utils import (
     load_config,
     log_run_summary,
     save_effective_config,
+    resolve_config_path,
 )
 
 DGA_MODEL_TYPES = {
@@ -85,7 +86,10 @@ def collect_stage_lr_module_paths(stages: Any) -> list[str]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config")
+    parser.add_argument(
+        "--config",
+        help="Config filename; searched directly under configs/ (for example, cfg_stage_d.jsonc).",
+    )
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--resume-dir", default=None)
     parser.add_argument("--resume-ckpt", default=None)
@@ -106,7 +110,8 @@ def main() -> None:
         resume_from = str(work_dir / "latest.pth")
         load_from = None
     else:
-        cfg = load_config(args.config)
+        config_path = resolve_config_path(args.config)
+        cfg = load_config(config_path)
         if model_type_override is not None:
             cfg["model"]["type"] = model_type_override
         dataset_cfg = cfg["dataset"]
@@ -118,7 +123,7 @@ def main() -> None:
             lambda_align=cfg["train"].get("lambda_align"),
         )
         work_dir.mkdir(parents=True, exist_ok=True)
-        save_effective_config(cfg, work_dir / Path(args.config).name)
+        save_effective_config(cfg, work_dir / config_path.name)
         resume_from = args.resume_ckpt
         load_from = args.load_from
 

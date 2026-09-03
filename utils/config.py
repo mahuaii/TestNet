@@ -4,6 +4,26 @@ import json
 from pathlib import Path
 from typing import Any
 
+CONFIGS_DIR = Path(__file__).resolve().parents[1] / "configs"
+
+
+def resolve_config_path(path: str | Path) -> Path:
+    """Resolve a config path or an exact config filename directly under ``configs``."""
+    requested_path = Path(path).expanduser()
+    if requested_path.is_file():
+        return requested_path.resolve()
+
+    if requested_path.is_absolute():
+        raise FileNotFoundError(f"Config file not found: {requested_path}")
+
+    config_path = CONFIGS_DIR / requested_path.name
+    if config_path.is_file():
+        return config_path.resolve()
+
+    raise FileNotFoundError(
+        f"Config file {path!r} not found. Searched directly under {CONFIGS_DIR}."
+    )
+
 
 def _strip_jsonc_comments(text: str) -> str:
     result: list[str] = []
@@ -127,6 +147,32 @@ def _deep_merge(parent: dict[str, Any], child: dict[str, Any]) -> dict[str, Any]
     return merged
 
 
+def _resolve_parent_paths(extends: Any, config_path: Path) -> list[Path]:
+    if extends is None:
+        return []
+
+    if isinstance(extends, str):
+        parent_paths = [extends]
+    elif isinstance(extends, list):
+        if not all(isinstance(parent_path, str) for parent_path in extends):
+            raise ValueError(
+                f"Config extends entries must be string paths: {config_path}"
+            )
+        parent_paths = extends
+    else:
+        raise ValueError(
+            f"Config extends must be a string path or list of string paths: {config_path}"
+        )
+
+    resolved_paths: list[Path] = []
+    for parent_path in parent_paths:
+        resolved_parent_path = Path(parent_path).expanduser()
+        if not resolved_parent_path.is_absolute():
+            resolved_parent_path = config_path.parent / resolved_parent_path
+        resolved_paths.append(resolved_parent_path)
+    return resolved_paths
+
+
 def _load_config(path: Path, stack: tuple[Path, ...]) -> dict[str, Any]:
     config_path = path.expanduser().resolve()
     if config_path in stack:
@@ -137,19 +183,16 @@ def _load_config(path: Path, stack: tuple[Path, ...]) -> dict[str, Any]:
     if not isinstance(cfg, dict):
         raise ValueError(f"Config file must contain a JSON object: {config_path}")
 
-    parent_path = cfg.get("extends")
-    if parent_path is None:
+    parent_paths = _resolve_parent_paths(cfg.get("extends"), config_path)
+    if not parent_paths:
         return _deep_merge({}, cfg)
-    if not isinstance(parent_path, str):
-        raise ValueError(f"Config extends must be a string path: {config_path}")
 
-    parent_config_path = Path(parent_path).expanduser()
-    if not parent_config_path.is_absolute():
-        parent_config_path = config_path.parent / parent_config_path
-
-    parent_cfg = _load_config(parent_config_path, (*stack, config_path))
-    return _deep_merge(parent_cfg, cfg)
+    merged_parents: dict[str, Any] = {}
+    for parent_path in reversed(parent_paths):
+        parent_cfg = _load_config(parent_path, (*stack, config_path))
+        merged_parents = _deep_merge(merged_parents, parent_cfg)
+    return _deep_merge(merged_parents, cfg)
 
 
-def load_config(path: str) -> dict[str, Any]:
-    return _load_config(Path(path), ())
+def load_config(path: str | Path) -> dict[str, Any]:
+    return _load_config(resolve_config_path(path), ())

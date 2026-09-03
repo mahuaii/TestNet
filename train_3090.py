@@ -24,6 +24,7 @@ from utils import (
     build_optimizer_param_groups,
     load_config,
     log_run_summary,
+    resolve_config_path,
     save_effective_config,
 )
 from utils.runtime_3090 import configure_3090_runtime
@@ -56,7 +57,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Train SPMF + Prealign on an Ampere-or-newer GPU using BF16."
     )
-    parser.add_argument("--config", default=None)
+    parser.add_argument(
+        "--config",
+        default=None,
+        help="Config filename; searched directly under configs/ (for example, cfg_stage_d.jsonc).",
+    )
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--resume-dir", default=None)
     parser.add_argument("--resume-ckpt", default=None)
@@ -117,7 +122,8 @@ def main() -> None:
     else:
         if args.config is None:
             raise ValueError("--config is required when --resume-dir is not provided.")
-        cfg = load_config(args.config)
+        config_path = resolve_config_path(args.config)
+        cfg = load_config(config_path)
         model_type = _validate_model_type(cfg)
         resume_from = args.resume_ckpt
         load_from = args.load_from
@@ -135,7 +141,7 @@ def main() -> None:
             root_dir=runtime_cfg.get("work_dir_root", "work_dirs"),
         )
         work_dir.mkdir(parents=True, exist_ok=True)
-        save_effective_config(cfg, work_dir / Path(args.config).name)
+        save_effective_config(cfg, work_dir / config_path.name)
 
     runtime_cfg = cfg.get("runtime_3090")
     if not isinstance(runtime_cfg, dict):

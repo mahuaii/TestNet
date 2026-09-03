@@ -1,5 +1,5 @@
 from .checkpoint_manager import CheckpointManager
-from .config import load_config
+from .config import load_config, resolve_config_path
 from .data_utils import DataUtils
 from .intermediate_stats import IntermediateStatsRecorder
 from .logger import Logger
@@ -44,6 +44,7 @@ __all__ = [
     "count_model_params",
     "is_gate_weight_decay_exempt_param",
     "load_config",
+    "resolve_config_path",
     "log_run_summary",
     "normalize_legacy_module_path",
     "normalize_legacy_optimizer_state_dict",

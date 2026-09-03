@@ -1,4 +1,7 @@
 {
+    "extends": [
+        "defaults/dataset_vaihingen.jsonc"
+    ],
     "model": {
         "type": "",
         "num_classes": 6,
@@ -9,12 +12,6 @@
         "record_intermediate_modules": []
     },
     "dataset": {
-        "name": "vaihingen",
-        "root_dir": "./datasets/vaihingen",
-        "patch_size": [
-            256,
-            256
-        ],
         "cache": true,
         "augmentation": true,
         "dsm_preprocessing": {
@@ -35,40 +32,6 @@
             "min_car_pixels": 16, // 候选 patch 被视为含汽车所需的最少汽车像素数
             "ignore_index": 255 // 计算类别边界时忽略的标签值
         },
-        "train_ids": [
-            "1",
-            "3",
-            "23",
-            "26",
-            "7",
-            "11",
-            "13",
-            "28",
-            "17",
-            "32",
-            "34",
-            "37"
-        ],
-        "train_tile_sampling_weights": [
-            1.0,
-            1.0,
-            1.0,
-            1.0,
-            1.0,
-            1.0,
-            1.0,
-            1.0,
-            1.0,
-            1.0,
-            1.0,
-            1.0
-        ],
-        "val_ids": [
-            "5",
-            "21",
-            "15",
-            "30"
-        ],
         "train_samples_per_epoch": 10000,
         "val_samples_per_epoch": 4
     },

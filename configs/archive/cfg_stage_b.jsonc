@@ -1,5 +1,5 @@
 {
-    "extends": "cfg.jsonc",
+    "extends": "default.jsonc",
     "model": {
         "type": "testnet_prealign_spmf20"
     },

@@ -1,8 +1,11 @@
 {
-    "extends": "cfg.jsonc",
+    "extends": "default.jsonc",
+    "model": {
+        "type": "testnet_prealign_spmf20"
+    },
     "scheduler": {
         "type": "MultiStepLR",
-        "milestones": [48, 56],
+        "milestones": [40, 44],
         "gamma": 0.1
     },
     "stages": [
@@ -30,7 +33,7 @@
         },
         {
             "name": "stage2b_structure_spmf_adapter_slow",
-            "epochs": [35, 48],
+            "epochs": [35, 40],
             "freeze_modules": [],
             "loss": ["ce"],
             "default_lr": 0.01,
@@ -43,7 +46,7 @@
         },
         {
             "name": "stage3_joint_decay",
-            "epochs": [49, 60],
+            "epochs": [41, 52],
             "freeze_modules": [],
             "loss": ["ce"],
             "default_lr": 0.01,
@@ -55,14 +58,8 @@
             }
         }
     ],
-    "optimizer": {
-        "type": "SGD",
-        "lr": 0.01,
-        "momentum": 0.9,
-        "weight_decay": 0.0005
-    },
     "train": {
-        "max_epochs": 60,
+        "max_epochs": 52,
         "diagnostics": {
             "enabled": true,
             "log_trainable_params": true,

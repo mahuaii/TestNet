@@ -1,0 +1,22 @@
+{
+    "extends": "default.jsonc",
+
+    // 可选 loss: "ce", "lovasz", "boundary"
+    // 启用 "boundary" 时，模型输出必须包含 "boundary_logits"
+    // 优先级 2
+    "loss": [
+        "ce",
+        // "lovasz",
+        // "boundary"
+    ],
+    "loss_weights": {
+        "ce": 1.0,
+        "lovasz": 0.2,
+        "boundary": 0.05
+    },
+    // 优先级 1
+    "optimizer": {
+        // Adapter 独立学习率；PreAlign、SPMF、FPN、Decoder 等继续使用 lr=0.01
+        "adapter_lr": 0.01
+    }
+}
