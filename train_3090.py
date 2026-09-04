@@ -66,6 +66,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--resume-dir", default=None)
     parser.add_argument("--resume-ckpt", default=None)
     parser.add_argument("--load-from", default=None)
+    parser.add_argument("--model-type", default=None)
     return parser.parse_args()
 
 
@@ -113,8 +114,11 @@ def _build_loader(
 def main() -> None:
     args = parse_args()
     device = torch.device(args.device)
+    model_type_override = args.model_type
 
     if args.resume_dir is not None:
+        if model_type_override is not None:
+            raise ValueError("--model-type cannot be used with --resume-dir; resume uses saved config")
         work_dir = Path(args.resume_dir)
         cfg = _load_resume_config(work_dir)
         resume_from = str(work_dir / "latest.pth")
@@ -124,6 +128,8 @@ def main() -> None:
             raise ValueError("--config is required when --resume-dir is not provided.")
         config_path = resolve_config_path(args.config)
         cfg = load_config(config_path)
+        if model_type_override is not None:
+            cfg["model"]["type"] = model_type_override
         model_type = _validate_model_type(cfg)
         resume_from = args.resume_ckpt
         load_from = args.load_from
