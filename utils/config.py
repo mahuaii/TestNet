@@ -188,7 +188,8 @@ def _load_config(path: Path, stack: tuple[Path, ...]) -> dict[str, Any]:
         return _deep_merge({}, cfg)
 
     merged_parents: dict[str, Any] = {}
-    for parent_path in reversed(parent_paths):
+    # Merge parents in declaration order so later parents have higher priority.
+    for parent_path in parent_paths:
         parent_cfg = _load_config(parent_path, (*stack, config_path))
         merged_parents = _deep_merge(merged_parents, parent_cfg)
     return _deep_merge(merged_parents, cfg)

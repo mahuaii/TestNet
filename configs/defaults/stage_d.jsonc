@@ -1,8 +1,4 @@
 {
-    "extends": "default.jsonc",
-    "model": {
-        "type": "testnet_prealign_spmf20"
-    },
     "scheduler": {
         "type": "MultiStepLR",
         "milestones": [40, 44],
@@ -43,13 +39,5 @@
                 "structure_branch": 0.01
             }
         }
-    ],
-    "train": {
-        "max_epochs": 48,
-        "diagnostics": {
-            "enabled": true,
-            "log_trainable_params": true,
-            "log_prealign_spmf_stats": true
-        }
-    }
+    ]
 }

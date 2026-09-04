@@ -1,6 +1,18 @@
 {
     "extends": "default.jsonc",
-
+    "dataset": {
+        // 优先级 3
+        "patch_sampling": {
+            "enabled": false, // 是否启用汽车/边界优先的 patch 采样
+            "uniform_probability": 0.5, // 普通随机采样的概率
+            "car_probability": 0.3, // 优先选择汽车较多 patch 的概率
+            "boundary_probability": 0.2, // 优先选择类别边界较多 patch 的概率
+            "num_candidates": 10, // 每次优先采样时随机生成的候选 patch 数量
+            "car_class_id": 4, // 汽车类别在标签中的类别编号
+            "min_car_pixels": 16, // 候选 patch 被视为含汽车所需的最少汽车像素数
+            "ignore_index": 255 // 计算类别边界时忽略的标签值
+        }
+    },
     // 可选 loss: "ce", "lovasz", "boundary"
     // 启用 "boundary" 时，模型输出必须包含 "boundary_logits"
     // 优先级 2

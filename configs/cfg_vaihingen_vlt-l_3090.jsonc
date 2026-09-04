@@ -1,0 +1,17 @@
+{
+    "extends": [
+        "default_3090.jsonc",
+        "defaults/stage_d.jsonc",
+        "defaults/dataset_vaihingen_aug-0.02.jsonc"
+    ],
+    "model": {
+        "type": "testnet_prealign_spmf21",
+        "sam_backbone": "vit_l",
+        "sam_checkpoint": "_Checkpoints/segment-anything/sam_vit_l_0b3195.pth"
+    },
+    "train": {
+        "max_epochs": 48,
+        "batch_size": 12,
+        "val_epoch_interval": 4
+    }
+}

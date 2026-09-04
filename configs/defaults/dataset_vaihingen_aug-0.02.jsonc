@@ -1,7 +1,11 @@
 {
-    "extends": "cfg_stage_d.jsonc",
     "dataset": {
         "name": "vaihingen",
+        "root_dir": "./datasets/vaihingen",
+        "patch_size": [
+            256,
+            256
+        ],
         "train_ids": [
             "1",
             "3",

@@ -1,6 +1,6 @@
 {
     "extends": [
         "default.jsonc",
-        "defaults/3090.jsonc"
+        "defaults/stage_d.jsonc"
     ]
 }
