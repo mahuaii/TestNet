@@ -1,37 +1,37 @@
-ID	flag	Dataset	Modules	Loss	mIoU	OA	F1	BestE	Status	Note	Command
-0423a4		Vaihingen	Baseline	CE	82.41	92.04	90.11	28	done
-05065c		Vaihingen	Baseline	CE	82.94	92.02	90.44	32	done
-051350		Vaihingen	Baseline	CE	82.55	91.93	90.21	24	done
-											
-042352		Vaihingen	PreAlign	CE	83.27	92.49	90.66	30	done
-052055		Vaihingen	PreAlign	CE	82.91	92.32	90.41	44	done
-05257f		Vaihingen	PreAlign	CE	83.04	92.25	90.50	36	done
-060241		Vaihingen	PreAlign	CE	83.09	92.31	90.53	44	done
-0608c2		Vaihingen	PreAlign	CE	83.07	92.45	90.51	28	done		
-060835		Vaihingen	PreAlign	CE	83.39	92.55	90.71	48	done		
-060941		Vaihingen	PreAlign	CE	83.27	92.39	90.64	32	done	有预处理	
-060965		Vaihingen	PreAlign	CE	82.95	92.30	90.43	36	done	有预处理	
-0725c6		Vaihingen	PreAlign	CE	83.32	92.38	90.67	28	done	batchsize 4	python train.py --config configs/cfg_batchsize_4 --model-type testnet_prealign
-07243d	*	Vaihingen	PreAlign	CE	83.51	92.56	90.77	32	done	batchsize 8	python train.py --config configs/cfg_batchsize_8 --model-type testnet_prealign
-											
-0424f0		Vaihingen	PreAlign+AuxAlign	CE+0.01*MSEAlign	83.01	92.40	90.49	32	done
-0425dd		Vaihingen	PreAlign+AuxAlign	CE+0.1*MSEAlign	83.27	92.41	90.65	24	done
-042669		Vaihingen	PreAlign+AuxAlign	CE+0.5*MSEAlign	83.35	92.44	90.68	48	done
-05135e		Vaihingen	PreAlign+AuxAlign	CE+1.0*MSEAlign	83.47	92.29	90.77	36	done
-052573		Vaihingen	PreAlign+AuxAlign	CE+1.0*MSEAlign	82.90	92.39	90.40	28	done
-											
-07153d		Vaihingen	PreAlign+SPMF21	CE	83.34	92.42	90.68	44	done	"cfg_stage_d "	python train.py --config configs/cfg_stage_d.jsonc --model-type testnet_prealign_spmf21
-071414		Vaihingen	PreAlign+SPMF21	CE	83.86	92.67	90.99	56	done	cfg_stage_g; augmented-val-only-0.02	
-0715ab		Vaihingen	PreAlign+SPMF21	CE	84.04	92.98	91.10	48	done	cfg_stage_d; augmented-val-only-0.02	
-071811		Vaihingen	PreAlign+SPMF21	CE	84.47	93.03	91.36	44	done	cfg_stage_d; augmented-val-only-0.02	python train.py --config configs/cfg_stage-d_augmented-val-only-0.02.jsonc --model-type testnet_prealign_spmf21
-											
-0710fe	*	Vaihingen	SPMF21	CE	83.19	92.40	90.59	32	done		python train.py --config configs/cfg.jsonc --model-type testnet_spmf21
-071103		Vaihingen	SPMF21	CE	83.18	92.19	90.57	28	done		python train.py --config configs/cfg.jsonc --model-type testnet_spmf21
-080542		Vaihingen	SPMF21	CE	82.50	91.88	90.20	44	done	batchsize 4	python train.py --config configs/cfg_batchsize_4 --model-type testnet_spmf21
-08059d		Vaihingen	SPMF21	CE	82.61	91.92	90.24	32	done	batchsize 8	python train.py --config configs/cfg_batchsize_8 --model-type testnet_spmf21
-081262		Vaihingen	SPMF21	CE	82.80	91.93	90.38	28	done	batchsize 4	python train.py --config configs/cfg_batchsize_4 --model-type testnet_spmf21
-081263		Vaihingen	SPMF21	CE	82.85	92.19	90.38	36	done	batchsize 8	python train.py --config configs/cfg_batchsize_8 --model-type testnet_spmf21
-		Vaihingen	SPMF21	CE					planned	不使用 Local Similarity	python train.py --config configs/cfg.jsonc --model-type testnet_spmf21
-		Vaihingen	SPMF21	CE					planned	不使用 Local Similarity	python train.py --config configs/cfg.jsonc --model-type testnet_spmf21
-		Vaihingen	SPMF21	CE					planned		python train.py --config configs/cfg.jsonc --model-type testnet_spmf21
-		Vaihingen	SPMF21	CE					planned		python train.py --config configs/cfg.jsonc --model-type testnet_spmf21
+ID	flag	Dataset	Modules	Vit	Loss	mIoU	OA	F1	BestE	Status	Note	Command
+0423a4		Vaihingen	Baseline	b	CE	82.41	92.04	90.11	28	done
+05065c		Vaihingen	Baseline	b	CE	82.94	92.02	90.44	32	done
+051350		Vaihingen	Baseline	b	CE	82.55	91.93	90.21	24	done
+												
+042352		Vaihingen	PreAlign	b	CE	83.27	92.49	90.66	30	done
+052055		Vaihingen	PreAlign	b	CE	82.91	92.32	90.41	44	done
+05257f		Vaihingen	PreAlign	b	CE	83.04	92.25	90.50	36	done
+060241		Vaihingen	PreAlign	b	CE	83.09	92.31	90.53	44	done
+0608c2		Vaihingen	PreAlign	b	CE	83.07	92.45	90.51	28	done		
+060835		Vaihingen	PreAlign	b	CE	83.39	92.55	90.71	48	done		
+060941		Vaihingen	PreAlign	b	CE	83.27	92.39	90.64	32	done	有预处理	
+060965		Vaihingen	PreAlign	b	CE	82.95	92.30	90.43	36	done	有预处理	
+0725c6		Vaihingen	PreAlign	b	CE	83.32	92.38	90.67	28	done	batchsize 4	python train.py --config configs/cfg_batchsize_4 --model-type testnet_prealign
+07243d	*	Vaihingen	PreAlign	b	CE	83.51	92.56	90.77	32	done	batchsize 8	python train.py --config configs/cfg_batchsize_8 --model-type testnet_prealign
+												
+0424f0		Vaihingen	PreAlign+AuxAlign	b	CE+0.01*MSEAlign	83.01	92.40	90.49	32	done
+0425dd		Vaihingen	PreAlign+AuxAlign	b	CE+0.1*MSEAlign	83.27	92.41	90.65	24	done
+042669		Vaihingen	PreAlign+AuxAlign	b	CE+0.5*MSEAlign	83.35	92.44	90.68	48	done
+05135e		Vaihingen	PreAlign+AuxAlign	b	CE+1.0*MSEAlign	83.47	92.29	90.77	36	done
+052573		Vaihingen	PreAlign+AuxAlign	b	CE+1.0*MSEAlign	82.90	92.39	90.40	28	done
+												
+07153d		Vaihingen	PreAlign+SPMF21	b	CE	83.34	92.42	90.68	44	done	"cfg_stage_d "	python train.py --config configs/cfg_stage_d.jsonc --model-type testnet_prealign_spmf21
+071414		Vaihingen	PreAlign+SPMF21	b	CE	83.86	92.67	90.99	56	done	cfg_stage_g; augmented-val-only-0.02	
+0715ab		Vaihingen	PreAlign+SPMF21	b	CE	84.04	92.98	91.10	48	done	cfg_stage_d; augmented-val-only-0.02	
+071811		Vaihingen	PreAlign+SPMF21	b	CE	84.47	93.03	91.36	44	done	cfg_stage_d; augmented-val-only-0.02	python train.py --config configs/cfg_stage-d_augmented-val-only-0.02.jsonc --model-type testnet_prealign_spmf21
+												
+0710fe	*	Vaihingen	SPMF21	b	CE	83.19	92.40	90.59	32	done		python train.py --config configs/cfg.jsonc --model-type testnet_spmf21
+071103		Vaihingen	SPMF21	b	CE	83.18	92.19	90.57	28	done		python train.py --config configs/cfg.jsonc --model-type testnet_spmf21
+080542		Vaihingen	SPMF21	b	CE	82.50	91.88	90.20	44	done	batchsize 4	python train.py --config configs/cfg_batchsize_4 --model-type testnet_spmf21
+08059d		Vaihingen	SPMF21	b	CE	82.61	91.92	90.24	32	done	batchsize 8	python train.py --config configs/cfg_batchsize_8 --model-type testnet_spmf21
+081262		Vaihingen	SPMF21	b	CE	82.80	91.93	90.38	28	done	batchsize 4	python train.py --config configs/cfg_batchsize_4 --model-type testnet_spmf21
+081263		Vaihingen	SPMF21	b	CE	82.85	92.19	90.38	36	done	batchsize 8	python train.py --config configs/cfg_batchsize_8 --model-type testnet_spmf21
+		Vaihingen	SPMF21	b	CE					planned	不使用 Local Similarity	python train.py --config configs/cfg.jsonc --model-type testnet_spmf21
+		Vaihingen	SPMF21	b	CE					planned	不使用 Local Similarity	python train.py --config configs/cfg.jsonc --model-type testnet_spmf21
+		Vaihingen	SPMF21	b	CE					planned		python train.py --config configs/cfg.jsonc --model-type testnet_spmf21
+		Vaihingen	SPMF21	b	CE					planned		python train.py --config configs/cfg.jsonc --model-type testnet_spmf21
