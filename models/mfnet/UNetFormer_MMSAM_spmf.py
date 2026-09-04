@@ -30,7 +30,6 @@ class SPMFVariantSpec:
     structure_attr: str
     fusion_attr: str
     intermediate_modules: tuple[tuple[str, str, str], ...]
-    structure_branch_kwargs: tuple[tuple[str, object], ...] = ()
 
 
 SPMF_VARIANTS: dict[str, SPMFVariantSpec] = {
@@ -82,7 +81,6 @@ SPMF_VARIANTS: dict[str, SPMFVariantSpec] = {
             ("structure12", "structure_branch12", "spmf21/structure"),
             ("structure21", "structure_branch12", "spmf21/structure"),
         ),
-        structure_branch_kwargs=(("use_local_similarity", False),),
     ),
     "22": SPMFVariantSpec(
         variant_name="22",
@@ -163,7 +161,6 @@ class UNetFormerSPMF(UNetFormer):
                 tap_channels=tap_channels,
                 output_channels=256,
                 detach_dsm_taps=detach_dsm_taps,
-                **dict(self._spmf_variant_spec.structure_branch_kwargs),
             ),
         )
         setattr(

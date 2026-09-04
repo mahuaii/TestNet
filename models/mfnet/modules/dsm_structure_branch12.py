@@ -67,7 +67,6 @@ class DSMStructureBranch12(nn.Module):
         structure_channels: Sequence[int] = (64, 96, 128, 160),
         output_channels: int = 256,
         *,
-        use_local_similarity: bool = True,
         similarity_kernel_size: int = 7,
         similarity_sigma: float = 0.15,
         eps: float = 1e-6,
@@ -81,12 +80,6 @@ class DSMStructureBranch12(nn.Module):
         self.tap_channels = as_four_tuple("tap_channels", tap_channels)
         self.structure_channels = as_four_tuple("structure_channels", structure_channels)
         self.output_channels = validate_positive_int("output_channels", output_channels)
-        if not isinstance(use_local_similarity, bool):
-            raise TypeError(
-                "Expected use_local_similarity to be a bool, "
-                f"got {type(use_local_similarity).__name__}."
-            )
-        self.use_local_similarity = use_local_similarity
         self.similarity_kernel_size = int(similarity_kernel_size)
         if self.similarity_kernel_size <= 0 or self.similarity_kernel_size % 2 == 0:
             raise ValueError(
@@ -102,13 +95,7 @@ class DSMStructureBranch12(nn.Module):
 
         c1, c2, c3, c4 = self.structure_channels
         self.stem = nn.Sequential(
-            ConvNormAct(
-                2 if self.use_local_similarity else 1,
-                c1,
-                kernel_size=3,
-                stride=2,
-                norm_layer=norm_layer,
-            ),
+            ConvNormAct(2, c1, kernel_size=3, stride=2, norm_layer=norm_layer),
             ConvNormAct(c1, c1, kernel_size=3, norm_layer=norm_layer),
         )
         self.stage1 = _StructureStage(c1, c1, norm_layer)
@@ -180,8 +167,6 @@ class DSMStructureBranch12(nn.Module):
 
     def _make_structure_input(self, dsm: torch.Tensor) -> torch.Tensor:
         dsm_norm = self._normalize_dsm(dsm)
-        if not self.use_local_similarity:
-            return dsm_norm
         similarity = self._local_similarity(dsm_norm)
         return torch.cat([dsm_norm, similarity], dim=1)
 
