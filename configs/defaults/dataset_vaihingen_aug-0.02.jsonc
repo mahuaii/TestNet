@@ -1,4 +1,7 @@
 {
+    "validation": {
+        "stride": 32
+    },
     "dataset": {
         "name": "vaihingen",
         "root_dir": "./datasets/vaihingen",

@@ -1,4 +1,7 @@
 {
+    "validation": {
+        "stride": 128
+    },
     "dataset": {
         "name": "potsdam",
         "root_dir": "./datasets/potsdam",

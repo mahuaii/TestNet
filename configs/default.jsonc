@@ -50,9 +50,6 @@
         ],
         "gamma": 0.1
     },
-    "validation": {
-        "stride": 32
-    },
     "train": {
         "max_epochs": 48,
         "batch_size": 10,
