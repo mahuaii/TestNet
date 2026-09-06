@@ -31,6 +31,7 @@ from utils.runtime_3090 import configure_3090_runtime
 
 
 SUPPORTED_MODEL_TYPES = {
+    "mfnet_unetformer",
     "testnet_spmf21",
     "testnet_prealign",
     "testnet_prealign_spmf20",

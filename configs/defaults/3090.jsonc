@@ -1,6 +1,6 @@
 {
     "dataloader": {
-        "num_workers": 4,
+        "num_workers": 3,
         "persistent_workers": true,
         "prefetch_factor": 2,
         "pin_memory": true
