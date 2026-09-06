@@ -1,0 +1,16 @@
+{
+    "extends": [
+        "default.jsonc",
+        "defaults/dataset_potsdam.jsonc"
+    ],
+    "model": {
+        "type": "testnet_prealign_spmf21",
+        "sam_backbone": "vit_b",
+        "sam_checkpoint": "_Checkpoints/segment-anything/sam_vit_b_01ec64.pth"
+    },
+    "train": {
+        "max_epochs": 48,
+        "batch_size": 12,
+        "val_epoch_interval": 4
+    }
+}
