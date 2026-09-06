@@ -33,3 +33,8 @@ ID	flag	Dataset	Modules	Vit	Loss	mIoU	OA	F1	BestE	Status	Note	Command
 081263		Vaihingen	SPMF21	b	CE	82.85	92.19	90.38	36	done	batchsize 8	python train.py --config configs/cfg_batchsize_8 --model-type testnet_spmf21
 09016e		Vaihingen	SPMF21	b	CE	82.50	91.94	90.17	28	done	不使用 Local Similarity	python train.py --config configs/cfg.jsonc --model-type testnet_spmf21
 090111		Vaihingen	SPMF21	b	CE	82.54	92.00	90.19	36	done	不使用 Local Similarity	python train.py --config configs/cfg.jsonc --model-type testnet_spmf21
+0904d7		Vaihingen	Prealign+SPMF21	l	CE	85.64	93.28	92.06	44	done	aug	python train_3090.py --config cfg_vaihingen_vit-l_3090.jsonc
+0904c5		Vaihingen	Prealign+SPMF21	l	CE	85.15	92.88	91.77	44	done		python train_3090.py --config cfg_vaihingen_vit-l_noaug_3090.jsonc
+090540		Potsdam	Prealign+SPMF21	l	CE	85.73	91.01	92.14	48	done		python train_3090.py --config cfg_potsdam_vit-l_noaug_3090.jsonc
+090529		Potsdam	Prealign	l	CE	85.70	90.97	92.12	40	done		python train_3090.py --config cfg_potsdam_vit-l_abl_3090.jsonc --model-type testnet_prealign
+090656		Potsdam	SPMF21	l	CE	85.69	91.10	92.12	40	done		python train_3090.py --config cfg_potsdam_vit-l_abl_3090.jsonc --model-type testnet_spmf21
