@@ -10,7 +10,7 @@
     },
     "train": {
         "max_epochs": 48,
-        "batch_size": 12,
+        "batch_size": 10,
         "val_epoch_interval": 4
     }
 }
