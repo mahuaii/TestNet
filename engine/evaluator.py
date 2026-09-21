@@ -30,7 +30,7 @@ class Evaluator:
 
     def evaluate(
         self,
-        outputs: list[Any],
+        outputs,
         num_classes: int | None = None,
         metric_classes: int = 5,
         label_values: list[str] | tuple[str, ...] | None = None,
@@ -50,16 +50,23 @@ class Evaluator:
         if num_classes is None:
             num_classes = int(kwargs["trainer"].cfg["num_classes"])
         label_values = tuple(label_values or ISPRS_LABELS[:num_classes])
-        predictions = np.concatenate([self._to_numpy(output["pred"]).ravel() for output in outputs])
-        gts = np.concatenate([self._to_numpy(output["target"]).ravel() for output in outputs])
 
-        cm = self._confusion_matrix(
-            targets=gts,
-            predictions=predictions,
-            num_classes=num_classes,
-        )
-
-        total = np.sum(cm)
+        # Streaming confusion matrix: accumulate per-batch to avoid
+        # holding all predictions/gts in RAM at once.
+        cm = np.zeros((num_classes, num_classes), dtype=np.int64)
+        total = 0
+        for output in outputs:
+            pred = self._to_numpy(output["pred"]).ravel()
+            gt = self._to_numpy(output["target"]).ravel()
+            batch_cm = self._confusion_matrix(
+                targets=gt,
+                predictions=pred,
+                num_classes=num_classes,
+            )
+            cm += batch_cm
+            total += int(np.sum(batch_cm))
+            # Free batch arrays immediately
+            del pred, gt, batch_cm
         accuracy = np.trace(cm)
         accuracy *= 100 / float(total)
 

@@ -1,8 +1,8 @@
 {
     "extends": [
         "default_3090.jsonc",
-        "defaults/stage_d.jsonc",
-        "defaults/dataset_potsdam_aug-0.04.jsonc"
+        "defaults/stage_h.jsonc",
+        "defaults/dataset_potsdam_aug-0.08.jsonc"
     ],
     "model": {
         "type": "testnet_prealign_spmf21",
