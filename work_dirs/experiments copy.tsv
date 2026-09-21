@@ -45,4 +45,7 @@ ID	flag	Dataset	Modules	Vit	Loss	mIoU	OA	F1	BestE	Status	Note	Command
 09069a		Potsdam	Prealign+SPMF21	l	CE	86.36	91.55	92.52	44	done	aug	python train_3090.py --config cfg_potsdam_vit-l_3090.jsonc
 09071a		Potsdam	Prealign+SPMF21	l	CE	86.07	91.35	92.35	48	done	aug	python train_3090.py --config cfg_potsdam_vit-l_3090.jsonc
 090704		Potsdam	Prealign+SPMF21	l	CE	86.13	91.34	92.38	48	done	aug	python train_3090.py --config cfg_potsdam_vit-l_3090.jsonc
-0907fa		Potsdam	Prealign+SPMF21	l	CE	86.27	91.49	92.46	44	done	aug	python train_3090.py --config cfg_potsdam_vit-l_3090.jsonc
+0907fa		Potsdam	Prealign+SPMF21	l	CE	86.27	91.49	92.46	44	done	aug从0.02改成了0.03, 52epochs	python train_3090.py --config cfg_potsdam_vit-l_3090.jsonc
+090867		Potsdam	Prealign+SPMF21	l	CE	86.22	91.46	92.43	44	done	aug	python train_3090.py --config cfg_potsdam_vit-l_3090_2.jsonc
+091288		Potsdam	Prealign+SPMF21	l	CE	86.15	91.52	92.40	52	done	aug0.04	python train_3090.py --config cfg_potsdam_vit-l_3090_2.jsonc
+0920fe		Potsdam	Prealign+SPMF21	l	CE	87.09	92.29	92.94	48	done	aug0.08 stage-h	python train_3090.py --config cfg_potsdam_vit-l_3090_3.jsonc
