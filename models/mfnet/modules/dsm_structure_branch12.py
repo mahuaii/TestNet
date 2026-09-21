@@ -68,7 +68,7 @@ class DSMStructureBranch12(nn.Module):
         output_channels: int = 256,
         *,
         similarity_kernel_size: int = 7,
-        similarity_sigma: float = 0.15,
+        similarity_sigma: float = 8.1,
         eps: float = 1e-6,
         norm_layer: type[nn.Module] = LayerNorm2d,
         align_corners: bool = False,
@@ -178,22 +178,24 @@ class DSMStructureBranch12(nn.Module):
     def _local_similarity(self, dsm_norm: torch.Tensor) -> torch.Tensor:
         kernel_size = self.similarity_kernel_size
         padding = kernel_size // 2
-        local_mean = F.avg_pool2d(
-            dsm_norm,
-            kernel_size,
-            stride=1,
-            padding=padding,
-            count_include_pad=False,
+        height, width = dsm_norm.shape[-2:]
+        dsm_for_similarity = dsm_norm * 255.0
+        padded = F.pad(
+            dsm_for_similarity,
+            (padding, padding, padding, padding),
+            mode="reflect",
         )
-        local_square_mean = F.avg_pool2d(
-            dsm_norm.square(),
-            kernel_size,
-            stride=1,
-            padding=padding,
-            count_include_pad=False,
-        )
-        local_variance = (local_square_mean - local_mean.square()).clamp_min(0.0)
-        return torch.exp(-local_variance / (2.0 * self.similarity_sigma * self.similarity_sigma))
+        denominator = 2.0 * self.similarity_sigma * self.similarity_sigma
+
+        similarity_sum = torch.zeros_like(dsm_norm)
+        for row in range(kernel_size):
+            for column in range(kernel_size):
+                neighbor = padded[..., row : row + height, column : column + width]
+                similarity_sum = similarity_sum + torch.exp(
+                    -(neighbor - dsm_for_similarity).square() / denominator
+                )
+
+        return similarity_sum / float(kernel_size * kernel_size)
 
     @staticmethod
     def _modulate_structure(
