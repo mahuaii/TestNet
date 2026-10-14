@@ -165,7 +165,7 @@ class MFNet3090Trainer(MFNetTrainer):
             self.cfg.get("val_batch_size", self.cfg["batch_size"])
         )
         with self._autocast_context():
-            outputs = self.inferencer.run(
+            tile_outputs = self.inferencer.run_iter(
                 model=self.model,
                 dataset=dataset,
                 device=self.device,
@@ -176,10 +176,10 @@ class MFNet3090Trainer(MFNetTrainer):
                 input_modals=("rgb", "dsm"),
                 model_kwargs={"mode": "Test"},
             )
-        val_metrics = self.evaluator.evaluate(
-            outputs=outputs,
-            num_classes=int(self.cfg["num_classes"]),
-        )
+            val_metrics = self.evaluator.evaluate(
+                outputs=tile_outputs,
+                num_classes=int(self.cfg["num_classes"]),
+            )
         validation_time_seconds = self.timer.elapsed("validation")
         self.after_val(
             val_metrics,

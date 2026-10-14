@@ -25,8 +25,37 @@ class SlidingWindowInferencer3090(SlidingWindowInferencer):
         input_modals: tuple[str, ...],
         model_kwargs: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
+        """Return all tile outputs as a list (legacy interface).
+
+        Prefer ``run_iter()`` for memory-efficient streaming.
+        """
+        return list(self.run_iter(
+            model=model,
+            dataset=dataset,
+            device=device,
+            stride=stride,
+            batch_size=batch_size,
+            window_size=window_size,
+            num_classes=num_classes,
+            input_modals=input_modals,
+            model_kwargs=model_kwargs,
+        ))
+
+    @torch.inference_mode()
+    def run_iter(
+        self,
+        model: Any,
+        dataset: Any,
+        device: torch.device,
+        stride: int,
+        batch_size: int,
+        window_size: tuple[int, int],
+        num_classes: int,
+        input_modals: tuple[str, ...],
+        model_kwargs: dict[str, Any] | None = None,
+    ):
+        """Yield one tile output at a time to avoid accumulating all tiles in RAM."""
         model_kwargs = model_kwargs or {}
-        outputs: list[dict[str, Any]] = []
 
         tile_iterable = tqdm(
             range(len(dataset.ids)),
@@ -75,15 +104,13 @@ class SlidingWindowInferencer3090(SlidingWindowInferencer):
                 self._accumulate_logits(accumulated_logits, logits, coords)
 
             pred = accumulated_logits.argmax(dim=-1).cpu().long()
-            outputs.append(
-                {
-                    "pred": pred,
-                    "target": target,
-                    "meta": tile.get("meta", {}),
-                }
-            )
-
-        return outputs
+            # Free GPU logits immediately
+            del accumulated_logits
+            yield {
+                "pred": pred,
+                "target": target,
+                "meta": tile.get("meta", {}),
+            }
 
     @staticmethod
     def _crop_batch(
