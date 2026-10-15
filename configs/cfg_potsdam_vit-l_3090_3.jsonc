@@ -9,11 +9,6 @@
         "sam_backbone": "vit_l",
         "sam_checkpoint": "_Checkpoints/segment-anything/sam_vit_l_0b3195.pth"
     },
-    "train": {
-        "max_epochs": 48,
-        "batch_size": 12,
-        "val_epoch_interval": 4
-    },
     "dataloader": {
         "num_workers": 2,
         "persistent_workers": false

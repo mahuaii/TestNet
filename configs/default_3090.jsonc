@@ -1,6 +1,7 @@
 {
     "extends": [
         "default.jsonc",
-        "defaults/3090.jsonc"
+        "defaults/3090.jsonc",
+        "defaults/validation_save.jsonc"
     ]
 }

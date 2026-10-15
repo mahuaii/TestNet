@@ -162,10 +162,11 @@ class Trainer(ABC):
         # 训练循环
         with self.logger:
             if self.pending_validation_epoch is not None:
-                self._validate_and_finalize_epoch(
-                    validation_epoch=self.pending_validation_epoch,
-                    resume_epoch=self.epoch,
-                )
+                if self._should_validate(self.pending_validation_epoch):
+                    self._validate_and_finalize_epoch(
+                        validation_epoch=self.pending_validation_epoch,
+                        resume_epoch=self.epoch,
+                    )
                 self.pending_validation_epoch = None
 
             for epoch in range(self.epoch, self.max_epochs + 1):
@@ -180,10 +181,7 @@ class Trainer(ABC):
 
                 train_time_seconds = self.timer.elapsed("epoch")
 
-                val_epoch_interval = int(self.cfg.get("val_epoch_interval", 0))
-                validation_pending = (
-                    val_epoch_interval > 0 and epoch % val_epoch_interval == 0
-                )
+                validation_pending = self._should_validate(epoch)
                 self.after_epoch(
                     train_metrics,
                     train_time_seconds=train_time_seconds,
@@ -195,6 +193,16 @@ class Trainer(ABC):
                         validation_epoch=epoch,
                         resume_epoch=epoch + 1,
                     )
+
+    def _should_validate(self, epoch: int) -> bool:
+        """从指定起始 epoch 起，按间隔触发验证。"""
+        start_epoch = int(self.cfg["val_start_epoch"])
+        interval = int(self.cfg["val_epoch_interval"])
+        return (
+            interval > 0
+            and epoch >= start_epoch
+            and (epoch - start_epoch) % interval == 0
+        )
 
     def before_epoch(self):
         """
@@ -331,7 +339,7 @@ class Trainer(ABC):
     ):
         """
         - 输出训练 epoch 级日志
-        - 按配置执行 epoch 级 checkpoint 保存
+        - 保存用于断点恢复的 latest checkpoint
         """
         self.logger.log_epoch_end(
             train_time_seconds=train_time_seconds,
@@ -345,29 +353,11 @@ class Trainer(ABC):
                 prefixes=DIAGNOSTIC_STAT_PREFIXES,
             )
 
-        self._save_epoch_checkpoints(
+        self._save_training_state(
+            name="latest.pth",
             resume_epoch=self.epoch + 1,
             validation_pending=validation_pending,
         )
-
-    def _save_epoch_checkpoints(
-        self,
-        *,
-        resume_epoch: int,
-        validation_pending: bool,
-    ) -> None:
-        self._save_training_state(
-            name="latest.pth",
-            resume_epoch=resume_epoch,
-            validation_pending=validation_pending,
-        )
-        save_epoch_interval = int(self.cfg["save_epoch_interval"])
-        if save_epoch_interval > 0 and self.epoch % save_epoch_interval == 0:
-            self._save_training_state(
-                name=f"epoch_{self.epoch}.pth",
-                resume_epoch=resume_epoch,
-                validation_pending=validation_pending,
-            )
 
     def _validate_and_finalize_epoch(
         self,
@@ -393,7 +383,20 @@ class Trainer(ABC):
             if self.epoch == self.max_epochs:
                 status_kwargs["phase"] = "done"
             update_experiments_tsv_status(**status_kwargs)
-            self._save_epoch_checkpoints(
+            save_epoch_interval = int(self.cfg["save_epoch_interval"])
+            start_epoch = int(self.cfg["val_start_epoch"])
+            if (
+                save_epoch_interval > 0
+                and self.epoch >= start_epoch
+                and (self.epoch - start_epoch) % save_epoch_interval == 0
+            ):
+                self._save_training_state(
+                    name=f"epoch_{self.epoch}.pth",
+                    resume_epoch=resume_epoch,
+                    validation_pending=False,
+                )
+            self._save_training_state(
+                name="latest.pth",
                 resume_epoch=resume_epoch,
                 validation_pending=False,
             )

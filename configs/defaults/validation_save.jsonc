@@ -1,0 +1,7 @@
+{
+    "train": {
+        "val_start_epoch": 36,
+        "val_epoch_interval": 2,
+        "save_epoch_interval": 2
+    }
+}

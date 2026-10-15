@@ -9,9 +9,4 @@
         "sam_backbone": "vit_h",
         "sam_checkpoint": "_Checkpoints/segment-anything/sam_vit_h_4b8939.pth"
     },
-    "train": {
-        "max_epochs": 48,
-        "batch_size": 4,
-        "val_epoch_interval": 4
-    }
 }
