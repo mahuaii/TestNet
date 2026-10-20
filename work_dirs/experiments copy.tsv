@@ -33,16 +33,16 @@ ID	flag	Dataset	Modules	Vit	Loss	mIoU	OA	F1	BestE	Status	Note	Command
 081263		Vaihingen	SPMF21	b	CE	82.85	92.19	90.38	36	done	batchsize 8	python train.py --config configs/cfg_batchsize_8 --model-type testnet_spmf21
 09016e		Vaihingen	SPMF21	b	CE	82.50	91.94	90.17	28	done	不使用 Local Similarity	python train.py --config configs/cfg.jsonc --model-type testnet_spmf21
 090111		Vaihingen	SPMF21	b	CE	82.54	92.00	90.19	36	done	不使用 Local Similarity	python train.py --config configs/cfg.jsonc --model-type testnet_spmf21
-0904d7	*	Vaihingen	Prealign+SPMF21	l	CE	85.64	93.28	92.06	44	done	aug	python train_3090.py --config cfg_vaihingen_vit-l_3090.jsonc
+0904d7		Vaihingen	Prealign+SPMF21	l	CE	85.64	93.28	92.06	44	done	aug	python train_3090.py --config cfg_vaihingen_vit-l_3090.jsonc
 0904c5		Vaihingen	Prealign+SPMF21	l	CE	85.15	92.88	91.77	44	done		python train_3090.py --config cfg_vaihingen_vit-l_noaug_3090.jsonc
 090540		Potsdam	Prealign+SPMF21	l	CE	85.73	91.01	92.14	48	done		python train_3090.py --config cfg_potsdam_vit-l_noaug_3090.jsonc
 090529		Potsdam	Prealign	l	CE	85.70	90.97	92.12	40	done		python train_3090.py --config cfg_potsdam_vit-l_abl_3090.jsonc --model-type testnet_prealign
 090656		Potsdam	SPMF21	l	CE	85.69	91.10	92.12	40	done		python train_3090.py --config cfg_potsdam_vit-l_abl_3090.jsonc --model-type testnet_spmf21
-0906bb	*	Vaihingen	Baseline	l	CE	84.23	92.74	91.21	44	done		python train_3090.py --config cfg_vaihingen_vit-l_abl_3090.jsonc --model-type mfnet_unetformer
+0906bb		Vaihingen	Baseline	l	CE	84.23	92.74	91.21	44	done		python train_3090.py --config cfg_vaihingen_vit-l_abl_3090.jsonc --model-type mfnet_unetformer
 0907f0		Vaihingen	Baseline	l	CE	84.29	92.85	91.24	28	done		python train_3090.py --config cfg_vaihingen_vit-l_abl_3090.jsonc --model-type mfnet_unetformer
-0906a5	*	Potsdam	Baseline	l	CE	85.81	91.17	92.20	44	done		python train_3090.py --config cfg_potsdam_vit-l_abl_3090.jsonc --model-type mfnet_unetformer
+0906a5		Potsdam	Baseline	l	CE	85.81	91.17	92.20	44	done		python train_3090.py --config cfg_potsdam_vit-l_abl_3090.jsonc --model-type mfnet_unetformer
 0907bc		Potsdam	Baseline	l	CE	86.01	91.28	92.30	40	done		python train_3090.py --config cfg_potsdam_vit-l_abl_3090.jsonc --model-type mfnet_unetformer
-09069a	*	Potsdam	Prealign+SPMF21	l	CE	86.36	91.55	92.52	44	done	aug	python train_3090.py --config cfg_potsdam_vit-l_3090.jsonc
+09069a		Potsdam	Prealign+SPMF21	l	CE	86.36	91.55	92.52	44	done	aug	python train_3090.py --config cfg_potsdam_vit-l_3090.jsonc
 09071a		Potsdam	Prealign+SPMF21	l	CE	86.07	91.35	92.35	48	done	aug	python train_3090.py --config cfg_potsdam_vit-l_3090.jsonc
 090704		Potsdam	Prealign+SPMF21	l	CE	86.13	91.34	92.38	48	done	aug	python train_3090.py --config cfg_potsdam_vit-l_3090.jsonc
 0907fa		Potsdam	Prealign+SPMF21	l	CE	86.27	91.49	92.46	44	done	aug从0.02改成了0.03, 52epochs	python train_3090.py --config cfg_potsdam_vit-l_3090.jsonc
@@ -53,3 +53,8 @@ ID	flag	Dataset	Modules	Vit	Loss	mIoU	OA	F1	BestE	Status	Note	Command
 090867		Potsdam	Prealign+SPMF21	l	CE	86.22	91.46	92.43	44	done	aug	python train_3090.py --config cfg_potsdam_vit-l_3090_2.jsonc
 091288		Potsdam	Prealign+SPMF21	l	CE	86.15	91.52	92.40	52	done	aug0.04	python train_3090.py --config cfg_potsdam_vit-l_3090_2.jsonc
 0920fe		Potsdam	Prealign+SPMF21	l	CE	87.09	92.29	92.94	48	done	aug0.08 stage-h	python train_3090.py --config cfg_potsdam_vit-l_3090_3.jsonc
+1019d2	*	Vaihingen	Baseline	l	CE	84.52	92.81	91.39	42	done		python train_3090.py --config cfg_vaihingen_vit-l_abl_3090.jsonc --model-type mfnet_unetformer
+10160f	*	Vaihingen	Prealign+SPMF21	l	CE	85.31	93.33	91.87	46	done	aug	python train_3090.py --config cfg_vaihingen_vit-l_3090.jsonc
+1015df		Vaihingen	Prealign+SPMF21	l	CE	83.98	92.13	91.10	40	done		python train_3090.py --config cfg_vaihingen_vit-l_noaug_3090.jsonc
+102039		Potsdam	Baseline	l	CE	86.11	91.32	92.36	40	running(46/48)		python train_3090.py --config cfg_potsdam_vit-l_abl_3090.jsonc --model-type mfnet_unetformer
+10198e	*	Potsdam	Prealign+SPMF21	l	CE	86.64	91.87	92.68	48	done	aug0.06	python train_3090.py --config cfg_potsdam_vit-l_3090_4.jsonc
