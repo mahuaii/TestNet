@@ -9,6 +9,7 @@ import torch.nn.functional as F
 
 from .UNetFormer_MMSAM import UNetFormer
 from .intermediate_stats_config import attach_requested_intermediate_stats
+from .modules.gsmm_dfm import MultiScaleGSMMDFMFusion
 from .modules import (
     DSMStructureBranch10,
     DSMStructureBranch11,
@@ -95,6 +96,18 @@ SPMF_VARIANTS: dict[str, SPMFVariantSpec] = {
             ("structure22", "structure_branch13", "spmf22/structure"),
         ),
     ),
+    "21_dfm": SPMFVariantSpec(
+        variant_name="21_dfm",
+        structure_branch_cls=DSMStructureBranch12,
+        fusion_cls=MultiScaleGSMMDFMFusion,
+        indexes_attr="spmf21_indexes",
+        structure_attr="structure_branch12",
+        fusion_attr="dfm_fusion",
+        intermediate_modules=(
+            ("structure12", "structure_branch12", "gsmm_dfm/structure"),
+            ("structure21", "structure_branch12", "gsmm_dfm/structure"),
+        ),
+    ),
     "30": SPMFVariantSpec(
         variant_name="30",
         structure_branch_cls=DSMStructureBranch12,
@@ -166,11 +179,7 @@ class UNetFormerSPMF(UNetFormer):
         setattr(
             self,
             self._spmf_variant_spec.fusion_attr,
-            self._spmf_variant_spec.fusion_cls(
-                channels=256,
-                structure_channels=256,
-                hidden_dim=64,
-            ),
+            self._build_spmf_fusion(),
         )
         if record_intermediate_stats:
             attach_requested_intermediate_stats(
@@ -181,6 +190,13 @@ class UNetFormerSPMF(UNetFormer):
                     for module_name, attr_name, prefix in self._spmf_variant_spec.intermediate_modules
                 },
             )
+
+    def _build_spmf_fusion(self) -> nn.Module:
+        return self._spmf_variant_spec.fusion_cls(
+            channels=256,
+            structure_channels=256,
+            hidden_dim=64,
+        )
 
     def set_detach_dsm_taps(self, enabled: bool) -> None:
         if not isinstance(enabled, bool):
