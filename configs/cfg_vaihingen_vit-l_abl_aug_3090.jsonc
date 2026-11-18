@@ -1,0 +1,12 @@
+{
+    "extends": [
+        "default_3090.jsonc",
+        "defaults/dataset_vaihingen.jsonc",
+        "defaults/dataset_vaihingen_aug-0.02.jsonc"
+    ],
+    "model": {
+        "type": "",
+        "sam_backbone": "vit_l",
+        "sam_checkpoint": "_Checkpoints/segment-anything/sam_vit_l_0b3195.pth"
+    },
+}
