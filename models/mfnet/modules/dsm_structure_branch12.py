@@ -59,7 +59,7 @@ class _TapAdapter(nn.Module):
 
 
 class DSMStructureBranch12(nn.Module):
-    """Generate multi-scale structure features with bidirectional confidence modulation."""
+    """Extract a DSM feature pyramid with optional SGM confidence modulation."""
 
     def __init__(
         self,
@@ -73,13 +73,13 @@ class DSMStructureBranch12(nn.Module):
         norm_layer: type[nn.Module] = LayerNorm2d,
         align_corners: bool = False,
         detach_dsm_taps: bool = True,
+        use_sgm: bool = True,
     ) -> None:
         super().__init__()
         if not isinstance(detach_dsm_taps, bool):
             raise TypeError(f"Expected detach_dsm_taps to be a bool, got {type(detach_dsm_taps).__name__}.")
-        self.tap_channels = as_four_tuple("tap_channels", tap_channels)
         self.structure_channels = as_four_tuple("structure_channels", structure_channels)
-        self.output_channels = validate_positive_int("output_channels", output_channels)
+        self.use_sgm = use_sgm
         self.similarity_kernel_size = int(similarity_kernel_size)
         if self.similarity_kernel_size <= 0 or self.similarity_kernel_size % 2 == 0:
             raise ValueError(
@@ -91,7 +91,6 @@ class DSMStructureBranch12(nn.Module):
             raise ValueError(f"Expected similarity_sigma to be positive, got {self.similarity_sigma}.")
         self.eps = float(eps)
         self.align_corners = bool(align_corners)
-        self.detach_dsm_taps = detach_dsm_taps
 
         c1, c2, c3, c4 = self.structure_channels
         self.stem = nn.Sequential(
@@ -103,6 +102,12 @@ class DSMStructureBranch12(nn.Module):
         self.stage3 = _StructureStage(c2, c3, norm_layer)
         self.stage4 = _StructureStage(c3, c4, norm_layer)
 
+        if not self.use_sgm:
+            return
+
+        self.tap_channels = as_four_tuple("tap_channels", tap_channels)
+        self.output_channels = validate_positive_int("output_channels", output_channels)
+        self.detach_dsm_taps = detach_dsm_taps
         self.tap_adapters = nn.ModuleList(
             _TapAdapter(tap_channel, structure_channel, norm_layer)
             for tap_channel, structure_channel in zip(self.tap_channels, self.structure_channels)
@@ -126,6 +131,12 @@ class DSMStructureBranch12(nn.Module):
         dsm_taps: Sequence[torch.Tensor],
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         dsm = _validate_dsm(dsm)
+        if not self.use_sgm:
+            geometry_features = self._extract_geometry(dsm)
+            for index, geometry in enumerate(geometry_features, start=1):
+                self._record_debug_stats(index, geometry)
+            return geometry_features
+
         dsm_taps = validate_feature_sequence("dsm_taps", dsm_taps)
         for index, (tap, channels) in enumerate(zip(dsm_taps, self.tap_channels)):
             validate_feature(f"dsm_taps[{index}]", tap, channels)
@@ -134,20 +145,9 @@ class DSMStructureBranch12(nn.Module):
                     f"Expected dsm_taps[{index}] batch size {dsm.shape[0]}, got {tap.shape[0]}."
                 )
 
-        h, w = dsm.shape[-2:]
-        target_sizes = tuple((max(1, h // scale), max(1, w // scale)) for scale in (4, 8, 16, 32))
-        structure_input = self._make_structure_input(dsm)
-
-        x = self.stem(structure_input)
-        g1 = _resize(self.stage1(x), target_sizes[0], align_corners=self.align_corners)
-        g2 = _resize(self.stage2(g1), target_sizes[1], align_corners=self.align_corners)
-        g3 = _resize(self.stage3(g2), target_sizes[2], align_corners=self.align_corners)
-        g4 = _resize(self.stage4(g3), target_sizes[3], align_corners=self.align_corners)
-        geometry_features = (g1, g2, g3, g4)
-
         outputs = []
         for geometry, tap, tap_adapter, confidence_generator, projection in zip(
-            geometry_features,
+            self._extract_geometry(dsm),
             dsm_taps,
             self.tap_adapters,
             self.confidence_generators,
@@ -161,9 +161,21 @@ class DSMStructureBranch12(nn.Module):
             )
             confidence = confidence_generator(adapted_tap)
             structure = self._modulate_structure(projection(geometry), confidence)
-            self._record_debug_stats(len(outputs) + 1, confidence, structure)
+            self._record_debug_stats(len(outputs) + 1, structure, confidence=confidence)
             outputs.append(structure)
         return tuple(outputs)  # type: ignore[return-value]
+
+    def _extract_geometry(
+        self, dsm: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        h, w = dsm.shape[-2:]
+        target_sizes = tuple((max(1, h // scale), max(1, w // scale)) for scale in (4, 8, 16, 32))
+        x = self.stem(self._make_structure_input(dsm))
+        g1 = _resize(self.stage1(x), target_sizes[0], align_corners=self.align_corners)
+        g2 = _resize(self.stage2(g1), target_sizes[1], align_corners=self.align_corners)
+        g3 = _resize(self.stage3(g2), target_sizes[2], align_corners=self.align_corners)
+        g4 = _resize(self.stage4(g3), target_sizes[3], align_corners=self.align_corners)
+        return g1, g2, g3, g4
 
     def _make_structure_input(self, dsm: torch.Tensor) -> torch.Tensor:
         dsm_norm = self._normalize_dsm(dsm)
@@ -209,14 +221,16 @@ class DSMStructureBranch12(nn.Module):
     def _record_debug_stats(
         self,
         index: int,
-        confidence: torch.Tensor,
         structure: torch.Tensor,
+        *,
+        confidence: torch.Tensor | None = None,
     ) -> None:
         stats = getattr(self, "intermediate_stats", None)
         if stats is None:
             return
         prefix = str(getattr(self, "intermediate_stats_prefix")).strip("/")
-        self._record_tensor_stats(stats, f"{prefix}/confidence/confidence{index}", confidence)
+        if confidence is not None:
+            self._record_tensor_stats(stats, f"{prefix}/confidence/confidence{index}", confidence)
         self._record_tensor_stats(stats, f"{prefix}/structure/structure{index}", structure)
 
     @staticmethod

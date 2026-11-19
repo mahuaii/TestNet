@@ -23,6 +23,7 @@ AVAILABLE_MODEL_TYPES: tuple[str, ...] = (
     "testnet_spmf30",
     "testnet_prealign_spmf20",
     "testnet_prealign_spmf21",
+    "testnet_prealign_spmf21_no_sgm",
     "testnet_grc_gsmm",
     "testnet_dga10_softplus",
     "testnet_dga20_softplus",
@@ -245,10 +246,15 @@ def build_model(cfg: dict[str, Any]) -> Any:
             **_spmf_kwargs(cfg),
         )
         return model
-    if model_type == "testnet_prealign_spmf21":
-        from .mfnet import UNetFormerPreAlignSPMF21
+    if model_type in ("testnet_prealign_spmf21", "testnet_prealign_spmf21_no_sgm"):
+        from .mfnet import UNetFormerPreAlignSPMF21, UNetFormerPreAlignSPMF21NoSGM
 
-        model = UNetFormerPreAlignSPMF21(
+        model_cls = (
+            UNetFormerPreAlignSPMF21NoSGM
+            if model_type == "testnet_prealign_spmf21_no_sgm"
+            else UNetFormerPreAlignSPMF21
+        )
+        model = model_cls(
             num_classes=int(cfg["num_classes"]),
             sam_backbone=str(cfg["sam_backbone"]),
             sam_checkpoint=str(cfg["sam_checkpoint"]),
