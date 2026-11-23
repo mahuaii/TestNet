@@ -36,6 +36,7 @@ SUPPORTED_MODEL_TYPES = {
     "testnet_prealign",
     "testnet_prealign_spmf20",
     "testnet_prealign_spmf21",
+    "testnet_prealign_spmf21_no_sgm",
     "testnet_grc_gsmm",
 }
 

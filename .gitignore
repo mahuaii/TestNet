@@ -40,3 +40,4 @@ work_dirs/*
 !work_dirs/experiments copy.tsv
 organize_work_dirs.sh
 figures/
+/third_party/

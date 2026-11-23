@@ -31,6 +31,7 @@ class SPMFVariantSpec:
     structure_attr: str
     fusion_attr: str
     intermediate_modules: tuple[tuple[str, str, str], ...]
+    use_sgm: bool = True
 
 
 SPMF_VARIANTS: dict[str, SPMFVariantSpec] = {
@@ -82,6 +83,20 @@ SPMF_VARIANTS: dict[str, SPMFVariantSpec] = {
             ("structure12", "structure_branch12", "spmf21/structure"),
             ("structure21", "structure_branch12", "spmf21/structure"),
         ),
+    ),
+    "21_no_sgm": SPMFVariantSpec(
+        variant_name="21_no_sgm",
+        structure_branch_cls=DSMStructureBranch12,
+        fusion_cls=MultiScaleSPMFFusion20,
+        indexes_attr="spmf21_indexes",
+        structure_attr="structure_branch12",
+        fusion_attr="spmf_fusion20",
+        intermediate_modules=(
+            ("spmf_fusion20", "spmf_fusion20", "spmf21_no_sgm/fusion20"),
+            ("structure12", "structure_branch12", "spmf21_no_sgm/structure"),
+            ("structure21", "structure_branch12", "spmf21_no_sgm/structure"),
+        ),
+        use_sgm=False,
     ),
     "22": SPMFVariantSpec(
         variant_name="22",
@@ -161,46 +176,45 @@ class UNetFormerSPMF(UNetFormer):
             if hasattr(self, name):
                 delattr(self, name)
 
-        setattr(
-            self,
-            self._spmf_variant_spec.indexes_attr,
-            _resolve_spmf_indexes(self.image_encoder, self._spmf_variant_spec.variant_name),
-        )
-        tap_channels = int(self.image_encoder.embed_dim)
-        setattr(
-            self,
-            self._spmf_variant_spec.structure_attr,
-            self._spmf_variant_spec.structure_branch_cls(
-                tap_channels=tap_channels,
+        spec = self._spmf_variant_spec
+        tap_indexes = _resolve_spmf_indexes(self.image_encoder, spec.variant_name) if spec.use_sgm else []
+        setattr(self, spec.indexes_attr, tap_indexes)
+        if spec.use_sgm:
+            structure_branch = spec.structure_branch_cls(
+                tap_channels=int(self.image_encoder.embed_dim),
                 output_channels=256,
                 detach_dsm_taps=detach_dsm_taps,
-            ),
-        )
-        setattr(
-            self,
-            self._spmf_variant_spec.fusion_attr,
-            self._build_spmf_fusion(),
-        )
+            )
+        else:
+            structure_branch = spec.structure_branch_cls(use_sgm=False)
+        setattr(self, spec.structure_attr, structure_branch)
+        setattr(self, spec.fusion_attr, self._build_spmf_fusion())
         if record_intermediate_stats:
             attach_requested_intermediate_stats(
                 self,
                 record_intermediate_modules,
                 {
                     module_name: [(getattr(self, attr_name), prefix)]
-                    for module_name, attr_name, prefix in self._spmf_variant_spec.intermediate_modules
+                    for module_name, attr_name, prefix in spec.intermediate_modules
                 },
             )
 
     def _build_spmf_fusion(self) -> nn.Module:
-        return self._spmf_variant_spec.fusion_cls(
+        spec = self._spmf_variant_spec
+        structure_channels = 256
+        if not spec.use_sgm:
+            structure_channels = getattr(self, spec.structure_attr).structure_channels
+        return spec.fusion_cls(
             channels=256,
-            structure_channels=256,
+            structure_channels=structure_channels,
             hidden_dim=64,
         )
 
     def set_detach_dsm_taps(self, enabled: bool) -> None:
         if not isinstance(enabled, bool):
             raise TypeError(f"Expected enabled to be a bool, got {type(enabled).__name__}.")
+        if not self._spmf_variant_spec.use_sgm:
+            return
         structure_branch = getattr(self, self._spmf_variant_spec.structure_attr)
         structure_branch.detach_dsm_taps = enabled
 
@@ -240,7 +254,7 @@ class UNetFormerSPMF(UNetFormer):
         self,
         x: torch.Tensor,
         y: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor, tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]:
+    ) -> tuple[torch.Tensor, torch.Tensor, tuple[torch.Tensor, ...]]:
         encoder = self.image_encoder
         x = encoder.patch_embed(x)
         y = encoder.patch_embed(y)
@@ -261,11 +275,11 @@ class UNetFormerSPMF(UNetFormer):
             if index in tap_indexes:
                 dsm_taps.append(y.permute(0, 3, 1, 2).contiguous())
 
-        self._validate_spmf_taps(dsm_taps)
+        if self._spmf_variant_spec.use_sgm:
+            self._validate_spmf_taps(dsm_taps)
         deepx = encoder.neck(x.permute(0, 3, 1, 2))
         deepy = encoder.neck(y.permute(0, 3, 1, 2))
-        tap1, tap2, tap3, tap4 = dsm_taps
-        return deepx, deepy, (tap1, tap2, tap3, tap4)
+        return deepx, deepy, tuple(dsm_taps)
 
     def _validate_spmf_taps(self, dsm_taps: Sequence[torch.Tensor]) -> None:
         if len(dsm_taps) != 4:

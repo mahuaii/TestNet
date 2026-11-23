@@ -18,4 +18,8 @@ class UNetFormerPreAlignSPMF21(UNetFormerSPMF21):
         return self.aux_prealign(dsm)
 
 
-__all__ = ["UNetFormerPreAlignSPMF21"]
+class UNetFormerPreAlignSPMF21NoSGM(UNetFormerPreAlignSPMF21):
+    spmf_variant = "21_no_sgm"
+
+
+__all__ = ["UNetFormerPreAlignSPMF21", "UNetFormerPreAlignSPMF21NoSGM"]
