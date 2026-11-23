@@ -33,6 +33,10 @@ _MODEL_EXPORTS = {
         ".UNetFormer_MMSAM_prealign_spmf21",
         "UNetFormerPreAlignSPMF21NoSGM",
     ),
+    "UNetFormerPreAlignSPMF23": (
+        ".UNetFormer_MMSAM_prealign_spmf21",
+        "UNetFormerPreAlignSPMF23",
+    ),
     "UNetFormerPreAlignSPMF21DFM": (
         ".UNetFormer_MMSAM_prealign_spmf21_dfm",
         "UNetFormerPreAlignSPMF21DFM",
@@ -101,6 +105,7 @@ __all__ = [
     "UNetFormerPreAlignSPMF20",
     "UNetFormerPreAlignSPMF21",
     "UNetFormerPreAlignSPMF21NoSGM",
+    "UNetFormerPreAlignSPMF23",
     "UNetFormerPreAlignSPMF21DFM",
     "UNetFormerDGA30",
     "UNetFormerDGA10Softplus",

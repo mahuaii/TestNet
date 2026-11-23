@@ -6,6 +6,7 @@ from .dga_softplus import DGABlock10Softplus, DGABlock20Softplus
 from .dgfm import DGFM, DGFMScaleAdapter
 from .dgfm01 import DGFM01
 from .dgsf10 import DGSF10, DepthGuidedScaleFusion10
+from .dsm_structure_branch12 import DSMStructureBranch14
 from .sgcf import SGCF, SGCFBlock, SGCFScaleAdapter, MultiScaleSGCF, SobelDSMEdge
 from .spmf10 import (
     DSMStructureBranch10,
@@ -60,6 +61,7 @@ __all__ = [
     "MultiScaleSPMFFusion20",
     "DSMStructureBranch12",
     "DSMStructureBranch13",
+    "DSMStructureBranch14",
     "SPMFFusionBlock30",
     "MultiScaleSPMFFusion30",
     "PPM",

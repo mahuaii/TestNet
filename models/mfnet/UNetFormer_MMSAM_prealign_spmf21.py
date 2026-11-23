@@ -22,4 +22,8 @@ class UNetFormerPreAlignSPMF21NoSGM(UNetFormerPreAlignSPMF21):
     spmf_variant = "21_no_sgm"
 
 
-__all__ = ["UNetFormerPreAlignSPMF21", "UNetFormerPreAlignSPMF21NoSGM"]
+class UNetFormerPreAlignSPMF23(UNetFormerPreAlignSPMF21):
+    spmf_variant = "23"
+
+
+__all__ = ["UNetFormerPreAlignSPMF21", "UNetFormerPreAlignSPMF21NoSGM", "UNetFormerPreAlignSPMF23"]

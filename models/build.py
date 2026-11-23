@@ -24,6 +24,7 @@ AVAILABLE_MODEL_TYPES: tuple[str, ...] = (
     "testnet_prealign_spmf20",
     "testnet_prealign_spmf21",
     "testnet_prealign_spmf21_no_sgm",
+    "testnet_prealign_spmf23",
     "testnet_grc_gsmm",
     "testnet_dga10_softplus",
     "testnet_dga20_softplus",
@@ -246,14 +247,22 @@ def build_model(cfg: dict[str, Any]) -> Any:
             **_spmf_kwargs(cfg),
         )
         return model
-    if model_type in ("testnet_prealign_spmf21", "testnet_prealign_spmf21_no_sgm"):
-        from .mfnet import UNetFormerPreAlignSPMF21, UNetFormerPreAlignSPMF21NoSGM
-
-        model_cls = (
-            UNetFormerPreAlignSPMF21NoSGM
-            if model_type == "testnet_prealign_spmf21_no_sgm"
-            else UNetFormerPreAlignSPMF21
+    if model_type in (
+        "testnet_prealign_spmf21",
+        "testnet_prealign_spmf21_no_sgm",
+        "testnet_prealign_spmf23",
+    ):
+        from .mfnet import (
+            UNetFormerPreAlignSPMF21,
+            UNetFormerPreAlignSPMF21NoSGM,
+            UNetFormerPreAlignSPMF23,
         )
+
+        model_cls = {
+            "testnet_prealign_spmf21": UNetFormerPreAlignSPMF21,
+            "testnet_prealign_spmf21_no_sgm": UNetFormerPreAlignSPMF21NoSGM,
+            "testnet_prealign_spmf23": UNetFormerPreAlignSPMF23,
+        }[model_type]
         model = model_cls(
             num_classes=int(cfg["num_classes"]),
             sam_backbone=str(cfg["sam_backbone"]),

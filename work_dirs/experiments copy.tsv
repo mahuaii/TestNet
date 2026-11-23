@@ -24,6 +24,8 @@ ID	flag	Dataset	Modules	Vit	Loss	mIoU	OA	F1	BestE	Status	Note	Command
 071414		Vaihingen	PreAlign+SPMF21	b	CE	83.86	92.67	90.99	56	done	cfg_stage_g; augmented-val-only-0.02	
 0715ab	*	Vaihingen	PreAlign+SPMF21	b	CE	84.04	92.98	91.10	48	done	cfg_stage_d; augmented-val-only-0.02	
 071811		Vaihingen	PreAlign+SPMF21	b	CE	84.47	93.03	91.36	44	done	cfg_stage_d; augmented-val-only-0.02	python train.py --config configs/cfg_stage-d_augmented-val-only-0.02.jsonc --model-type testnet_prealign_spmf21
+1123f1		Vaihingen	ScSAM_2	b	CE					running	aug	python train.py --config cfg_vaihingen_vit-b.jsonc --model-type testnet_prealign_spmf23
+11233b		Vaihingen	ScSAM_2	b	CE					running	aug	python train.py --config cfg_vaihingen_vit-b.jsonc --model-type testnet_prealign_spmf23
 												
 0710fe	*	Vaihingen	SPMF21	b	CE	83.19	92.40	90.59	32	done		python train.py --config configs/cfg.jsonc --model-type testnet_spmf21
 071103		Vaihingen	SPMF21	b	CE	83.18	92.19	90.57	28	done		python train.py --config configs/cfg.jsonc --model-type testnet_spmf21

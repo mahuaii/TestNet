@@ -113,17 +113,23 @@ class DSMStructureBranch12(nn.Module):
             for tap_channel, structure_channel in zip(self.tap_channels, self.structure_channels)
         )
         self.confidence_generators = nn.ModuleList(
-            nn.Sequential(
-                ConvNormAct(structure_channel, structure_channel, kernel_size=3, norm_layer=norm_layer),
-                nn.Conv2d(structure_channel, self.output_channels, kernel_size=1),
-                nn.Sigmoid(),
-            )
+            self._build_confidence_generator(structure_channel, norm_layer)
             for structure_channel in self.structure_channels
         )
         self.output_projections = nn.ModuleList(
-            ConvNormAct(structure_channel, self.output_channels, kernel_size=1, norm_layer=norm_layer)
+            self._build_output_projection(structure_channel, norm_layer)
             for structure_channel in self.structure_channels
         )
+
+    def _build_confidence_generator(self, channels: int, norm_layer: type[nn.Module]) -> nn.Module:
+        return nn.Sequential(
+            ConvNormAct(channels, channels, kernel_size=3, norm_layer=norm_layer),
+            nn.Conv2d(channels, self.output_channels, kernel_size=1),
+            nn.Sigmoid(),
+        )
+
+    def _build_output_projection(self, channels: int, norm_layer: type[nn.Module]) -> nn.Module:
+        return ConvNormAct(channels, self.output_channels, kernel_size=1, norm_layer=norm_layer)
 
     def forward(
         self,
@@ -244,4 +250,17 @@ class DSMStructureBranch12(nn.Module):
             stats.record_scalar(f"{name}_max", tensor.amax())
 
 
-__all__ = ["DSMStructureBranch12"]
+class DSMStructureBranch14(DSMStructureBranch12):
+    """Use a three-convolution SGM and a linear geometry projection."""
+
+    def _build_confidence_generator(self, channels: int, norm_layer: type[nn.Module]) -> nn.Module:
+        return nn.Sequential(
+            nn.Conv2d(channels, self.output_channels, kernel_size=1),
+            nn.Sigmoid(),
+        )
+
+    def _build_output_projection(self, channels: int, norm_layer: type[nn.Module]) -> nn.Module:
+        return nn.Conv2d(channels, self.output_channels, kernel_size=1, bias=False)
+
+
+__all__ = ["DSMStructureBranch12", "DSMStructureBranch14"]
