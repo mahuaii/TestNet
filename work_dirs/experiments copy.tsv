@@ -12,7 +12,7 @@ ID	flag	Dataset	Modules	Vit	Loss	mIoU	OA	F1	BestE	Status	Note	Command
 060941		Vaihingen	PreAlign	b	CE	83.27	92.39	90.64	32	done	有预处理	
 060965		Vaihingen	PreAlign	b	CE	82.95	92.30	90.43	36	done	有预处理	
 0725c6		Vaihingen	PreAlign	b	CE	83.32	92.38	90.67	28	done	batchsize 4	python train.py --config configs/cfg_batchsize_4 --model-type testnet_prealign
-07243d		Vaihingen	PreAlign	b	CE	83.51	92.56	90.77	32	done	batchsize 8	python train.py --config configs/cfg_batchsize_8 --model-type testnet_prealign
+07243d	*	Vaihingen	PreAlign	b	CE	83.51	92.56	90.77	32	done	batchsize 8	python train.py --config configs/cfg_batchsize_8 --model-type testnet_prealign
 												
 0424f0		Vaihingen	PreAlign+AuxAlign	b	CE+0.01*MSEAlign	83.01	92.40	90.49	32	done
 0425dd		Vaihingen	PreAlign+AuxAlign	b	CE+0.1*MSEAlign	83.27	92.41	90.65	24	done
@@ -22,10 +22,10 @@ ID	flag	Dataset	Modules	Vit	Loss	mIoU	OA	F1	BestE	Status	Note	Command
 												
 07153d		Vaihingen	PreAlign+SPMF21	b	CE	83.34	92.42	90.68	44	done	"cfg_stage_d "	python train.py --config configs/cfg_stage_d.jsonc --model-type testnet_prealign_spmf21
 071414		Vaihingen	PreAlign+SPMF21	b	CE	83.86	92.67	90.99	56	done	cfg_stage_g; augmented-val-only-0.02	
-0715ab		Vaihingen	PreAlign+SPMF21	b	CE	84.04	92.98	91.10	48	done	cfg_stage_d; augmented-val-only-0.02	
+0715ab	*	Vaihingen	PreAlign+SPMF21	b	CE	84.04	92.98	91.10	48	done	cfg_stage_d; augmented-val-only-0.02	
 071811		Vaihingen	PreAlign+SPMF21	b	CE	84.47	93.03	91.36	44	done	cfg_stage_d; augmented-val-only-0.02	python train.py --config configs/cfg_stage-d_augmented-val-only-0.02.jsonc --model-type testnet_prealign_spmf21
 												
-0710fe		Vaihingen	SPMF21	b	CE	83.19	92.40	90.59	32	done		python train.py --config configs/cfg.jsonc --model-type testnet_spmf21
+0710fe	*	Vaihingen	SPMF21	b	CE	83.19	92.40	90.59	32	done		python train.py --config configs/cfg.jsonc --model-type testnet_spmf21
 071103		Vaihingen	SPMF21	b	CE	83.18	92.19	90.57	28	done		python train.py --config configs/cfg.jsonc --model-type testnet_spmf21
 080542		Vaihingen	SPMF21	b	CE	82.50	91.88	90.20	44	done	batchsize 4	python train.py --config configs/cfg_batchsize_4 --model-type testnet_spmf21
 08059d		Vaihingen	SPMF21	b	CE	82.61	91.92	90.24	32	done	batchsize 8	python train.py --config configs/cfg_batchsize_8 --model-type testnet_spmf21
@@ -47,7 +47,7 @@ ID	flag	Dataset	Modules	Vit	Loss	mIoU	OA	F1	BestE	Status	Note	Command
 090704		Potsdam	ScSAM	l	CE	86.13	91.34	92.38	48	done	aug	python train_3090.py --config cfg_potsdam_vit-l_3090.jsonc
 0907fa		Potsdam	ScSAM	l	CE	86.27	91.49	92.46	44	done	aug从0.02改成了0.03, 52epochs	python train_3090.py --config cfg_potsdam_vit-l_3090.jsonc
 090423		Potsdam	PreAlign+SPMF21	b	CE	85.08	90.84	91.76	48	done	aug	python train.py --config cfg_potsdam_vlt-b.jsonc
-0904cd		Potsdam	PreAlign+SPMF21	b	CE	85.53	91.20	92.03	48	done	aug	python train.py --config cfg_potsdam_vlt-b.jsonc
+0904cd	*	Potsdam	PreAlign+SPMF21	b	CE	85.53	91.20	92.03	48	done	aug	python train.py --config cfg_potsdam_vlt-b.jsonc
 09089b		Potsdam	Baseline	b	CE	84.83	90.69	91.60	48	done		python train.py --config cfg_potsdam_vit-b_abl.jsonc
 0908a6		Potsdam	Baseline	b	CE	84.67	90.55	91.51	48	done		python train.py --config cfg_potsdam_vit-b_abl.jsonc
 090867		Potsdam	ScSAM	l	CE	86.22	91.46	92.43	44	done	aug	python train_3090.py --config cfg_potsdam_vit-l_3090_2.jsonc
