@@ -1,14 +1,14 @@
 # 通用双模态模型效率统计与接入说明
 
-入口：`tools/model_efficiency.py`。复用 `models.build.build_model`、原有权重键迁移和实际 `forward`，不单独抽取编码器，不替换注意力，不改写模型来配合 FLOPs 工具。无新增第三方依赖，使用项目现有 PyTorch 2.6 的 eager operator dispatch 接口。
+统一入口是 `tools/model_efficiency.py`。脚本复用项目的模型构建、权重迁移和完整推理前向。FLOPs 由 `fvcore.nn.FlopCountAnalysis` 统计，时延通过单独的 eager 前向测量。
 
 ## 运行
 
-从项目根目录执行。默认单卡 `cuda:0`、RGB `[1,3,256,256]`、DSM `[1,256,256]`、FP32、预热 50 次、测量 200 次。
+在项目根目录执行。测速环境需要安装 `fvcore`，当前实验使用 `0.1.5.post20221221`。默认单卡 `cuda:0`、RGB `[1,3,256,256]`、DSM `[1,256,256]`、FP32、预热 50 次、测量 200 次。
 
 ```bash
 conda activate testnet
-python tools/model_efficiency.py \
+conda run --no-capture-output -n efficiency01 python tools/model_efficiency.py \
   --config configs/cfg_vaihingen_vit-l_3090.jsonc \
   --checkpoint /path/to/scsam/best_miou.pth \
   --model-name ScSAM \
@@ -19,7 +19,7 @@ python tools/model_efficiency.py \
 
 ```bash
 conda activate testnet
-python tools/model_efficiency.py \
+conda run --no-capture-output -n efficiency01 python tools/model_efficiency.py \
   --config configs/default.jsonc configs/cfg_vaihingen_vit-b.jsonc \
   --model-type mfnet_unetformer testnet_prealign_spmf21 \
   --checkpoint /path/to/mfnet/best_miou.pth /path/to/scsam/best_miou.pth \
@@ -46,7 +46,7 @@ python tools/model_efficiency.py \
 | `--warmup` / `--iterations` | 预热和正式测量次数，默认 50 / 200 |
 | `--train-epoch` | 用于恢复训练冻结策略的 1-based epoch，覆盖权重中的 epoch |
 | `--seed` | 默认 0；每个模型重新设置初始化种子并生成相同输入 |
-| `--flop-rules` | `module:factory`，返回自定义算子计数规则 |
+| `--flop-rules` | `module:factory`，返回 fvcore JIT 算子与计数函数的映射 |
 | `--output` | CSV 路径；覆盖该 CSV，每个模型的详细 JSON 使用唯一文件名 |
 
 默认目标硬件是 RTX 3090。脚本读取并记录实际设备名称；在其他硬件运行时会明确提示，不能将其结果标称为 3090。CPU 结果仅适用于 CPU 比较。
@@ -62,48 +62,24 @@ python tools/model_efficiency.py \
 
 ## 完整前向 GFLOPs 和算子审计
 
-在与时延相同的设备、输入、FP32、`eval()`、`inference_mode()` 条件下，单独执行一次完整 eager 前向。审计器观察实际执行的底层算子，不调用反向，不改变计算路径。共享模块每次调用的运算均计入，即使其权重只计一次。
+脚本在与时延相同的设备、输入、FP32、`eval()` 和 `inference_mode()` 条件下，用 fvcore JIT 跟踪一次完整适配器前向。MFNet 和 ScSAM 调用原始 `model(rgb, dsm, mode="Test")`，计数涵盖实际调用的双路编码、融合、解码和输出恢复。
 
-MFNet 和 ScSAM 适配器调用原始 `model(rgb, dsm, mode="Test")`，因此两路模态编码、模型内部 DSM 转换/预对齐、融合/结构分支、特征金字塔、解码器和输出插值均进入统计。模型没有在该推理路径执行的训练辅助头不产生 FLOPs；其注册参数仍计入总参数量。
+沿用 fvcore 的约定，**一次融合乘加计为 1**。GFLOPs 为总计数除以 `10^9` 和 batch size。卷积、转置卷积、矩阵乘、`einsum` 和常见归一化使用 fvcore 自带规则。逐元素运算、归约和部分插值使用形状估算。整数、比较、张量布局变换和评估模式下的 dropout 不计入浮点运算。报告会记录 fvcore 版本和计数口径。此前采用一次 MAC 计 2 FLOPs 的结果应保留其原口径。 [fvcore 源码](https://github.com/facebookresearch/fvcore/blob/main/fvcore/nn/flop_count.py)
 
-统一采用 `algorithmic_v1` 算法运算估算口径：**1 MAC = 2 FLOPs**，GFLOPs = FLOPs / `10^9` / batch size。不是直接将某工具的 MACs 改名为 FLOPs，也不是 GPU 实际指令数。
+RS³Mamba 的 `prim::PythonOp.SelectiveScanFn` 使用 VMamba 的前缀扫描估算。审计同时核对 JIT 节点数和实际调用 CUDA selective scan 的次数。节点与原生调用数不一致时，扫描计数标为未覆盖。 [VMamba 计数规则](https://github.com/MzeroMiko/VMamba/blob/main/classification/models/csms6s.py#L932)
 
-| 运算 | 计数规则 |
-| --- | --- |
-| 卷积 | `2 × batch × 输出空间元素数 × weight.numel()`，权重形状已体现 groups；有 bias 时加输出元素数。按包含 padding 的稠密卷积口径 |
-| 转置卷积 | 上式使用输入空间元素数，并加 bias；不当作普通卷积处理 |
-| 矩阵乘、线性层 | `2 × 输出元素数 × 收缩维度`，额外计 bias；`addmm/baddbmm` 计入非默认 alpha/beta 缩放与相加 |
-| `einsum` | 由实际分解执行的 `bmm`、逐元素运算等计入，不再重复计高层调用 |
-| 标量运算 | 加减乘除、幂、exp、sqrt 等每个输出元素计 1；特殊函数是统一的算法等价估算，不代表硬件代价 |
-| 激活 | ReLU 每元素 1，ReLU6/Hardtanh 2，Sigmoid 4，SiLU 5，GELU 默认 erf 近似口径 5、tanh 口径 9；clamp 按实际边界数计比较 |
-| 归约 | sum：输入元素数减输出元素数；mean 再加每组一次除法 |
-| 稳定 Softmax | `5N − 2G`；LogSoftmax 为 `5N − G`，N 为元素数，G 为归约组数 |
-| LayerNorm | `5N + 2G`，可选 affine weight/bias 各加 N；均值、中心化、方差、epsilon、rsqrt 和缩放的算法估算 |
-| eval BatchNorm | `2N + 2C`，可选 weight/bias 各加 N；C 为通道数，不执行训练统计更新 |
-| 平均/最大池化 | 每个输出分别计 kernel 元素数 / kernel 元素数减 1，包含稠密边界窗口；自适应平均池化按真实分箱覆盖范围计算 |
-| 线性/双线性/双三次/三线性插值 | 每输出元素分别计 3 / 7 / 31 / 15，统一采用加权求和估算，忽略坐标与插值系数生成；抗锯齿插值需另补规则 |
-| 融合 SDPA | 稠密 QK、AV 加 score 缩放、Softmax 和显式 mask 相加；causal 也按稠密理论口径；仅支持无 dropout 的 BHLD 输入 |
-| 内存和索引操作 | reshape、转置、复制、repeat、cat、pad、索引、最近邻插值等显式计 0 浮点运算，仍包含在时延内；索引/条件用比较不计入浮点算术 |
+`flops_complete` 表示在当前输入和约定下，跟踪图里的算子已被计数或按规则排除。每份 JSON 保留按算子汇总的 FLOPs、未覆盖算子的出现次数和未调用的模块。存在未覆盖算子时，正式 `gflops` 留空，部分计数放在 `counted_gflops`。所有模型结果写出后，脚本以非零状态退出。
 
-上述口径包含常用非 MAC 运算，可能与只统计卷积/矩阵乘的论文数字不同。激活、归一化、池化、插值等使用明确的理论估算；比较模型应共用同一规则版本。
-
-CSV 中 `flops_complete` 表示该次实际前向没有未分类算子，不能保证其他输入、数据相关分支或第三方自定义内核已被覆盖。每个详细 JSON 包含逐算子的调用次数、FLOPs、排除理由及未覆盖算子的输入形状。
-
-**存在未覆盖算子时**：CSV 的正式 `gflops` 留空，已覆盖部分放入 `counted_gflops`；控制台和 CSV/JSON 均列出未覆盖算子。所有模型结果保存后以非零状态退出。不得将 `counted_gflops` 当作完整模型 GFLOPs 引用。模型执行错误、权重错误和规则错误直接报错。
-
-扩展计数规则示例：
+通过 `--flop-rules my_flop_rules:build_rules` 加载附加规则。映射键使用 JIT 名称，例如 `aten::my_op` 或 `prim::PythonOp.MyFunction`。计数函数接收 JIT `inputs` 和 `outputs`，并返回数值或按类别统计的 `Counter`。值为 `None` 表示按实验口径有意排除该算子。
 
 ```python
-# 项目中的 my_flop_rules.py
+from fvcore.nn.jit_handles import elementwise_flop_counter
+
+
 def build_rules():
-    def custom_gate(arguments, output):
-        # 必须根据该算子的实际算法确定公式；此例假定每元素一次乘和一次加。
-        return 2 * output.numel()
-
-    return {"my_ops.gate.default": custom_gate}
+    # This example assumes one floating-point operation per output element.
+    return {"my_ops::gate": elementwise_flop_counter(0, 1)}
 ```
-
-通过 `--flop-rules my_flop_rules:build_rules` 加载。键可用详细报告中的完整 overload 名称（优先匹配），或 packet 名称。函数收到按算子 schema 绑定的参数字典和实际输出，返回该次调用的 FLOPs。规则只读取形状与元数据，不重新执行前向。不支持的高层自定义算子应在这里补充整体规则，不能漏计，也不能与其内部已统计算子重复计数。
 
 ## 时延
 
@@ -111,7 +87,7 @@ def build_rules():
 
 `eval()` + `torch.inference_mode()`，禁用 autocast 和 TF32；统一关闭 cuDNN benchmark。先预热，每次正式测量前同步选中 GPU，使用 `perf_counter_ns()` 计时，完整适配器前向完成后再次同步。输出张量不搬回 CPU，其释放放在计时外。报告所有正式样本的算术平均值，另保存总体标准差与原始样本。该时延包含 CPU 提交、必需的输入适配与 GPU 执行；批量大于 1 时为批次时延除以 batch size，不代表独立单 patch 的响应时延。
 
-FLOPs 审计在时延测量后单独运行，审计算子拦截开销不计入时延。默认不编译、不做 CUDA Graph 或混合精度优化。公平比较应使用同一设备、软件环境和后台负载条件；CSV 记录实际设备、PyTorch/CUDA/cuDNN 版本、输入尺寸、batch size、精度、预热/测量次数、随机种子及运行选项。
+FLOPs 审计在时延测量后单独运行，fvcore 跟踪开销不计入时延。默认不编译、不做 CUDA Graph 或混合精度优化。公平比较应使用同一设备、软件环境和后台负载条件；CSV 记录实际设备、PyTorch/CUDA/cuDNN 版本、输入尺寸、batch size、精度、预热/测量次数、随机种子及运行选项。
 
 ## 接入后续模型
 

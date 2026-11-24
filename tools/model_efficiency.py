@@ -24,7 +24,7 @@ if str(ROOT) not in sys.path:
 
 from utils.config import load_config, resolve_config_path
 from utils.efficiency_adapters import EfficiencyAdapter, build_repository_adapter
-from utils.efficiency_flops import FLOP_CONVENTION, ForwardFlopAudit
+from utils.efficiency_flops import FLOP_CONVENTION, audit_flops
 
 CSV_FIELDS = [
     "run_id", "timestamp_utc", "model_name", "model_type", "config", "checkpoint",
@@ -144,13 +144,11 @@ def run_model(job: dict[str, Any], args: argparse.Namespace, runtime: dict[str, 
     custom_rules = {} if args.flop_rules is None else import_symbol(args.flop_rules)()
     with torch.inference_mode(), torch.autocast(device_type=device.type, enabled=False):
         samples = measure_latency(adapter, rgb, dsm, device, args.warmup, args.iterations)
-        # The audit is a separate full eager forward; its dispatch overhead is
-        # never included in the latency samples.
-        with ForwardFlopAudit(custom_rules) as audit:
-            output = adapter(rgb, dsm)
+        flops = audit_flops(
+            adapter, (rgb, dsm), custom_rules,
+            expects_selective_scan=adapter.metadata["model_type"] == "rs3mamba",
+        )
         synchronize(device)
-        del output
-    flops = audit.report()
     counted_gflops = flops["counted_flops"] / args.batch_size / 1e9
     report_path = args.output.parent / f"{args.output.stem}_{job['run_id']}.json"
     row = {
@@ -177,7 +175,7 @@ def run_model(job: dict[str, Any], args: argparse.Namespace, runtime: dict[str, 
         "trainable_parameters": trainable, "flop_audit": flops,
         "latency_samples_ms_per_patch": samples,
         "parameter_policy": "all model Parameters including frozen and unused modules; shared Parameter identity deduplicated",
-        "flops_scope": "one full executed inference path including adapter; normalized per patch",
+        "flops_scope": "one fvcore-traced inference path including adapter; normalized per patch",
     }
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -188,7 +186,7 @@ def run_model(job: dict[str, Any], args: argparse.Namespace, runtime: dict[str, 
     )
     if not flops["complete"]:
         print(f"  Unsupported operators: {row['unsupported_ops']}; details: {report_path}", flush=True)
-    del adapter, rgb, dsm, audit
+    del adapter, rgb, dsm
     gc.collect()
     if device.type == "cuda":
         torch.cuda.empty_cache()
@@ -209,7 +207,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--iterations", type=int, default=200)
     parser.add_argument("--train-epoch", type=int, help="Training freeze stage; default checkpoint epoch or efficiency.train_epoch")
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--flop-rules", help="module:factory returning additional operator counting rules")
+    parser.add_argument("--flop-rules", help="module:factory returning fvcore JIT operator handles")
     parser.add_argument("--output", type=Path, default=Path("work_dirs/model_efficiency.csv"), help="CSV destination; existing file is replaced")
     args = parser.parse_args()
     for name in ("checkpoint", "model_name", "model_type", "adapter"):
